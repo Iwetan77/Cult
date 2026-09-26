@@ -13,6 +13,10 @@ const defaultPolicy: MirrorPolicy = { enabled: true, balancePercentCap: 10, maxU
 const venueName = (venue: Venue) => venue === 'perpl' ? 'Perpl' : 'Nad.fun';
 const originName = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? 'Auto mirrored' : origin === 'manual_stack' ? 'Manual stack' : 'Clan position';
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong.';
+const inviteFromInput = (input: string) => {
+  try { return new URL(input).searchParams.get('invite') ?? input.trim(); }
+  catch { return input.trim(); }
+};
 
 export function Dashboard() {
   const { ready, authenticated, login, logout } = usePrivy();
@@ -102,12 +106,13 @@ export function Dashboard() {
     await loadMe(); setClanId(result.id); setNotice('Clan created. Share your invite privately.');
   });
   const join = () => perform('join', async () => {
-    if (!inviteCode.trim()) throw new Error('Enter an invite code.');
+    const code = inviteFromInput(inviteCode);
+    if (!code) throw new Error('Enter an invite code.');
     if (policy.enabled && (!Number.isFinite(policy.balancePercentCap) || policy.balancePercentCap <= 0 || policy.balancePercentCap > 100 || !Number.isFinite(policy.maxUsdPerTrade) || policy.maxUsdPerTrade <= 0)) throw new Error('Enter valid mirror limits.');
     const auth = await token();
-    const challenge = await getJoinChallenge(auth, inviteCode.trim());
+    const challenge = await getJoinChallenge(auth, code);
     const signature = await sign(challenge.message);
-    const joined = await joinClan(auth, inviteCode.trim(), policy, challenge.challengeId, signature);
+    const joined = await joinClan(auth, code, policy, challenge.challengeId, signature);
     await loadMe(); setClanId(joined.id); setNotice('Joined. Your wallet and mirror limits are authorized.');
     window.history.replaceState({}, '', '/');
   });
@@ -117,14 +122,16 @@ export function Dashboard() {
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid USDC amount.');
     const auth = await token();
     const plan = await prepareFunding(auth, clanId, fundUsd);
+    if (!plan.id || !plan.expiresAt || Date.parse(plan.expiresAt) <= Date.now()) throw new Error('Funding plan is incomplete or expired. Try again.');
     if (Number(me?.usdcBalance ?? 0) < Number(plan.requiredUsdc)) {
       await fundWallet({ address: wallet.address, options: { chain: monad, asset: 'USDC', amount: plan.requiredUsdc, defaultFundingMethod: 'card' } });
       setNotice('Complete your USDC purchase, then press Fund account again once it arrives.');
       return;
     }
+    if (!plan.actions.length) throw new Error('Funding actions are not ready. Try again.');
     const hashes: string[] = [];
     for (const action of plan.actions) hashes.push(await transact(action));
-    await confirmFunding(auth, clanId, hashes);
+    await confirmFunding(auth, clanId, plan.id, hashes);
     await loadMe(); setNotice('USDC funding submitted. Your account will update after confirmation.');
   });
   const enroll = (venue: Venue) => perform(`enroll-${venue}`, async () => {
@@ -168,6 +175,7 @@ export function Dashboard() {
   if (!ready) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><p>Opening wallet…</p></main>;
   if (!authenticated) return <main className="login-screen"><div className="login-brand">CULT<span>.</span></div><div className="login-main"><p className="eyebrow">PRIVATE CLANS / MONAD</p><h1>Trade together.<br />Own every move.</h1><p>One chart for your clan’s live positions across Perpl and Nad.fun. Your wallet, your funds, your trades.</p><button className="primary large" onClick={login}>Enter with your wallet <ArrowRight size={17} /></button></div><div className="login-foot">INVITE ONLY <span>•</span> NO SHARED CUSTODY</div></main>;
   if (!wallet) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><h1>Wallet setup</h1><p>Finish creating a wallet in Privy to join a clan.</p><button className="primary" onClick={login}>Open wallet setup</button></main>;
+if (!me && !error) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><p>Loading your clans…</p></main>;
 
   return <div className="app-shell">
     <header className="topbar"><div className="brand">CULT<span className="brand-dot">.</span></div><div className="topbar-divider" /><span className="topbar-caption">PRIVATE TRADING CLANS</span><div className="topbar-right"><span className="network-pill"><i /> MONAD</span><button className="wallet-pill" onClick={() => setPanel('wallet')}><Wallet size={15} /> {shortAddress(wallet.address)}</button><button className="icon-button" title="Sign out" onClick={logout}><LogOut size={16} /></button></div></header>
@@ -178,5 +186,6 @@ export function Dashboard() {
     {busy && <div className="busy-bar"><span>{busy === 'stack' ? 'Authorizing your trade' : busy === 'fund' ? 'Preparing wallet funding' : busy === 'join' ? 'Signing clan authorization' : 'Working'}…</span></div>}
   </div>;
 }
+
 
 

@@ -59,7 +59,7 @@ export type ChartSnapshot = {
 export type Me = { address: `0x${string}`; name: string; clans: Clan[]; usdcBalance: string | null };
 export type WalletAction = { to: `0x${string}`; data: `0x${string}`; value?: `0x${string}`; chainId: number };
 export type SignedChallenge = { message: string; challengeId: string };
-export type FundingPlan = { requiredUsdc: string; actions: WalletAction[] };
+export type FundingPlan = { id: string; expiresAt: string; requiredUsdc: string; actions: WalletAction[] };
 export type StackQuote = { id: string; venue: Venue; marketId: string; sizeUsd: number; action: WalletAction; expiresAt: string };
 export type ShareResult = { id: string; url: string; imageUrl?: string };
 export type PublicShare = {
@@ -71,6 +71,8 @@ export type PublicShare = {
   roiPercent: number | null;
   notionalUsd: number | null;
   closedAt: string | null;
+  includeClan: boolean;
   clanName?: string;
 };
+
 

@@ -14,3 +14,5 @@ No sample prices, positions, PnL, or track records will be presented as real dat
 - Pending automatic mirrors need `mirrorStatus: pending` and an absolute `skipUntil` deadline in the chart marker, plus an authenticated skip endpoint. The backend must enforce the deadline; the UI clock is only a guide.
 - Provisional REST paths are in `src/lib/api.ts`. The backend must supply the final paths, response envelopes, and the exact wallet action encoding. No trading call should be treated as production-ready until those match `CONTRACTS.md`.
 - The UI currently targets Monad mainnet (chain ID 143) so Privy card funding can be offered; the final chain ID and USDC contract must be confirmed by the backend contract.
+- Public share responses must include `includeClan`; the frontend renders `clanName` only when it is true. The backend must still omit private clan fields when sharing without clan attribution.
+- Funding prepare must return an idempotent plan ID, expiry, required USDC, and ordered wallet actions. Confirmation sends the plan ID with transaction hashes so partial submissions can be reconciled server-side.

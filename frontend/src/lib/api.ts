@@ -32,7 +32,7 @@ export const getJoinChallenge = (token: string, inviteCode: string) => api<Signe
 export const joinClan = (token: string, inviteCode: string, policy: MirrorPolicy, challengeId: string, signature: string) => api<Clan>('/v1/clans/join', token, { method: 'POST', body: json({ inviteCode, policy, challengeId, signature }) });
 export const getChart = (token: string, clanId: string, marketId?: string) => api<ChartSnapshot>(`/v1/clans/${encodeURIComponent(clanId)}/chart${marketId ? `?marketId=${encodeURIComponent(marketId)}` : ''}`, token);
 export const prepareFunding = (token: string, clanId: string, amountUsdc: string) => api<FundingPlan>(`/v1/clans/${encodeURIComponent(clanId)}/funding/prepare`, token, { method: 'POST', body: json({ amountUsdc }) });
-export const confirmFunding = (token: string, clanId: string, hashes: string[]) => api<void>(`/v1/clans/${encodeURIComponent(clanId)}/funding/confirm`, token, { method: 'POST', body: json({ hashes }) });
+export const confirmFunding = (token: string, clanId: string, planId: string, hashes: string[]) => api<void>(`/v1/clans/${encodeURIComponent(clanId)}/funding/confirm`, token, { method: 'POST', body: json({ planId, hashes }) });
 export const getEnrollmentChallenge = (token: string, venue: Venue) => api<SignedChallenge>(`/v1/enrollment/${venue}/challenge`, token, { method: 'POST' });
 export const enrollVenue = (token: string, venue: Venue, challengeId: string, signature: string) => api<void>(`/v1/enrollment/${venue}`, token, { method: 'POST', body: json({ challengeId, signature }) });
 export const quoteStack = (token: string, clanId: string, markerId: string, sizeUsd: number) => api<StackQuote>(`/v1/clans/${encodeURIComponent(clanId)}/stack/quote`, token, { method: 'POST', body: json({ markerId, sizeUsd }) });
@@ -41,3 +41,4 @@ export const createShare = (token: string, markerId: string, includeClan: boolea
 export const getPublicShare = (id: string) => api<import('./contracts').PublicShare>(`/v1/shares/${encodeURIComponent(id)}`, null);
 
 export const skipAutoMirror = (token: string, clanId: string, markerId: string) => api<void>(`/v1/clans/${encodeURIComponent(clanId)}/mirrors/${encodeURIComponent(markerId)}/skip`, token, { method: 'POST' });
+
