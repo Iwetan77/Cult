@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getAccessToken, useFundWallet, usePrivy, useSendTransaction, useSignMessage, useWallets } from '@privy-io/react-auth';
+import { getAccessToken, useCreateWallet, useFundWallet, usePrivy, useSendTransaction, useSignMessage, useWallets } from '@privy-io/react-auth';
 import { monad } from 'viem/chains';
 import { ArrowDownToLine, ArrowRight, Copy, ExternalLink, Link2, LogOut, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react';
 import { confirmFunding, confirmStack, createClan, createShare, enrollVenue, getChart, getEnrollmentChallenge, getJoinChallenge, getMe, joinClan, prepareFunding, quoteStack, skipAutoMirror } from '@/lib/api';
@@ -21,10 +21,11 @@ const inviteFromInput = (input: string) => {
 export function Dashboard() {
   const { ready, authenticated, login, logout } = usePrivy();
   const { wallets } = useWallets();
+  const { createWallet } = useCreateWallet();
   const { signMessage } = useSignMessage();
   const { sendTransaction } = useSendTransaction();
   const { fundWallet } = useFundWallet();
-  const wallet = wallets.find(item => item.walletClientType === 'privy') ?? wallets[0];
+  const wallet = wallets.find(item => item.walletClientType === 'privy');
   const [me, setMe] = useState<Me | null>(null);
   const [clanId, setClanId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<ChartSnapshot | null>(null);
@@ -174,7 +175,7 @@ export function Dashboard() {
 
   if (!ready) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><p>Opening wallet…</p></main>;
   if (!authenticated) return <main className="login-screen"><div className="login-brand">CULT<span>.</span></div><div className="login-main"><p className="eyebrow">PRIVATE CLANS / MONAD</p><h1>Trade together.<br />Own every move.</h1><p>One chart for your clan’s live positions across Perpl and Nad.fun. Your wallet, your funds, your trades.</p><button className="primary large" onClick={login}>Enter with your wallet <ArrowRight size={17} /></button></div><div className="login-foot">INVITE ONLY <span>•</span> NO SHARED CUSTODY</div></main>;
-  if (!wallet) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><h1>Wallet setup</h1><p>Finish creating a wallet in Privy to join a clan.</p><button className="primary" onClick={login}>Open wallet setup</button></main>;
+  if (!wallet) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><h1>Wallet setup</h1><p>Create your Privy trading wallet to fund and trade from your own account.</p><button className="primary" onClick={() => createWallet().catch(err => setError(errorText(err)))}>Create trading wallet</button></main>;
 if (!me && !error) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><p>Loading your clans…</p></main>;
 
   return <div className="app-shell">
@@ -186,6 +187,7 @@ if (!me && !error) return <main className="config-state"><div className="brand">
     {busy && <div className="busy-bar"><span>{busy === 'stack' ? 'Authorizing your trade' : busy === 'fund' ? 'Preparing wallet funding' : busy === 'join' ? 'Signing clan authorization' : 'Working'}…</span></div>}
   </div>;
 }
+
 
 
 
