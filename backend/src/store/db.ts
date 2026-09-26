@@ -47,6 +47,17 @@ function migrate(d: DatabaseSync) {
       PRIMARY KEY (clan_id, user_id)
     );
 
+    -- The signed "yes, mirror me" a member gives once at join, with the exact
+    -- policy text they signed. Evidence of consent; never re-asked per trade.
+    CREATE TABLE IF NOT EXISTS join_consents (
+      clan_id    TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      message    TEXT NOT NULL,
+      signature  TEXT NOT NULL,
+      signed_at  INTEGER NOT NULL,
+      PRIMARY KEY (clan_id, user_id)
+    );
+
     -- A position a member opened themselves (not placed by our engine).
     CREATE TABLE IF NOT EXISTS leader_trades (
       id              TEXT PRIMARY KEY,

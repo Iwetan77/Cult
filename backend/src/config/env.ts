@@ -20,4 +20,8 @@ export const env = {
   rpcUrl: opt('ALCHEMY_MONAD_RPC_URL', 'https://testnet-rpc.monad.xyz'),
   dbPath: opt('DB_PATH', 'data/cult.db'),
   port: Number(opt('PORT', '8787')),
+  // PROVISIONAL: product hasn't set the opt-out window. See CONTRACTS.md.
+  mirrorOptOutSeconds: Number(opt('MIRROR_OPT_OUT_SECONDS', '20')),
+  indexerApiKey: process.env.INDEXER_API_KEY || '',
+  corsOrigins: opt('CORS_ORIGINS', 'http://localhost:3000').split(','),
 };
