@@ -5,11 +5,19 @@ function opt(name: string, fallback: string): string {
   return v && v.length > 0 ? v : fallback;
 }
 
+export function required(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`missing env ${name} (see backend/.env.example)`);
+  return v;
+}
+
 export const env = {
   perplApiUrl: opt('PERPL_API_URL', 'https://testnet.perpl.xyz/api'),
   perplWsUrl: opt('PERPL_WS_URL', 'wss://testnet.perpl.xyz'),
+  // Only set once Perpl whitelists our origin; testnet accepts server calls without one.
+  perplOrigin: process.env.PERPL_ORIGIN || '',
   chainId: Number(opt('PERPL_CHAIN_ID', '10143')),
-  exchangeAddress: opt('PERPL_EXCHANGE_ADDRESS', '0x1964C32f0bE608E7D29302AFF5E61268E72080cc'),
-  collateralToken: opt('PERPL_COLLATERAL_TOKEN', '0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC'),
   rpcUrl: opt('ALCHEMY_MONAD_RPC_URL', 'https://testnet-rpc.monad.xyz'),
+  dbPath: opt('DB_PATH', 'data/cult.db'),
+  port: Number(opt('PORT', '8787')),
 };
