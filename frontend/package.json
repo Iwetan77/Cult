@@ -9,20 +9,21 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@privy-io/react-auth": "latest",
-    "lightweight-charts": "latest",
+    "@privy-io/react-auth": "^3.45.0",
+    "lightweight-charts": "^5.0.0",
     "lucide-react": "latest",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "viem": "latest"
+    "next": "^15.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "viem": "^2.0.0"
   },
   "devDependencies": {
     "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "eslint": "latest",
-    "eslint-config-next": "latest",
-    "typescript": "latest"
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.5.0",
+    "typescript": "^5.9.0",
+    "@eslint/eslintrc": "^3.3.1"
   }
 }
