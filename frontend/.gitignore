@@ -3,4 +3,6 @@ node_modules
 out
 dist
 .env*.local
-npm-debug.log*.tools
+npm-debug.log*
+.tools/
+*.tsbuildinfo
