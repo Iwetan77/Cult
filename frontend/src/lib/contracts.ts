@@ -43,6 +43,8 @@ export type ChartMarker = {
   stopLossPrice?: number;
   tokenAmount?: string;
   isMine: boolean;
+  mirrorStatus?: 'pending' | 'submitted' | 'filled';
+  skipUntil?: string;
 };
 export type ChartSnapshot = {
   clan: Clan;
@@ -71,3 +73,4 @@ export type PublicShare = {
   closedAt: string | null;
   clanName?: string;
 };
+

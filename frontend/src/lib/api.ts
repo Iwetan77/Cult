@@ -40,3 +40,4 @@ export const confirmStack = (token: string, clanId: string, quoteId: string, txH
 export const createShare = (token: string, markerId: string, includeClan: boolean) => api<ShareResult>('/v1/shares', token, { method: 'POST', body: json({ markerId, includeClan }) });
 export const getPublicShare = (id: string) => api<import('./contracts').PublicShare>(`/v1/shares/${encodeURIComponent(id)}`, null);
 
+export const skipAutoMirror = (token: string, clanId: string, markerId: string) => api<void>(`/v1/clans/${encodeURIComponent(clanId)}/mirrors/${encodeURIComponent(markerId)}/skip`, token, { method: 'POST' });
