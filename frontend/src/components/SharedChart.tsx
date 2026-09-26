@@ -14,6 +14,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const lastMarketRef = useRef<string | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const [hitRegions, setHitRegions] = useState<Hit[]>([]);
   const drawRef = useRef<() => void>(() => {});
@@ -54,7 +55,10 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
     const series = seriesRef.current;
     if (!series) return;
     series.setData(candles.map(c => ({ ...c, time: c.time as UTCTimestamp })));
-    if (candles.length) chartRef.current?.timeScale().fitContent();
+    if (candles.length) {
+      if (lastMarketRef.current !== market.id) chartRef.current?.timeScale().fitContent();
+      lastMarketRef.current = market.id;
+    }
     drawRef.current();
   }, [candles, market.id]);
 
@@ -80,7 +84,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
       visible.forEach((marker, index) => {
         const y = series.priceToCoordinate(marker.entryPrice);
         if (y == null || y < 12 || y > height - 24) return;
-        const x = Math.max(80, Math.min(width - 230, width * 0.58));
+        const x = width < 480 ? 16 : Math.max(80, Math.min(width - 260, width * 0.58));
         const offset = visible.slice(0, index).filter(previous => {
           const previousY = series.priceToCoordinate(previous.entryPrice);
           return previousY != null && Math.abs(previousY - y) < 28;
@@ -94,21 +98,21 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
         ctx.setLineDash([4, 5]);
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width - 56, y); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 1;
-        if (selected && marker.venue === 'perpl') {
+        if (marker.venue === 'perpl') {
           for (const [price, label, lineColor] of [
             [marker.takeProfitPrice, 'TP', '#68e7be'], [marker.stopLossPrice, 'SL', '#e4777d'],
           ] as const) {
             if (price == null) continue;
             const guideY = series.priceToCoordinate(price);
             if (guideY == null) continue;
-            ctx.strokeStyle = lineColor; ctx.globalAlpha = 0.65; ctx.setLineDash([3, 4]);
+            ctx.strokeStyle = lineColor; ctx.globalAlpha = selected ? 0.65 : 0.22; ctx.setLineDash([3, 4]);
             ctx.beginPath(); ctx.moveTo(0, guideY); ctx.lineTo(width - 56, guideY); ctx.stroke();
             ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.fillStyle = lineColor;
-            ctx.fillText(`${label} ${usd(price, price < 1 ? 5 : 2)}`, 12, guideY - 10);
+            if (selected) ctx.fillText(`${label} ${usd(price, price < 1 ? 5 : 2)}`, 12, guideY - 10);
           }
         }
         const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? signedUsd(marker.pnlUsd) : usd(marker.valueUsd)}`;
-        const badgeWidth = Math.min(235, ctx.measureText(badge).width + 43);
+        const badgeWidth = Math.min(235, Math.max(80, width - x - 62), ctx.measureText(badge).width + 43);
         ctx.fillStyle = selected ? '#313945' : '#292e39';
         ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1;
         ctx.beginPath(); ctx.roundRect(x, markerY - 13, badgeWidth, 26, 4); ctx.fill(); ctx.stroke();
@@ -138,4 +142,5 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
     })}</div>    {!candles.length && <div className="chart-empty">Waiting for live market data</div>}
   </div>;
 }
+
 
