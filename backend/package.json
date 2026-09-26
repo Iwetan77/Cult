@@ -1,0 +1,26 @@
+{
+  "name": "@cult/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "spike:markets": "tsx scripts/spikes/markets.ts",
+    "spike:enroll": "tsx scripts/spikes/enroll.ts"
+  },
+  "dependencies": {
+    "@noble/ed25519": "^3.2.0",
+    "dotenv": "^18.0.4",
+    "ethers": "^6.17.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
