@@ -232,13 +232,17 @@ export class TradingSession extends EventEmitter<TradingSessionEvents> {
 
   // Places one order and resolves with its definitive Order update (which may be
   // st=Failed; callers check). lb defaults to 0 = market's max TTL window.
-  async placeOrder(input: OrderInput, timeoutMs = 30_000): Promise<Order> {
+  // `onRq` runs synchronously before the frame is sent, so a caller can record the
+  // request id before any position/order event for it can possibly arrive.
+  async placeOrder(input: OrderInput, opts: { timeoutMs?: number; onRq?: (rq: number) => void } = {}): Promise<Order> {
+    const timeoutMs = opts.timeoutMs ?? 30_000;
     await this.readyPromise;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error(`${this.label}: socket not open`);
     const acct = this.accounts.get(input.acc);
     const floor = acct ? acct.lfr : 0;
-    const rq = Math.max(this.rqCounter, floor) + 1;
+    const rq = Math.max(this.rqCounter, floor, Date.now()) + 1;
     this.rqCounter = rq;
+    opts.onRq?.(rq);
     const sn = ++this.sn;
     const frame = { mt: 22, sn, ...input, rq, lb: input.lb ?? 0 };
 

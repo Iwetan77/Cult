@@ -11,6 +11,7 @@ export interface OpenParams {
   size: number; // human units of the market's base asset, e.g. 0.001 BTC
   leverage: number; // e.g. 5 for 5x
   maxSlippageBps?: number;
+  onRq?: (rq: number) => void;
 }
 
 export class OrderFailed extends Error {
@@ -40,13 +41,20 @@ export async function openPosition(session: TradingSession, p: OpenParams): Prom
     fl: OrderFlags.ImmediateOrCancel,
     lv: checkLeverage(m, p.leverage),
     ...(p.maxSlippageBps != null ? { ms: p.maxSlippageBps } : {}),
-  });
+  }, { onRq: p.onRq });
   if (order.st === OrderStatus.Failed || order.fs === 0) throw new OrderFailed(order);
   return order;
 }
 
-// Closes the whole position (Close* is reduce-only and clamped to position size).
-export async function closePosition(session: TradingSession, accountId: number, marketId: number): Promise<Order> {
+// Closes the position, or just `sizeScaled` of it when given (a mirror only
+// unwinds its own slice if the member also holds size on that market; Perpl
+// nets positions per account per market). Close* is reduce-only and clamped.
+export async function closePosition(
+  session: TradingSession,
+  accountId: number,
+  marketId: number,
+  opts: { sizeScaled?: number; onRq?: (rq: number) => void } = {},
+): Promise<Order> {
   const pos = session.positions.get(`${accountId}:${marketId}`);
   if (!pos) throw new Error(`no open position on acc ${accountId} mkt ${marketId}`);
   const order = await session.placeOrder({
@@ -54,10 +62,10 @@ export async function closePosition(session: TradingSession, accountId: number, 
     acc: accountId,
     t: pos.sd === PositionSide.Long ? OrderType.CloseLong : OrderType.CloseShort,
     p: 0,
-    s: pos.s,
+    s: Math.min(opts.sizeScaled ?? pos.s, pos.s),
     fl: OrderFlags.ImmediateOrCancel,
     lv: pos.lv,
-  });
+  }, { onRq: opts.onRq });
   if (order.st === OrderStatus.Failed || order.fs === 0) throw new OrderFailed(order);
   return order;
 }
