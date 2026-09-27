@@ -6,6 +6,7 @@ import { ArrowRight, TrendingUp } from 'lucide-react';
 import { getHome } from '@/lib/api';
 import type { BackendConfig, ChatRoom, Holding, Home, Me, NadMarket } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
+import { Avatar } from './Avatar';
 
 type Props = {
   me: Me; config: BackendConfig | null; holdings: Holding[]; nadMarkets: NadMarket[]; search: string;
@@ -16,8 +17,8 @@ type Props = {
 export function RoomRow({ room, onOpen }: { room: ChatRoom; onOpen: () => void }) {
   const last = room.lastMessage;
   return <button className="home-room" onClick={onOpen}>
-    <span className={`room-avatar ${room.kind}`}>{room.kind === 'global' ? 'G' : room.kind === 'country' ? 'C' : room.name.slice(0, 1).toUpperCase()}</span>
-    <span className="room-lines"><strong>{room.name}</strong><small>{last?.body ?? 'No messages yet'}</small></span>
+    <span className={`room-avatar ${room.kind}`}>{room.icon}</span>
+    <span className="room-lines"><strong>{room.name}</strong><small>{last?.text ?? 'No messages yet'}</small></span>
     <span className="room-end"><small>{last ? new Date(last.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</small><ArrowRight size={15} /></span>
   </button>;
 }
@@ -51,7 +52,7 @@ export function HomeView({ me, config, holdings, nadMarkets, search, onRoom, onP
       <div className="home-intro"><span className="eyebrow">HOME</span><h1>Good to see you, {me.name}.</h1></div>
       <section className="home-section"><div className="home-section-head"><h2>Top trades this week</h2><span>7 DAYS</span></div>
         {error ? <p className="wallet-warning">{error}</p> : !home ? <p className="field-note">Loading weekly trades...</p> : home.topTrades.length ? <div className="trade-carousel">{home.topTrades.map(trade => <article className="top-trade" key={`${trade.memberId}:${trade.rank}`}>
-          <button className="top-trade-person" onClick={() => onProfile(trade.memberId)}><span className="room-avatar">{trade.name.slice(0, 1).toUpperCase()}</span><span><strong>{trade.name}</strong><small>#{trade.rank} Trade</small></span></button>
+          <button className="top-trade-person" onClick={() => onProfile(trade.memberId)}><Avatar name={trade.name} url={trade.avatarUrl} /><span><strong>{trade.name}</strong><small>#{trade.rank} Trade</small></span></button>
           <strong className={`trade-return ${trade.returnPct >= 0 ? 'positive' : 'negative'}`}>{trade.returnPct >= 0 ? '+' : ''}{trade.returnPct.toFixed(1)}%</strong>
           <div className="trade-card-bottom"><span className="symbol-chip">{trade.symbol}</span><small>{trade.tradersIn} {trade.tradersIn === 1 ? 'trader was' : 'traders were'} in</small></div>
           <button className="trade-card-link" onClick={() => onTrade(trade)}>View trade <ArrowRight size={14} /></button>
