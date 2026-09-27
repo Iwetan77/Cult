@@ -10,7 +10,7 @@ import { dollars, signedDollars } from '@/lib/format';
 type Props = {
   me: Me; config: BackendConfig | null; holdings: Holding[]; nadMarkets: NadMarket[]; search: string;
   onRoom: (roomId: string) => void; onProfile: (memberId: string) => void;
-  onTrade: (markerId: string) => void; onDeposit: () => void;
+  onTrade: (markerId: string, memberId: string, marketId: string) => void; onDeposit: () => void;
 };
 
 export function RoomRow({ room, onOpen }: { room: ChatRoom; onOpen: () => void }) {
@@ -54,7 +54,7 @@ export function HomeView({ me, config, holdings, nadMarkets, search, onRoom, onP
           <button className="top-trade-person" onClick={() => onProfile(trade.memberId)}><span className="room-avatar">{trade.name.slice(0, 1).toUpperCase()}</span><span><strong>{trade.name}</strong><small>#{trade.rank} Trade</small></span></button>
           <strong className={`trade-return ${trade.returnPct >= 0 ? 'positive' : 'negative'}`}>{trade.returnPct >= 0 ? '+' : ''}{trade.returnPct.toFixed(1)}%</strong>
           <div className="trade-card-bottom"><span className="symbol-chip">${trade.symbol}</span><small>{trade.tradersIn} {trade.tradersIn === 1 ? 'trader was' : 'traders were'} in</small></div>
-          <button className="trade-card-link" disabled={!trade.markerId} onClick={() => trade.markerId && onTrade(trade.markerId)}>View trade <ArrowRight size={14} /></button>
+          <button className="trade-card-link" disabled={!trade.markerId} onClick={() => trade.markerId && onTrade(trade.markerId, trade.memberId, trade.market)}>View trade <ArrowRight size={14} /></button>
         </article>)}</div> : <p className="field-note">No verified closed trades this week yet.</p>}
         {home && <p className="week-line">7d: <strong>{home.sevenDay.trades} trades</strong><span>·</span><strong className={home.sevenDay.profitUsd >= 0 ? 'positive' : 'negative'}>{signedDollars(home.sevenDay.profitUsd)} profit made</strong><span>·</span><strong>{home.sevenDay.positionsOpened} positions opened</strong></p>}
       </section>
