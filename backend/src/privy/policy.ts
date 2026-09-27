@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { PrivyClient } from '@privy-io/node';
 import { env, required } from '../config/env.js';
+import { KURU_FLOW_ROUTER } from '../swap/kuruFlow.js';
 import { broadcastSigned, rpc, type Eip712TypedData, type SendOptions, type TxRequest, type WalletSigner } from '../chain/signer.js';
 
 // What the backend may ever do with a member's Privy wallet, enforced by
@@ -85,6 +86,41 @@ const nadAbi = [
   },
 ] as const;
 
+// Kuru Flow executeSwap (see src/swap/kuruFlow.ts). Only this function is
+// ever allowed; executeSwapWithReceiver has no ALLOW rule, so Privy denies it.
+const kuruAbi = [
+  {
+    type: 'function',
+    name: 'executeSwap',
+    stateMutability: 'payable',
+    inputs: [
+      {
+        name: 'swapIntent',
+        type: 'tuple',
+        components: [
+          { name: 'tokenUserBuys', type: 'address' },
+          { name: 'minAmountUserBuys', type: 'uint256' },
+          { name: 'tokenUserSells', type: 'address' },
+          { name: 'amountUserSells', type: 'uint256' },
+        ],
+      },
+      {
+        name: 'feeCollection',
+        type: 'tuple',
+        components: [
+          { name: 'feeCollectorAddress', type: 'address' },
+          { name: 'feeBps', type: 'uint256' },
+          { name: 'referrerAddress', type: 'address' },
+          { name: 'referrerFeeBps', type: 'uint256' },
+          { name: 'isInTokenFee', type: 'bool' },
+        ],
+      },
+      { name: 'program', type: 'bytes' },
+    ],
+    outputs: [{ name: 'amountOut', type: 'uint256' }],
+  },
+] as const;
+
 export interface PolicyScope {
   member: string; // the member's wallet; buy/sell output must go here
   chainId: number;
@@ -93,6 +129,8 @@ export interface PolicyScope {
   maxDepositRaw: bigint; // per-tx ceiling on AUSD approve / deposit into Perpl
   nadRouter: string;
   maxBuyWei: bigint; // per-tx ceiling on MON spent on one Nad.fun buy
+  kuruRouter: string; // Kuru Flow entrypoint (AUSD <-> MON for memes)
+  maxSellWei: bigint; // per-tx ceiling on MON swapped back to AUSD after a meme sale
 }
 
 type Cond = Record<string, unknown>;
@@ -115,6 +153,9 @@ export function buildBackendPolicy(s: PolicyScope, name = 'cult-backend') {
   const exchange = s.perplExchange.toLowerCase();
   const ausd = s.perplCollateral.toLowerCase();
   const router = s.nadRouter.toLowerCase();
+  const kuru = s.kuruRouter.toLowerCase();
+  const native = ethers.ZeroAddress;
+  const noFees = [call('executeSwap.feeCollection.feeBps', 'eq', '0', kuruAbi), call('executeSwap.feeCollection.referrerFeeBps', 'eq', '0', kuruAbi)];
   const chain = tx('chain_id', 'eq', String(s.chainId));
   const noValue = tx('value', 'eq', '0');
 
@@ -158,6 +199,40 @@ export function buildBackendPolicy(s: PolicyScope, name = 'cult-backend') {
       method,
       action: 'ALLOW' as const,
       conditions: [chain, noValue, call('approve.spender', 'eq', router, approveAbi)],
+    },
+    {
+      name: `${m}: approve AUSD to Kuru, capped`,
+      method,
+      action: 'ALLOW' as const,
+      conditions: [tx('to', 'eq', ausd), chain, noValue, call('approve.spender', 'eq', kuru, approveAbi), call('approve.amount', 'lte', s.maxDepositRaw.toString(), approveAbi)],
+    },
+    {
+      name: `${m}: Kuru AUSD->MON, capped, no fees`,
+      method,
+      action: 'ALLOW' as const,
+      conditions: [
+        tx('to', 'eq', kuru),
+        chain,
+        noValue,
+        call('executeSwap.swapIntent.tokenUserSells', 'eq', ausd, kuruAbi),
+        call('executeSwap.swapIntent.tokenUserBuys', 'eq', native, kuruAbi),
+        call('executeSwap.swapIntent.amountUserSells', 'lte', s.maxDepositRaw.toString(), kuruAbi),
+        ...noFees,
+      ],
+    },
+    {
+      name: `${m}: Kuru MON->AUSD, capped, no fees`,
+      method,
+      action: 'ALLOW' as const,
+      conditions: [
+        tx('to', 'eq', kuru),
+        chain,
+        tx('value', 'lte', s.maxSellWei.toString()),
+        call('executeSwap.swapIntent.tokenUserSells', 'eq', native, kuruAbi),
+        call('executeSwap.swapIntent.tokenUserBuys', 'eq', ausd, kuruAbi),
+        call('executeSwap.swapIntent.amountUserSells', 'lte', s.maxSellWei.toString(), kuruAbi),
+        ...noFees,
+      ],
     },
     ];
   });
@@ -232,7 +307,11 @@ export async function memberSignerGrant(userId: string, wallet: string, maxUsdPe
   const capRaw = BigInt(Math.ceil(maxUsdPerTrade)) * 10n ** BigInt(collateralDecimals);
   const { monPriceAusd } = await import('../prices.js');
   const monPx = await monPriceAusd();
-  const maxBuyWei = ethers.parseEther((maxUsdPerTrade / monPx).toFixed(18));
+  // 25% headroom: the cap is converted at grant time, and a MON dip shouldn't
+  // make Privy refuse a buy that's still within the member's dollar cap.
+  const maxBuyWei = ethers.parseEther(((maxUsdPerTrade / monPx) * 1.25).toFixed(18));
+  // Meme sale proceeds can outgrow the buy; swapping them back pays the member, so this is generous.
+  const maxSellWei = maxBuyWei * 10n;
 
   const existing = members.privyPolicy(userId);
   let policyId = existing?.id;
@@ -241,7 +320,7 @@ export async function memberSignerGrant(userId: string, wallet: string, maxUsdPe
       .policies()
       .create(
         buildBackendPolicy(
-          { member: wallet, chainId: env.chainId, perplExchange: exchange, perplCollateral: collateralToken, maxDepositRaw: capRaw, nadRouter: NADFUN.router, maxBuyWei },
+          { member: wallet, chainId: env.chainId, perplExchange: exchange, perplCollateral: collateralToken, maxDepositRaw: capRaw, nadRouter: NADFUN.router, maxBuyWei, kuruRouter: KURU_FLOW_ROUTER, maxSellWei },
           `cult-member-${wallet.slice(2, 10)}-${Date.now()}`,
         ) as never,
       );

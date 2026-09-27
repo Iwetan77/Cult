@@ -26,6 +26,7 @@ npm start                # http://localhost:8787, all routes under /v1
 | `INDEXER_API_KEY` | Shared secret for `/v1/indexer/*` |
 | `MIRROR_OPT_OUT_SECONDS` | Skip window before a mirror fires (provisional: 20) |
 | `CORS_ORIGINS`, `PUBLIC_APP_URL` | Frontend origin(s), and the base for share links |
+| `NADFUN_PAY_WITH` | `ausd` (swap via Kuru Flow; default on mainnet) or `mon` (default on testnet) |
 | `FUNDER_PRIVATE_KEY` | **Test scripts only.** A throwaway testnet wallet that seeds fresh wallets |
 
 Never commit `.env`. It's git-ignored.
@@ -42,7 +43,8 @@ src/
   perpl/         REST + websocket client, signing, enrollment, types
   privy/         token verification, the policy the backend signer runs under
   trading/       Perpl position helpers, TP/SL as Perpl trigger orders
-  funding/       "pay with USDC": Kuru USDC -> AUSD -> Perpl deposit (mainnet)
+  swap/          Kuru Flow quotes, checked before signing (router, executeSwap only, no fees)
+  funding/       "pay with USDC": Kuru Flow USDC -> AUSD -> optional Perpl deposit (mainnet)
   api/           Hono routes, chart snapshot, shares, TP/SL suggestions
   store/         SQLite schema + repositories
 ```
@@ -75,10 +77,10 @@ reads) to `data/evidence/`.
 | Spike A: Perpl markets | `npm run spike:markets` | passed |
 | Spike B: order via delegated key | `npm run spike:perpl-order` | **not run**: needs Perpl testnet AUSD |
 | Spike C: real Nad.fun buy + sell | `npm run spike:nadfun-trade` | passed |
-| Spike D: Kuru USDC→AUSD | `npx tsx scripts/spikes/kuru.ts` | escalated: no AUSD liquidity on Kuru |
+| Spike D: Kuru USDC→AUSD | `npm run spike:kuru-flow` | **simulated on mainnet** (real route + calldata via `eth_call`; no spend) |
 | Phase 1: account lifecycle, trade, TP/SL | `npm run e2e:phase1` | **not run**: needs Perpl testnet AUSD |
-| Phase 2: USDC funding | (`/v1/funding/usdc/*`) | **not run**: needs mainnet USDC + a Kuru book with asks |
-| Phase 3: Privy policy rejections | `npm run e2e:phase3` | passed (17 refused, 6 allowed) |
+| Phase 2: USDC funding | `npm run spike:funding-plan` | plan **simulated on mainnet**; a real signed run needs mainnet USDC |
+| Phase 3: Privy policy rejections | `npm run e2e:phase3` | passed (24 refused, 9 allowed, incl. Kuru swaps) |
 | Phase 4: mirror, Nad.fun half | `npm run e2e:phase4-nadfun` | passed (3 real wallets) |
 | Phase 4: mirror, both venues | `npm run e2e:phase4` | **not run**: needs Perpl testnet AUSD |
 

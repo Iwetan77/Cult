@@ -317,9 +317,9 @@ export function createApp(engine: MirrorEngine) {
   // the member to sign. 409 with a plain reason where it can't work (testnet,
   // empty book). amountUsdc is a decimal string, e.g. "25.5".
   authed.post('/funding/usdc/prepare', async (c) => {
-    const body = z.object({ amountUsdc: z.string().regex(/^\d+(\.\d{1,6})?$/) }).parse(await c.req.json());
+    const body = z.object({ amountUsdc: z.string().regex(/^\d+(\.\d{1,6})?$/), depositToPerpl: z.boolean().default(true) }).parse(await c.req.json());
     try {
-      return c.json(await prepareUsdcFunding(c.get('wallet'), ethers.parseUnits(body.amountUsdc, 6)));
+      return c.json(await prepareUsdcFunding(c.get('wallet'), ethers.parseUnits(body.amountUsdc, 6), body.depositToPerpl));
     } catch (e) {
       if (e instanceof FundingUnavailable) throw bad(409, e.message);
       throw e;

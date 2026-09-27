@@ -18,11 +18,13 @@ import { env } from '../../src/config/env.js';
 import { erc20Abi, exchangeAbi } from '../../src/chain/exchange.js';
 import { NADFUN } from '../../src/nadfun/constants.js';
 import { routerAbi } from '../../src/nadfun/trading.js';
+import { flowAbi, KURU_FLOW_ROUTER } from '../../src/swap/kuruFlow.js';
 import { getExchangeInfo } from '../../src/perpl/context.js';
 import { buildBackendPolicy, privy } from '../../src/privy/policy.js';
 
 const CAP_AUSD = 50n;
 const MAX_BUY = ethers.parseEther('0.05');
+const MAX_SELL = ethers.parseEther('0.5');
 const MEME = '0x5e2E014020f31A410cC6Cd44dEfb646b02467777'; // TTT, the token spike C traded
 const evidence: Record<string, unknown> = { startedAt: new Date().toISOString() };
 const results: { attempt: string; signer: string; expected: 'allow' | 'deny'; got: 'allow' | 'deny'; detail: string }[] = [];
@@ -46,6 +48,8 @@ try {
         maxDepositRaw: CAP_AUSD * unit,
         nadRouter: NADFUN.router,
         maxBuyWei: MAX_BUY,
+        kuruRouter: KURU_FLOW_ROUTER,
+        maxSellWei: MAX_SELL,
       },
       `cult-e2e-${Date.now()}`,
     ) as never,
@@ -107,6 +111,19 @@ try {
   await attempt('meme token transfer to an outside address', 'backend', 'deny', signTx(tx(MEME, erc('transfer', [stranger, 10n ** 18n]))));
   await attempt('meme token approve to an outside address', 'backend', 'deny', signTx(tx(MEME, erc('approve', [stranger, 10n ** 18n]))));
   await attempt('Perpl deposit with MON value attached', 'backend', 'deny', signTx(tx(exchange, ex('depositCollateral', [10n * unit]), 1n)));
+  // ---- Kuru Flow (AUSD <-> MON for memes) --------------------------------------
+  const USDC = '0x754704Bc059F8C67012fEd69BC8A327a5aafb603';
+  const MON = ethers.ZeroAddress;
+  const kuruSwap = (sells: string, buys: string, amount: bigint, feeBps = 0n, refBps = 0n) =>
+    flowAbi.encodeFunctionData('executeSwap', [[buys, 1n, sells, amount], [ethers.ZeroAddress, feeBps, ethers.ZeroAddress, refBps, false], '0x']);
+  await attempt('Kuru: executeSwapWithReceiver (pay a stranger)', 'backend', 'deny', signTx(tx(KURU_FLOW_ROUTER, flowAbi.encodeFunctionData('executeSwapWithReceiver', [[MON, 1n, collateralToken, 10n * unit], [ethers.ZeroAddress, 0n, ethers.ZeroAddress, 0n, false], '0x', stranger]))));
+  await attempt('Kuru: AUSD->MON with a 1% fee', 'backend', 'deny', signTx(tx(KURU_FLOW_ROUTER, kuruSwap(collateralToken, MON, 10n * unit, 100n))));
+  await attempt('Kuru: AUSD->MON with a referrer fee', 'backend', 'deny', signTx(tx(KURU_FLOW_ROUTER, kuruSwap(collateralToken, MON, 10n * unit, 0n, 50n))));
+  await attempt('Kuru: AUSD->MON $60 (cap $50)', 'backend', 'deny', signTx(tx(KURU_FLOW_ROUTER, kuruSwap(collateralToken, MON, 60n * unit))));
+  await attempt('Kuru: AUSD->USDC (not a meme leg)', 'backend', 'deny', signTx(tx(KURU_FLOW_ROUTER, kuruSwap(collateralToken, USDC, 10n * unit))));
+  await attempt('Kuru: MON->AUSD 0.6 MON (cap 0.5)', 'backend', 'deny', signTx(tx(KURU_FLOW_ROUTER, kuruSwap(MON, collateralToken, ethers.parseEther('0.6')), ethers.parseEther('0.6'))));
+  await attempt('Kuru: approve $51 AUSD (cap $50)', 'backend', 'deny', signTx(tx(collateralToken, erc('approve', [KURU_FLOW_ROUTER, 51n * unit]))));
+
   // ---- must be refused: things only the member does, once, in the browser ----
   await attempt('Perpl: createAccount', 'backend', 'deny', signTx(tx(exchange, ex('createAccount', [10n * unit]))));
   await attempt('Perpl: allowOrderForwarding(true)', 'backend', 'deny', signTx(tx(exchange, ex('allowOrderForwarding', [true]))));
@@ -131,6 +148,9 @@ try {
   await attempt('Nad.fun: buy with 0.05 MON, tokens to member', 'backend', 'allow', signTx(tx(NADFUN.router, nadBuy(wallet.address), MAX_BUY)));
   await attempt('Nad.fun: sell, proceeds to member', 'backend', 'allow', signTx(tx(NADFUN.router, nadSell(wallet.address))));
   await attempt('meme token approve to the Nad.fun router', 'backend', 'allow', signTx(tx(MEME, erc('approve', [NADFUN.router, 10n ** 18n]))));
+  await attempt('Kuru: approve $50 AUSD', 'backend', 'allow', signTx(tx(collateralToken, erc('approve', [KURU_FLOW_ROUTER, 50n * unit]))));
+  await attempt('Kuru: AUSD->MON $50, no fees', 'backend', 'allow', signTx(tx(KURU_FLOW_ROUTER, kuruSwap(collateralToken, MON, 50n * unit))));
+  await attempt('Kuru: MON->AUSD 0.5 MON, no fees', 'backend', 'allow', signTx(tx(KURU_FLOW_ROUTER, kuruSwap(MON, collateralToken, MAX_SELL), MAX_SELL)));
 
   // The owner isn't bound by the backend's policy.
   await attempt('member (owner) withdraws from Perpl', 'member', 'allow', signTx(tx(exchange, ex('withdrawCollateral', [1n * unit]))));

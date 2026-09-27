@@ -40,12 +40,18 @@ on `PORT` (default `8787`). All routes are under `/v1`.
    - `quoteSymbol` on markets and `displayUnit` in `/v1/config` are `'USD'`.
 2. **Funding has two options:**
    - Deposit **AUSD directly**.
-   - Pay with **USDC**, which the backend swaps to AUSD behind the scenes via Kuru
-     (mainnet). The Kuru path is built but not proven; see blocker 1.
+   - Pay with **USDC**, which the backend routes through **Kuru Flow** (Kuru's router)
+     to AUSD, on mainnet. There's real liquidity: Kuru routes through a ~$1.5M
+     AUSD/USDC stable pool, and $25 simulated on mainnet returns $25.004. The member
+     signs the plan in the browser, and can send the AUSD straight into Perpl
+     (perps) or keep it in the wallet (memes).
 3. **Gate status.**
    - **Passed with real transactions:**
      - Spike C: a real Nad.fun buy and sell.
-     - Phase 3: Privy's policy engine, 17 refusals and 6 allows.
+     - Phase 3: Privy's policy engine, 24 refusals and 9 allows, Kuru swaps included.
+     - Kuru Flow swaps and the USDC funding plan, **simulated on mainnet**: real
+       routes and real calldata executed via `eth_call` with balance overrides. No
+       money is spent; the swap output must meet the guaranteed minimum.
      - The **Nad.fun half of Phase 4**: 3 fresh testnet wallets. A's own buy was picked
        up by the router watcher, B and C mirrored from their own MON (C clamped by
        `balancePercentCap`), and A's full exit made B and C sell out to a 0 balance
@@ -60,8 +66,16 @@ on `PORT` (default `8787`). All routes are under `/v1`.
 
    Build against this contract meanwhile. Nothing is faked: a gate is either
    "passed" with tx hashes or "not run".
-4. **Nad.fun trades need MON, not AUSD.** Cult only trades MON-quoted Nad.fun tokens
-   (bought with native MON). Members need MON for gas on both venues and to buy memes.
+4. **Memes are paid in dollars (product decision (b)).** Nad.fun tokens are priced in
+   MON (160 of 168 sampled mainnet tokens; none in AUSD). So on mainnet, a meme buy:
+   - swaps exactly the dollar amount of the member's **wallet** AUSD to MON on Kuru
+     Flow, then buys the token with the MON that arrived;
+   - a sale swaps exactly the sale's MON back to AUSD.
+
+   Members still keep a little MON for gas; 0.05 MON is never spent. A member's
+   dollars sit in two places: **Perpl margin** (perps) and **wallet AUSD** (memes).
+   The backend reports both. Testnet has no Kuru Flow, so there meme buys spend MON
+   directly (`NADFUN_PAY_WITH=mon`). Cult only trades MON-quoted Nad.fun tokens.
 5. **Manual stack works the same on both venues:** `POST /v1/clans/:clanId/stack`, and
    the backend executes it. On Nad.fun it's signed through the member's Privy wallet by
    the backend signer, under Privy policy. There's no quote/confirm step and no wallet
@@ -78,19 +92,25 @@ The product owner made these calls in the updated backend brief (2026-09-27).
 `00_PROJECT_SPEC.md` still lists the old sponsor set and bans Kuru, so **it needs
 updating to match.** Until it is, the brief is what backend follows.
 
-1. **Kuru USDC→AUSD runs on mainnet (decided), but there's no liquidity to swap
-   against yet.**
-   - **Testnet:** Kuru has no AUSD market at all. Its 4 markets are cbBTC, WETH, MON
-     and XAUt against Kuru test USDC, all with 0 trades.
-   - **Mainnet:** `0x8cf49e35…c9cc` is the AUSD/USDC order book (base AUSD
-     `0x00000000eFE3…`, quote USDC `0x7547…b603`, 0 fees). Its book is currently
-     empty (`bestBidAsk` returns sentinels), and Kuru lists AUSD/USDC with
-     `liquidity: 0`.
+1. **Kuru: corrected. The liquidity is there.** Earlier this file said Kuru had no
+   AUSD liquidity. That was wrong: it only checked Kuru's own (empty) AUSD/USDC order
+   book `0x8cf49e35…`. **Kuru Flow** (`https://ws.kuru.io`, router `KuruFlowEntrypoint`
+   `0xb3e6778480b2E488385E8205eA05E20060B813cb`) routes across Monad mainnet
+   liquidity, including a Curve-style AUSD/USDC pool `0x9426…9ea91ab` holding about
+   870k AUSD and 713k USDC. Live results:
+   - 100 USDC → 100.015 AUSD
+   - $10 AUSD → ~381 MON
+   - 100 MON → $2.62
 
-   The USDC option is built against that book and gets proven later with funds.
-   Mainnet AUSD can only fund mainnet Perpl (min 10 AUSD). Until then, funding means
-   direct AUSD.
-   Reproduce with `cd backend && npx tsx scripts/spikes/kuru.ts`.
+   Every quote is checked before signing:
+   - the target must be Kuru's router;
+   - the function must be `executeSwap`, which pays the caller (never
+     `executeSwapWithReceiver`);
+   - the intent must match what was asked for;
+   - both fees must be 0.
+
+   Reproduce with `npm run spike:kuru-flow` and `npm run spike:funding-plan`. Kuru
+   Flow is mainnet-only.
 2. **Nad.fun buys are priced per token, not in a single currency (Spike C).** Each
    token trades against its own quote token. On testnet that's mostly MON/WMON and
    LVMON, plus AUSD (Nad.fun's own testnet AUSD `0x2523…C62b`, which is **not**
@@ -404,7 +424,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/positions` | none | `{ positions: Holding[] }` (both venues) |
 | POST | `/v1/shares` | `{ markerId, includeClan }` | `201 { id, url }`. Only your own marker (`403` otherwise). A frozen snapshot at share time |
 | GET | `/v1/shares/:id` | none (public) | `PublicShare = { id, traderName, marketSymbol, venue, side, pnlUsd, roiPercent, notionalUsd, entryPrice, markPrice, closedAt, sharedAt, includeClan, clanName? }`. **Never** carries clan id, invite code or members; `clanName` only if `includeClan`. Money in $. `pnlUsd`/`roiPercent`/`notionalUsd` can be `null` when no live holding backs the marker; render that honestly |
-| POST | `/v1/funding/usdc/prepare` | `{ amountUsdc: "25.5" }` | `FundingPlan = { id, expiresAt, requiredUsdc, minAusdOut, actions: WalletAction[] }`. The member sends the actions in order (approve USDC → Kuru FOK market buy → approve AUSD → `createAccount`/`depositCollateral`). `409` with a plain-English `message` when it can't work: on testnet (Kuru has no AUSD market there), or when Kuru's book is empty |
+| POST | `/v1/funding/usdc/prepare` | `{ amountUsdc: "25.5", depositToPerpl?: true }` | `FundingPlan = { id, expiresAt, requiredUsdc, minAusdOut, expectedAusdOut, depositToPerpl, actions: WalletAction[] }`. The member sends the actions in order: approve USDC → Kuru Flow `executeSwap` → (if `depositToPerpl`) approve AUSD and `createAccount`/`depositCollateral` of the guaranteed amount. With `depositToPerpl: false` the AUSD stays in the wallet, which is what meme buys spend. The plan expires in 5 minutes, because routes go stale. `409` with a plain `message` on testnet or when no route exists |
 | POST | `/v1/funding/usdc/confirm` | `{ planId, hashes: string[] }` | `{ planId, done, steps: [{ label, txHash, ok }], perplAccountId }`. Each hash is checked on-chain against the planned action |
 | POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage? }` | `Fill`. Perpl: side `long`/`short`, notional = margin x leverage. Nad.fun: side `buy`, spends `marginUsd` worth of MON, signed by the backend signer |
 | POST | `/v1/positions/tpsl` | `{ marketId, takeProfit?, stopLoss? }` ($ prices; `null` removes a leg, omitted keeps it) | `{ takeProfit, stopLoss }`. Perpl only. Placed as Perpl trigger orders (reduce-only, fire on mark price, linked to the position so Perpl cancels them when it closes). `400` if a price is on the wrong side of mark. A TP/SL firing closes the leader's position, so their mirrors close too |
@@ -427,9 +447,12 @@ Notes:
   - **Privy's policy lets the backend:** approve and deposit AUSD into Perpl up to
     `capAusd` per tx; make Nad.fun `buyWithNative` calls up to `maxBuyMon` per buy,
     with tokens delivered to the member; make Nad.fun `sellToNative` calls with
-    proceeds to the member; and approve tokens to the Nad.fun router.
-  - **Privy refuses everything else:** withdrawals, transfers out, a buy or sell
-    routed to anyone else, `createAccount`, `allowOrderForwarding`, and signing
+    proceeds to the member; and approve tokens to the Nad.fun router. It can also make
+    Kuru Flow `executeSwap` AUSD→MON up to `capAusd` and MON→AUSD, both with zero fees
+    and output to the member, and approve AUSD to Kuru up to `capAusd`.
+  - **Privy refuses everything else:** withdrawals, transfers out, a buy, sell or
+    swap routed to anyone else (including Kuru's `executeSwapWithReceiver`), swaps
+    carrying any fee, `createAccount`, `allowOrderForwarding`, and signing
     Perpl key enrollments.
   - Those last three are the member's own one-time setup, signed in the browser via
     `/v1/perpl/setup` actions and the enrollment challenge.

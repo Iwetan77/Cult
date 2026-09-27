@@ -42,6 +42,7 @@ export interface Fill {
   orderId?: number;
   requestId?: number;
   txHash?: string | null;
+  extraTxs?: string[]; // approvals / swaps that were part of this trade
 }
 
 export interface Holding {
