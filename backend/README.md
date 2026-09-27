@@ -55,6 +55,7 @@ Run `npm run preflight` on every new host, and before switching networks. It che
 | `PRIVY_APP_ID`, `PRIVY_APP_SECRET` | Verifies Privy access tokens, looks up embedded wallets, creates policies |
 | `PRIVY_BACKEND_AUTH_KEY`, `PRIVY_BACKEND_KEY_QUORUM_ID` | The backend's own Privy signer (P-256), added to member wallets under policy |
 | `INDEXER_API_KEY` | Shared secret for `/v1/indexer/*` |
+| `INDEXER_GRAPHQL_URL` (+ `INDEXER_GRAPHQL_SECRET`) or `INDEXER_PG_URL` (+ `INDEXER_PG_SCHEMA`) | Where member track records come from: the indexer's GraphQL (Hasura, e.g. Envio Cloud), or its Postgres directly when it runs without Hasura. Use a read-only Postgres user. Unset = members show as unverified |
 | `MIRROR_OPT_OUT_SECONDS` | Skip window before a mirror fires (provisional: 20) |
 | `CORS_ORIGINS`, `PUBLIC_APP_URL` | Frontend origin(s), and the base for share links |
 | `NADFUN_PAY_WITH` | `ausd` (swap via Kuru Flow; default on mainnet) or `mon` (default on testnet) |
