@@ -36,7 +36,16 @@ on `PORT` (default `8787`). All routes are under `/v1`.
    - Deposit **AUSD directly**.
    - Pay with **USDC**, which the backend swaps to AUSD behind the scenes via Kuru
      (mainnet). The Kuru path is built but not proven; see blocker 1.
-3. **Gates that need live funds are deferred.** The product owner has no testnet or
+3. **Gate status.**
+   - **Passed with real transactions:**
+     - Spike C: a real Nad.fun buy and sell.
+     - Phase 3: Privy's policy engine, 17 refusals and 6 allows.
+     - The **Nad.fun half of Phase 4**: 3 fresh testnet wallets. A's own buy was picked
+       up by the router watcher, B and C mirrored from their own MON (C clamped by
+       `balancePercentCap`), and A's full exit made B and C sell out to a 0 balance
+       on-chain. Run it with `npm run e2e:phase4-nadfun`.
+   - **Deferred, needing Perpl testnet AUSD or mainnet USDC:** these are marked "not run",
+     never "passed". The product owner has no testnet or
    mainnet funds right now, so the affected gates will be run later:
    - Spike B (Perpl order via delegated key)
    - Phase 1 (both venues end to end)
