@@ -13,7 +13,9 @@ import { members } from '../store/members.js';
 import { venue as defaultVenue, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
 import { isEngineOrder, isEngineTx, recordRef } from './origin.js';
 import { mirrors, trades, type LeaderTrade, type Mirror } from './repo.js';
-import { mirrorNotional } from './sizing.js';
+import { leaderDollarFraction, mirrorNotional } from './sizing.js';
+import { erc20Abi } from '../chain/exchange.js';
+import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
 
 // Perpl position status reasons that mean "a new position now exists".
 const SR_OPENED = 21;
@@ -148,9 +150,21 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     if (t.side === 'buy') {
       if (open) return; // adding to a holding they already lead with isn't a new trade
       const monPx = await monPriceAusd();
-      // Share of their MON this buy used, from the balance just before it.
-      const before = await rpc().getBalance(t.wallet, t.blockNumber - 1).catch(() => 0n);
-      const fraction = before > 0n ? Number((t.monAmount * 1_000_000n) / before) / 1_000_000 : 0;
+      const spentUsd = Number(ethers.formatEther(t.monAmount)) * monPx;
+      // Share of their spendable dollars this buy used, just before it.
+      const tag = t.blockNumber - 1;
+      const { collateralToken, collateralDecimals } = await getExchangeInfo();
+      const [monBeforeWei, ausdBeforeRaw] = await Promise.all([
+        rpc().getBalance(t.wallet, tag).catch(() => 0n),
+        new ethers.Contract(collateralToken, erc20Abi, rpc()).getFunction('balanceOf')(t.wallet, { blockTag: tag }).catch(() => 0n) as Promise<bigint>,
+      ]);
+      const fraction = leaderDollarFraction({
+        spentUsd,
+        ausdBeforeUsd: Number(ethers.formatUnits(ausdBeforeRaw, collateralDecimals)),
+        monBeforeWei,
+        reserveWei: GAS_RESERVE_WEI,
+        monPx,
+      });
       const tokens = Number(ethers.formatEther(t.tokenAmount));
       await this.leaderOpened({
         venue: 'nadfun',
@@ -158,9 +172,9 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         market: t.token,
         side: 'buy',
         sizeRaw: t.tokenAmount.toString(),
-        entryPriceAusd: tokens > 0 ? (Number(ethers.formatEther(t.monAmount)) * monPx) / tokens : null,
+        entryPriceAusd: tokens > 0 ? spentUsd / tokens : null,
         leverageHundredths: 100,
-        marginFraction: Math.min(fraction, 1),
+        marginFraction: fraction,
         openTx: t.txHash,
       });
       return;
@@ -224,14 +238,18 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   async closeTrade(trade: LeaderTrade) {
     trades.markClosed(trade.id);
     this.emit('tradeClosed', { ...trade, closedAt: Date.now() });
+    const toClose: Mirror[] = [];
     for (const m of mirrors.forTrade(trade.id)) {
       if (m.status === 'pending') {
         this.unschedule(m.id);
         this.emit('mirror', mirrors.transition(m.id, 'pending', 'cancelled', { error: 'leader closed before mirror fired' })!);
       } else if (m.status === 'open') {
-        await this.closeMirror(m, trade);
+        toClose.push(m);
       }
     }
+    // Each follower is their own wallet/account, so unwind them in parallel:
+    // the last follower shouldn't exit later just because of the clan's size.
+    await Promise.all(toClose.map((m) => this.closeMirror(m, trade)));
   }
 
   skip(mirrorId: string, userId: string): Mirror {
@@ -313,8 +331,15 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   }
 
   private async closeMirror(m: Mirror, trade: LeaderTrade) {
+    const adapter = this.venue(trade.venue);
+    // If the member already got out on their own, there's nothing to unwind.
+    const held = await adapter.holdings(m.userId, [trade.market]).catch(() => null);
+    if (held && held.length === 0) {
+      this.emit('mirror', mirrors.transition(m.id, 'open', 'closed', { error: 'member had already exited this position' })!);
+      return;
+    }
     try {
-      const fill = await this.venue(trade.venue).close({
+      const fill = await adapter.close({
         userId: m.userId,
         market: trade.market,
         sizeRaw: m.size ?? undefined,

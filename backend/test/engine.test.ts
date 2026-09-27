@@ -15,20 +15,25 @@ let origin: typeof import('../src/mirror/origin.js');
 
 const opens: { venue: string; userId: string; market: string; notionalAusd: number; leverage?: number }[] = [];
 const closes: { venue: string; userId: string; market: string; sizeRaw?: string }[] = [];
+const holding = new Set<string>(); // `${venue}:${user}:${market}` currently held
 let n = 0;
 const fake = (v: 'perpl' | 'nadfun', balances: Record<string, number>) => ({
   venue: v,
   async open(i: any) {
     opens.push({ venue: v, userId: i.userId, market: i.market, notionalAusd: i.notionalAusd, leverage: i.leverage });
+    holding.add(`${v}:${i.userId}:${i.market}`);
     const ref = v === 'perpl' ? { rq: ++n, accountId: 1000 + n } : { txHash: `0x${(++n).toString(16).padStart(64, '0')}`, wallet: '0xabc' };
     i.onRef?.(ref);
     return { venue: v, market: i.market, side: i.side, sizeRaw: String(Math.round(i.notionalAusd * 1000)), size: i.notionalAusd, priceAusd: 1, notionalAusd: i.notionalAusd, txHash: (ref as any).txHash ?? null, orderId: n };
   },
   async close(i: any) {
     closes.push({ venue: v, userId: i.userId, market: i.market, sizeRaw: i.sizeRaw });
+    holding.delete(`${v}:${i.userId}:${i.market}`);
     return { venue: v, market: i.market, side: 'long', sizeRaw: i.sizeRaw ?? '0', size: 0, priceAusd: 1, notionalAusd: 0, orderId: ++n };
   },
-  async holdings() { return []; },
+  async holdings(userId: string, markets: string[] = []) {
+    return markets.filter((m) => holding.has(`${v}:${userId}:${m}`)).map((m) => ({ venue: v, market: m }) as any);
+  },
   async freeBalanceAusd(userId: string) { return balances[userId] ?? 0; },
   async markPriceAusd() { return 1; },
   async maxLeverage() { return v === 'perpl' ? 10 : 1; },
@@ -113,4 +118,18 @@ test('dust mirrors are refused, not fired', async () => {
 test('a member outside any clan is not a leader', async () => {
   members.upsert('Z', '0x' + '9'.repeat(40));
   assert.equal(await engine.leaderOpened({ venue: 'perpl', userId: 'Z', market: '16', side: 'long', sizeRaw: '1', entryPriceAusd: 1, leverageHundredths: 100, marginFraction: 0.1 }), null);
+});
+
+test('a mirror the member already sold on their own is closed without a trade', async () => {
+  const t = await engine.leaderOpened({ venue: 'perpl', userId: 'A', market: '32', side: 'short', sizeRaw: '5', entryPriceAusd: 1, leverageHundredths: 200, marginFraction: 0.05 });
+  await wait(400);
+  const b = mirrors.forTrade(t!.id).find((m) => m.userId === 'B')!;
+  assert.equal(b.status, 'open');
+  holding.delete(`perpl:B:32`); // B exits by hand, outside the engine
+  const before = closes.length;
+  await engine.closeTrade(trades.get(t!.id)!);
+  const after = mirrors.get(b.id)!;
+  assert.equal(after.status, 'closed');
+  assert.match(after.error!, /already exited/);
+  assert.ok(!closes.slice(before).some((c) => c.userId === 'B'), 'no close order sent for B');
 });

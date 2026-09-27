@@ -96,3 +96,16 @@ export function sizeMirror(i: SizingInput): SizingResult {
 
   return { ok: true, leverage, marginUsd, notionalUsd, size, sizeScaled, capsApplied: caps.length ? caps : ['none'] };
 }
+
+// What share of a Nad.fun leader's spendable money a buy used, in dollars.
+// Measured against everything they could have spent just before it (wallet
+// AUSD + MON above the gas reserve). With memes paid in dollars the AUSD is
+// swapped to MON a moment before the buy, so "MON spent / MON held" would read
+// ~100%; the dollar total is the same before and after that swap, so this is
+// right in both payment modes.
+export function leaderDollarFraction(i: { spentUsd: number; ausdBeforeUsd: number; monBeforeWei: bigint; reserveWei: bigint; monPx: number }): number {
+  const spendableMon = i.monBeforeWei > i.reserveWei ? i.monBeforeWei - i.reserveWei : 0n;
+  const totalUsd = i.ausdBeforeUsd + (Number(spendableMon) / 1e18) * i.monPx;
+  if (!(totalUsd > 0) || !(i.spentUsd > 0)) return 0;
+  return Math.min(1, i.spentUsd / totalUsd);
+}
