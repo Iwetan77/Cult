@@ -101,4 +101,13 @@ if (JSON.stringify(updated.myPolicy) !== JSON.stringify(newPolicy)) throw new Er
 if (!polCh.message.startsWith('Update my mirror policy')) throw new Error('policy consent text wrong');
 await call('leave clan', 'POST', `/v1/clans/${clan.id}/leave`, auth(bob, 'bob'));
 await call('chart after leaving', 'GET', `/v1/clans/${clan.id}/chart`, auth(bob, 'bob'));
+// Rate limits: a burst of order calls from one member is cut off with Retry-After.
+const carol = ethers.Wallet.createRandom();
+let limitedRes: Response | undefined;
+for (let i = 0; i < 30 && !limitedRes; i++) {
+  const r = await app.request('/v1/positions/close', { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth(carol, 'carol') }, body: '{}' });
+  if (r.status === 429) limitedRes = r;
+}
+if (!limitedRes?.headers.get('Retry-After')) throw new Error('order burst was not rate limited');
+console.log(`\n### order burst\n-> 429 after the per-minute trade limit, Retry-After ${limitedRes.headers.get('Retry-After')}s: ${await limitedRes.text()}`);
 process.exit(0);
