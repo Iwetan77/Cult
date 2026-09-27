@@ -65,3 +65,7 @@
 .discovery-body{display:block;max-width:850px}.discovery-list{width:100%}
 @media(max-width:1050px){.room-screen{grid-column:2 / 4}.group-side{grid-column:2 / 4;grid-row:3;max-height:none;border-left:0;border-top:1px solid var(--line)}.group-side-body{max-width:800px}.group-side .chart-stage{height:300px}}
 @media(max-width:650px){.room-screen{min-height:calc(100dvh - 145px)}.room-screen .chat-panel{padding:16px}.chat-log{max-height:calc(100dvh - 375px);min-height:210px}.group-side{max-height:none}.group-side-head{padding:18px 16px}}
+
+.discovery-tabs{display:flex;gap:8px;padding:20px 36px 0;border-bottom:1px solid var(--line)}.discovery-tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:9px 12px;color:var(--muted);font-size:12px}.discovery-tabs button.active{border-color:var(--green);color:var(--text)}.rankings-embedded .screen-head{border:0;padding-top:24px}.rankings-embedded .screen-head h1{font-size:20px}.ranking-person{border:0;background:none;padding:0;color:var(--text);text-align:left;font-size:12px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ranking-person:hover:not(:disabled){color:var(--green)}.ranking-person:disabled{opacity:1;cursor:default}@media(max-width:650px){.discovery-tabs{padding:14px 16px 0}}
+
+.group-signer-alert{margin:0 15px 18px;padding:13px;background:#38312c;border:1px solid #66513c;border-radius:8px}.group-signer-alert p{font-size:11px;color:#e8c9a6;line-height:1.5;margin:0 0 8px}

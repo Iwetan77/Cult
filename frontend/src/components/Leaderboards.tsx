@@ -7,9 +7,9 @@ import type { CultStanding, Leaderboard } from '@/lib/contracts';
 import { dollars, percent, shortAddress, signedDollars } from '@/lib/format';
 
 type Tab = 'global' | 'country' | 'cult' | 'cults';
-type Props = { country: { code: string; name: string } | null; cultId: string | null };
+type Props = { country: { code: string; name: string } | null; cultId: string | null; embedded?: boolean; onProfile?: (memberId: string) => void };
 
-export function Leaderboards({ country, cultId }: Props) {
+export function Leaderboards({ country, cultId, embedded = false, onProfile }: Props) {
   const [tab, setTab] = useState<Tab>('global');
   const [board, setBoard] = useState<Leaderboard | null>(null);
   const [cults, setCults] = useState<CultStanding[]>([]);
@@ -46,7 +46,7 @@ export function Leaderboards({ country, cultId }: Props) {
 
   const visible = board?.entries.filter(entry => entry.memberId !== board.me?.memberId) ?? [];
 
-  return <main className="full-workspace rankings">
+  return <section className={embedded ? 'rankings rankings-embedded' : 'full-workspace rankings'}>
     <div className="screen-head"><div><span className="eyebrow">VERIFIED OWN TRADES</span><h1>Leaderboards</h1></div><span className="rankings-count">{board ? `${board.rankedCount} ranked / ${board.memberCount} members` : ''}</span></div>
     <div className="ranking-tabs" role="tablist" aria-label="Leaderboard scope">
       {([['global', 'Global'], ['country', 'My country'], ['cult', 'This Cult'], ['cults', 'Cults']] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}
@@ -58,10 +58,10 @@ export function Leaderboards({ country, cultId }: Props) {
       </div> : <p className="field-note">No public Cult has a verified closed trade yet.</p> : board ? <>
         <div className="ranking-table">
           <div className="ranking-header"><span>RANK / TRADER</span><span>OWN PNL</span><span>WIN RATE</span><span>TRADES</span></div>
-          {visible.length ? visible.map(entry => <div className="ranking-row" key={entry.memberId}><div><span className="rank-number">{entry.rank}</span><strong>{entry.name}</strong><small>{entry.country ?? '—'} · {shortAddress(entry.address)}{entry.copiedTradeCount > 0 ? ` · +${entry.copiedTradeCount} copied` : ''}</small></div><b className={entry.realizedPnlUsd >= 0 ? 'positive' : 'negative'}>{signedDollars(entry.realizedPnlUsd)}</b><span>{entry.winRate == null ? '—' : percent(entry.winRate * 100)}</span><span>{entry.tradeCount}</span></div>) : <p className="field-note">No verified closed trades yet.</p>}
+          {visible.length ? visible.map(entry => <div className="ranking-row" key={entry.memberId}><div><span className="rank-number">{entry.rank}</span><button className="ranking-person" onClick={() => onProfile?.(entry.memberId)} disabled={!onProfile}>{entry.name}</button><small>{entry.country ?? '—'} · {shortAddress(entry.address)}{entry.copiedTradeCount > 0 ? ` · +${entry.copiedTradeCount} copied` : ''}</small></div><b className={entry.realizedPnlUsd >= 0 ? 'positive' : 'negative'}>{signedDollars(entry.realizedPnlUsd)}</b><span>{entry.winRate == null ? '—' : percent(entry.winRate * 100)}</span><span>{entry.tradeCount}</span></div>) : <p className="field-note">No verified closed trades yet.</p>}
         </div>
         {board.me && <div className="ranking-me"><span className="tiny-label">YOU</span><div className="ranking-row"><div><span className="rank-number">{board.me.rank ?? '—'}</span><strong>{board.me.name}</strong><small>{shortAddress(board.me.address)}{board.me.copiedTradeCount > 0 ? ` · +${board.me.copiedTradeCount} copied` : ''}</small></div><b className={board.me.realizedPnlUsd >= 0 ? 'positive' : 'negative'}>{board.me.rank == null ? dollars(null) : signedDollars(board.me.realizedPnlUsd)}</b><span>{board.me.winRate == null ? '—' : percent(board.me.winRate * 100)}</span><span>{board.me.tradeCount}</span></div>{board.me.rank == null && <p className="field-note">Unranked: needs a verified closed trade.</p>}</div>}
       </> : <p className="field-note">Rankings are unavailable.</p>}
     </div>
-  </main>;
+  </section>;
 }

@@ -10,7 +10,7 @@ import { SharedChart } from './SharedChart';
 
 type Props = {
   room: ChatRoom; cult: Clan | null; config: BackendConfig | null; snapshot: ChartSnapshot | null;
-  selected: ChartMarker | null; busy: boolean;
+  selected: ChartMarker | null; busy: boolean; signerPrompt: string | null; onGrantSigner: () => void;
   onFollowOn: (policy: MirrorPolicy) => Promise<void>; onFollowOff: () => Promise<void>;
   onMarket: (marketId: string) => void; onMarker: (marker: ChartMarker) => void; onOpenTrade: () => void;
   onGuideDrop: (marker: ChartMarker, kind: 'takeProfit' | 'stopLoss', price: number) => void;
@@ -35,7 +35,7 @@ function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: str
   return <div className="room-ranking">{error ? <p className="wallet-warning">{error}</p> : !board ? <p className="field-note">Loading rankings...</p> : board.entries.length ? board.entries.slice(0, 8).map(entry => <button key={entry.memberId} className="room-rank-row" onClick={() => onProfile(entry.memberId)}><span className="rank-number">{entry.rank}</span><span><strong>{entry.name}</strong><small>{entry.copiedTradeCount ? `+${entry.copiedTradeCount} copied · ` : ''}{entry.winRate == null ? '—' : percent(entry.winRate * 100)} win rate</small></span><b className={entry.realizedPnlUsd >= 0 ? 'positive' : 'negative'}>{signedDollars(entry.realizedPnlUsd)}</b></button>) : <p className="field-note">No verified closed trades yet.</p>}</div>;
 }
 
-export function GroupPanel({ room, cult, config, snapshot, selected, busy, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile }: Props) {
+export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile }: Props) {
   const [tab, setTab] = useState<'positions' | 'stats' | 'members' | 'settings'>('positions');
   const [followSheet, setFollowSheet] = useState(false);
   const [maxUsd, setMaxUsd] = useState('');
@@ -66,6 +66,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, onFol
   return <aside className="group-side">
     <div className="group-side-head"><span className="eyebrow">CULT</span><h2>{cult.name}</h2><span className="group-member-count">{cult.memberCount} members</span></div>
     <div className="follow-control"><label className="switch-row"><span><strong>Auto-follow</strong><small>Copy trades from this cult into your wallet</small></span><input type="checkbox" checked={cult.autoFollow} disabled={busy} onChange={event => { if (event.target.checked) openFollowSheet(); else void onFollowOff(); }} /></label></div>
+    {cult.autoFollow && signerPrompt && <div className="group-signer-alert"><p>{signerPrompt}. Nad.fun copies cannot run until your wallet confirms the signer.</p><button className="outline full" disabled={busy} onClick={onGrantSigner}><ShieldCheck size={14} /> Approve signer</button></div>}
     {followSheet && <div className="follow-sheet"><div className="home-section-head"><h3>Set your limits</h3><button className="icon-button compact" title="Close" onClick={() => setFollowSheet(false)}><X size={14} /></button></div><label className="field-label" htmlFor="follow-usd">MAX $ PER TRADE</label><input id="follow-usd" type="number" min="1" value={maxUsd} onChange={event => setMaxUsd(event.target.value)} /><label className="field-label" htmlFor="follow-percent">MAX % OF BALANCE</label><input id="follow-percent" type="number" min="1" max="100" value={balancePct} onChange={event => setBalancePct(event.target.value)} /><button className="primary full" disabled={busy} onClick={turnOn}><ShieldCheck size={15} /> Turn on</button>{error && <p className="wallet-warning">{error}</p>}</div>}
     <div className="group-side-tabs">{([['positions', 'Positions'], ['stats', 'Cult stats'], ['members', 'Members'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
     <div className="group-side-body">
