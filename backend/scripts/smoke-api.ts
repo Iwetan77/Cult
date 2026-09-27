@@ -147,6 +147,16 @@ console.log(`\n### the photo is served publicly\n-> ${img.status} ${img.headers.
 await call('a photo that lies about its type', 'POST', '/v1/me/avatar', auth(alice, 'alice'), { image: PNG1x1.replace('image/png', 'image/jpeg') });
 const gm = await call('chat shows the username + photo', 'POST', '/v1/chat/global/messages', auth(alice, 'alice'), { body: 'hi, new name' });
 if (gm.memberName !== 'iwetan' || !gm.memberAvatarUrl) throw new Error('chat identity missing');
+// Markets (public) and the deposit screen.
+const allMk = await call('all markets', 'GET', '/v1/markets?limit=5');
+if (!allMk.markets.length || !allMk.markets.every((m: any) => 'priceUsd' in m && 'symbol' in m)) throw new Error('markets shape');
+const found = await call('search markets', 'GET', '/v1/markets?q=btc');
+if (!found.markets.some((m: any) => m.symbol === 'BTC-PERP')) throw new Error('search missed BTC-PERP');
+const det = await call('one market with candles', 'GET', '/v1/markets/16?resolution=300');
+if (det.market.symbol !== 'BTC-PERP' || !Array.isArray(det.candles)) throw new Error('market detail shape');
+await call('unknown market', 'GET', '/v1/markets/99999');
+const dep = await call('deposit screen', 'GET', '/v1/wallet/deposit', auth(alice, 'alice'));
+if (dep.address !== alice.address || !dep.tokens.some((t: any) => t.symbol === 'MON')) throw new Error('deposit shape');
 // Home and profiles.
 const hm = await call('home feed', 'GET', '/v1/home', auth(alice, 'alice'));
 if (!Array.isArray(hm.topTrades) || typeof hm.sevenDay?.trades !== 'number') throw new Error('home shape');

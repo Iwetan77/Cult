@@ -24,7 +24,7 @@ import { members } from '../store/members.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
 import { UpstreamError } from '../http.js';
-import { balancesFor } from './balances.js';
+import { balancesFor, depositInfo } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
 import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, postSystem, roomsFor, setPin, type ChatMessage } from './chat.js';
@@ -32,6 +32,7 @@ import { countryName } from './countries.js';
 import { avatarUrl, displayName, usernameProblem } from './names.js';
 import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError, parsePeriod } from './leaderboards.js';
 import { home, profile, ProfileError, tradeView } from './profiles.js';
+import { listMarkets, marketDetail, MarketError } from './markets.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
@@ -98,6 +99,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
     if (err instanceof LeaderboardError) return c.json({ message: err.message }, err.status);
     if (err instanceof ProfileError) return c.json({ message: err.message }, err.status);
+    if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -145,6 +147,19 @@ export function createApp(engine: MirrorEngine) {
   });
 
   // Nad.fun tokens Cult can trade (MON-quoted only), for the market picker.
+  // Every market on both venues, searchable: ?q= (symbol, name, or a token
+  // address), ?venue=perpl|nadfun, ?limit=. Public, like any price list.
+  app.get('/v1/markets', async (c) => {
+    const venue = z.enum(['perpl', 'nadfun']).optional().catch(undefined).parse(c.req.query('venue'));
+    const limit = Number(c.req.query('limit') ?? 50) || 50;
+    return c.json({ markets: await listMarkets({ q: c.req.query('q') ?? undefined, venue, limit }) });
+  });
+  // One market: listing + candles (?resolution= seconds: 60, 300, 900, 3600, 14400, 86400).
+  app.get('/v1/markets/:id', async (c) => {
+    const resolution = z.coerce.number().int().catch(300).parse(c.req.query('resolution') ?? 300);
+    return c.json(await marketDetail(c.req.param('id'), [60, 300, 900, 1800, 3600, 14400, 86400].includes(resolution) ? resolution : 300));
+  });
+
   app.get('/v1/nadfun/markets', async (c) => {
     const order = z.enum(['latest_trade', 'market_cap', 'creation_time']).catch('latest_trade').parse(c.req.query('order'));
     const monPx = await monPriceAusd();
@@ -309,6 +324,9 @@ export function createApp(engine: MirrorEngine) {
       signer: await backendSignerStatus(userId).catch(() => ({ prepared: !!m.privyPolicyId, attached: null, policyCurrent: null })),
     });
   });
+
+  // The Deposit screen: your address + what you can send + what you hold.
+  authed.get('/wallet/deposit', async (c) => c.json(await depositInfo(c.get('userId'))));
 
   // Username: asked once at first sign-in (/v1/me.needsUsername), changeable later.
   authed.get('/usernames/:name', (c) => {
