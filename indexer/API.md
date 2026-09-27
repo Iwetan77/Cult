@@ -89,8 +89,8 @@ Batch (the shape the backend uses to fill a clan's members):
 query CultMemberStats($ids: [String!]!) {
   Trader(where: { id: { _in: $ids } }) {
     id
-    trades { openTx realizedPnlUsd isWin closedAt }
-    nadFunTrades { openTx realizedPnlMon isWin closedAt }
+    trades { openTx realizedPnlUsd isWin closedAt openedAt marketId symbol side entryPrice exitPrice }
+    nadFunTrades { openTx realizedPnlMon isWin closedAt openedAt token costMon proceedsMon }
   }
 }
 ```
@@ -103,6 +103,10 @@ query CultMemberStats($ids: [String!]!) {
   as "copied".
 - Self-hosted without Hasura, the backend reads the same rows from Postgres
   (`Trader`, `Trade`, `NadFunTrade`; `trader_id` is the wallet).
+- The price and cost fields feed profiles and the home feed:
+  - a return % per round trip: the Perpl price move in the trade's direction, or
+    Nad.fun proceeds / cost - 1;
+  - win streak and average win %.
 
 Real single-wallet response for `0xBdd51F3CBCC4890635c75453c93f8aB4C3e0A98A`
 (run against Monad testnet with `envio start`):
