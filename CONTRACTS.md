@@ -343,6 +343,12 @@ type ChartMarker = {
   mirrorStatus?: 'pending' | 'submitted' | 'filled';   // auto_mirror only
   skipUntil?: string;    // ISO, only while pending. Backend enforces it; the UI clock is a guide
   txHash?: string | null;
+  takeProfitPrice?: number | null;   // perpl: the owner's live TP (a real Perpl trigger order), $
+  stopLossPrice?: number | null;     // perpl: the owner's live SL, $
+  suggestions?: {                    // perpl: clan-mates' latest TP/SL suggestions (one per suggester)
+    id: string; markerId: string; tradeId: string; fromMemberId: string; fromName: string;
+    takeProfitPrice: number | null; stopLossPrice: number | null; createdAt: string;
+  }[];
 };
 
 type ChartSnapshot = {
@@ -401,6 +407,8 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/funding/usdc/prepare` | `{ amountUsdc: "25.5" }` | `FundingPlan = { id, expiresAt, requiredUsdc, minAusdOut, actions: WalletAction[] }`. The member sends the actions in order (approve USDC → Kuru FOK market buy → approve AUSD → `createAccount`/`depositCollateral`). `409` with a plain-English `message` when it can't work: on testnet (Kuru has no AUSD market there), or when Kuru's book is empty |
 | POST | `/v1/funding/usdc/confirm` | `{ planId, hashes: string[] }` | `{ planId, done, steps: [{ label, txHash, ok }], perplAccountId }`. Each hash is checked on-chain against the planned action |
 | POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage? }` | `Fill`. Perpl: side `long`/`short`, notional = margin x leverage. Nad.fun: side `buy`, spends `marginUsd` worth of MON, signed by the backend signer |
+| POST | `/v1/positions/tpsl` | `{ marketId, takeProfit?, stopLoss? }` ($ prices; `null` removes a leg, omitted keeps it) | `{ takeProfit, stopLoss }`. Perpl only. Placed as Perpl trigger orders (reduce-only, fire on mark price, linked to the position so Perpl cancels them when it closes). `400` if a price is on the wrong side of mark. A TP/SL firing closes the leader's position, so their mirrors close too |
+| POST | `/v1/clans/:clanId/markers/:markerId/suggest-tpsl` | `{ takeProfit?, stopLoss? }` | `201 Suggestion`. **Drag-to-suggest** on a clan-mate's Perpl marker. It's stored and pushed as SSE `suggestion`; only the owner can apply it, by sending the same numbers to `/v1/positions/tpsl` |
 | POST | `/v1/positions/close` | `{ marketId, sizeRaw? }` | `Fill`. Nad.fun sells the whole balance unless `sizeRaw` (token wei) is given |
 
 Notes:
@@ -508,6 +516,7 @@ chart payloads will replace it after the Phase 4 run on funded wallets.
 | `trade` | a new leader trade in this clan: `{ id, userId, accountId, marketId, side, positionId, size, entryPrice, leverage, marginFraction, openTx, openedAt, closedAt: null }` |
 | `trade_closed` | same shape, `closedAt` set |
 | `mirror` | a mirror changed: `{ id, tradeId, clanId, userId, status, skipUntil, marginUsd, notionalUsd, size, capApplied, openOid, openTx, closeOid, closeTx, error, … }` |
+| `suggestion` | a clan-mate suggested a TP/SL: the same shape as `ChartMarker.suggestions[]` |
 | `ping` | every 15s |
 
 Mirror `status` goes `pending → skipped | submitting → open → closed`. It can also

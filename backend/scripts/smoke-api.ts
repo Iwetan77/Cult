@@ -68,5 +68,16 @@ const txt = JSON.stringify(pub1) + JSON.stringify(pub2);
 if (leaks.length || txt.includes(clan.inviteCode) || txt.includes(clan.id)) throw new Error('share leaks clan identity: ' + leaks.join(','));
 if ('clanName' in pub1 || pub2.clanName !== 'night shift') throw new Error('clanName opt-in wrong');
 console.log('\nshare privacy check OK: no clan id/invite/members in public payloads; clanName only when opted in');
+// TP/SL
+await call('tpsl on a nad.fun market', 'POST', '/v1/positions/tpsl', auth(alice, 'alice'), { marketId: tokenForShare, takeProfit: 1 });
+await call('tpsl without a perpl account', 'POST', '/v1/positions/tpsl', auth(alice, 'alice'), { marketId: '16', takeProfit: 200000 });
+await call('suggest tpsl on a nad.fun marker', 'POST', `/v1/clans/${clan.id}/markers/trade:${seeded.id}/suggest-tpsl`, auth(bob, 'bob'), { takeProfit: 1 });
+const perplTrade = trades.insert({ id: 'smoke-perpl', venue: 'perpl', userId: 'did:privy:alice', accountId: 999, market: '16', side: 'long', positionId: 1, size: '100', entryPrice: 84000, leverage: 300, marginFraction: 0.1, openTx: null, openedAt: Date.now() });
+await call('suggest tpsl, nothing given', 'POST', `/v1/clans/${clan.id}/markers/trade:${perplTrade.id}/suggest-tpsl`, auth(bob, 'bob'), {});
+await call('suggest tpsl on a perpl marker', 'POST', `/v1/clans/${clan.id}/markers/trade:${perplTrade.id}/suggest-tpsl`, auth(bob, 'bob'), { takeProfit: 90000, stopLoss: 80000 });
+const pc = await call('chart shows the suggestion', 'GET', `/v1/clans/${clan.id}/chart?marketId=16`, auth(alice, 'alice'));
+const mk = pc.markers.find((m: any) => m.id === `trade:${perplTrade.id}`);
+console.log('perpl marker tp/sl fields:', JSON.stringify({ takeProfitPrice: mk?.takeProfitPrice, stopLossPrice: mk?.stopLossPrice, suggestions: mk?.suggestions }));
+if (!mk?.suggestions?.[0] || mk.suggestions[0].takeProfitPrice !== 90000) throw new Error('suggestion missing from chart');
 await call('skip with marker-style id', 'POST', `/v1/clans/${clan.id}/mirrors/mirror:does-not-exist/skip`, auth(bob, 'bob'));
 process.exit(0);

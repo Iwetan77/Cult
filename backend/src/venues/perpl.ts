@@ -2,6 +2,7 @@ import { restFor, sessionFor } from '../accounts/lifecycle.js';
 import { getExchangeInfo, getMarket, getTicker, maxLeverageHundredths, scale } from '../perpl/context.js';
 import { members } from '../store/members.js';
 import { closePosition, openPosition, viewPositions } from '../trading/positions.js';
+import { readTpSl, type TpSl } from '../trading/tpsl.js';
 import type { CloseInput, Fill, Holding, OpenInput, VenueAdapter } from './types.js';
 
 // Perpl: orders go over the member's trading session with their Perpl API key.
@@ -114,3 +115,16 @@ export const perpl: VenueAdapter = {
     return maxLeverageHundredths(await getMarket(Number(market))) / 100;
   },
 };
+
+// The member's live TP/SL on a Perpl market, read from Perpl's open orders
+// (untriggered trigger orders are listed there). Null legs = not set.
+export async function perplTpSl(userId: string, marketId: number): Promise<TpSl | null> {
+  if (!members.credentials(userId)) return null;
+  const rest = restFor(userId);
+  const [pos, orders] = await Promise.all([rest.positions(), rest.openOrders()]);
+  const p = pos.d.find((x) => x.mkt === marketId);
+  if (!p) return null;
+  const m = await getMarket(marketId);
+  const { takeProfit, stopLoss } = readTpSl(orders.d, marketId, p.sd, m.config.price_decimals);
+  return { takeProfit, stopLoss };
+}

@@ -164,6 +164,19 @@ function migrate(d: DatabaseSync) {
       created_at   INTEGER NOT NULL
     );
 
+    -- "Drag to suggest": a clan-mate proposes a TP/SL on someone's Perpl
+    -- marker. Only the owner can turn it into real trigger orders.
+    CREATE TABLE IF NOT EXISTS tpsl_suggestions (
+      id           TEXT PRIMARY KEY,
+      clan_id      TEXT NOT NULL REFERENCES clans(id),
+      trade_id     TEXT NOT NULL REFERENCES leader_trades(id),
+      marker_id    TEXT NOT NULL,
+      from_user    TEXT NOT NULL REFERENCES members(user_id),
+      take_profit  REAL,
+      stop_loss    REAL,
+      created_at   INTEGER NOT NULL
+    );
+
     -- How far the Nad.fun router log watcher has read.
     CREATE TABLE IF NOT EXISTS cursors (
       name  TEXT PRIMARY KEY,
