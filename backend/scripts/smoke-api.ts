@@ -130,6 +130,23 @@ const pin = await call('the owner pins it', 'POST', `/v1/chat/${encodeURICompone
 if (pin.pinned?.id !== pinMsg.id) throw new Error('pin not set');
 const fr = await call('rooms carry latest activity', 'GET', '/v1/chat/rooms', auth(frank, 'frank'));
 if (!fr.rooms.every((r: any) => 'lastMessage' in r && typeof r.memberCount === 'number')) throw new Error('room list shape');
+// Usernames and photos.
+const me0 = await call('me before a username', 'GET', '/v1/me', auth(alice, 'alice'));
+if (me0.needsUsername !== true) throw new Error('should ask for a username');
+await call('bad username', 'GET', '/v1/usernames/7x', auth(alice, 'alice'));
+await call('is iwetan free?', 'GET', '/v1/usernames/iwetan', auth(alice, 'alice'));
+await call('take it', 'POST', '/v1/me/username', auth(alice, 'alice'), { username: 'iwetan' });
+await call('someone else wants it (any case)', 'POST', '/v1/me/username', auth(bob, 'bob'), { username: 'IWETAN' });
+const me1 = await call('me after', 'GET', '/v1/me', auth(alice, 'alice'));
+if (me1.name !== 'iwetan' || me1.needsUsername !== false) throw new Error('username not applied');
+const PNG1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const av = await call('upload a photo', 'POST', '/v1/me/avatar', auth(alice, 'alice'), { image: PNG1x1 });
+const img = await app.request(av.avatarUrl);
+if (img.status !== 200 || img.headers.get('content-type') !== 'image/png') throw new Error(`avatar not served: ${img.status}`);
+console.log(`\n### the photo is served publicly\n-> ${img.status} ${img.headers.get('content-type')} ${img.headers.get('cache-control')}`);
+await call('a photo that lies about its type', 'POST', '/v1/me/avatar', auth(alice, 'alice'), { image: PNG1x1.replace('image/png', 'image/jpeg') });
+const gm = await call('chat shows the username + photo', 'POST', '/v1/chat/global/messages', auth(alice, 'alice'), { body: 'hi, new name' });
+if (gm.memberName !== 'iwetan' || !gm.memberAvatarUrl) throw new Error('chat identity missing');
 // Home and profiles.
 const hm = await call('home feed', 'GET', '/v1/home', auth(alice, 'alice'));
 if (!Array.isArray(hm.topTrades) || typeof hm.sevenDay?.trades !== 'number') throw new Error('home shape');

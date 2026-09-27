@@ -5,6 +5,7 @@ import { members } from '../store/members.js';
 import { countryName } from './countries.js';
 import { shortName } from './names.js';
 import { clanBus } from './suggestions.js';
+import { nameOf, avatarOf } from './names.js';
 
 // Chat rooms, pushed live over SSE:
 //   "global"        everyone on Cult
@@ -19,7 +20,9 @@ export interface ChatMessage {
   clanId: string | null; // set for cult rooms (kept for the cult chat's existing clients)
   memberId: string;
   memberName: string;
+  memberAvatarUrl: string | null;
   body: string;
+  text: string; // what to show: the body, or for a system notice "<name> <body>"
   replyTo: string | null;
   markerId: string | null;
   createdAt: string; // ISO
@@ -49,7 +52,10 @@ const toApi = (r: Row): ChatMessage => ({
   kind: r.kind === 'system' ? 'system' : 'text',
   clanId: r.room.startsWith('cult:') ? r.room.slice(5) : null,
   memberId: r.user_id,
-  memberName: shortName(members.get(r.user_id)?.wallet ?? r.user_id),
+  memberName: nameOf(r.user_id),
+  memberAvatarUrl: avatarOf(r.user_id),
+  // System notices read as a sentence with the member's name: "iwetan joined the cult".
+  text: r.kind === 'system' ? `${nameOf(r.user_id)} ${r.body}` : r.body,
   body: r.body,
   replyTo: r.reply_to,
   markerId: r.marker_id,
@@ -89,6 +95,7 @@ export interface ChatRoom {
   id: string;
   kind: 'global' | 'country' | 'cult';
   name: string;
+  icon: string; // 🌍 for Global, the country's flag, or the cult's first letter
   memberCount: number;
   lastMessage: ChatMessage | null; // for the "your groups" list: latest line and when
 }
@@ -107,12 +114,20 @@ function lastMessage(room: string): ChatMessage | null {
 
 // The rooms a member is in, for the chat list: global, their country, their cults.
 export function roomsFor(userId: string): ChatRoom[] {
-  const base: Omit<ChatRoom, 'memberCount' | 'lastMessage'>[] = [{ id: 'global', kind: 'global', name: 'Global' }];
+  const base: Omit<ChatRoom, 'memberCount' | 'lastMessage' | 'icon'>[] = [{ id: 'global', kind: 'global', name: 'Global' }];
   const cc = members.get(userId)?.country;
   const cn = cc ? countryName(cc) : null;
   if (cc && cn) base.push({ id: `country:${cc}`, kind: 'country', name: cn });
   for (const c of clans.forUser(userId)) base.push({ id: cultRoom(c.id), kind: 'cult', name: c.name });
-  return base.map((r) => ({ ...r, memberCount: roomMemberCount(r.id), lastMessage: lastMessage(r.id) }));
+  return base.map((r) => ({ ...r, icon: roomIcon(r), memberCount: roomMemberCount(r.id), lastMessage: lastMessage(r.id) }));
+}
+
+// Regional-indicator letters make the flag emoji: NG -> 🇳🇬.
+const flag = (cc: string) => String.fromCodePoint(...[...cc.toUpperCase()].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
+function roomIcon(r: { id: string; kind: string; name: string }): string {
+  if (r.kind === 'global') return '🌍';
+  if (r.kind === 'country') return flag(r.id.slice(8));
+  return (r.name.trim()[0] ?? '?').toUpperCase();
 }
 
 // A room event, not something a member typed: "joined the cult", "opened BTC-PERP

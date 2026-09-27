@@ -13,6 +13,7 @@ import type { TpSl } from '../trading/tpsl.js';
 import { shortName } from './names.js';
 import { suggestionsFor, type TpSlSuggestion } from './suggestions.js';
 import { statsFor, type MemberStats } from '../indexer/stats.js';
+import { avatarOf, nameOf } from './names.js';
 
 // Shapes follow frontend/src/lib/contracts.ts (ChartSnapshot, ChartMarker, ...)
 // and are published in CONTRACTS.md. Every money figure is in dollars (settled
@@ -79,7 +80,7 @@ export interface ChartSnapshot {
   markers: ChartMarker[];
   // Track record from the indexer (verified on-chain history). Unverified =
   // the indexer hasn't seen this wallet or isn't reachable: nulls, not zeros.
-  members: ({ id: string; name: string; address: string; winRate: number | null; realizedPnlUsd: number | null; tradeCount: number; verified: boolean } & {
+  members: ({ id: string; name: string; avatarUrl: string | null; address: string; winRate: number | null; realizedPnlUsd: number | null; tradeCount: number; verified: boolean } & {
     stats: MemberStats;
   })[];
   asOf: string;
@@ -216,7 +217,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
     );
   }
 
-  const name = (uid: string) => shortName(members.get(uid)?.wallet ?? uid);
+  const name = (uid: string) => nameOf(uid);
   // Value one member's slice of their holding. `sizeRaw` is how much of it this
   // marker accounts for; `costAusd` is what that slice cost, when we know it.
   const slice = (uid: string, sizeRaw: string | null, entryPrice: number | null) => sliceOf(v, live.get(uid), sizeRaw, entryPrice);
@@ -313,6 +314,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
       return {
         id: r.userId,
         name: name(r.userId),
+        avatarUrl: avatarOf(r.userId),
         address,
         winRate: st.winRate,
         realizedPnlUsd: st.realizedPnlUsd,
