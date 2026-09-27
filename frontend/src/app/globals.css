@@ -32,3 +32,5 @@
 @media(max-width:650px){.ranking-tabs{padding:0 7px}.ranking-tabs button{padding:12px 9px;font-size:11px}.ranking-content{padding:14px 10px 60px}.ranking-header,.ranking-row{grid-template-columns:minmax(175px,1fr) 105px 80px 50px}}
 
 .wallet-pill,.deposit-address,.rail-footer>span:last-child,#invite-code,.position-row strong,.position-meta,.stat-pair strong,.pnl-block strong,.market-symbol,.chart-updated,.member-stats strong,.member-venues strong,.member-copied,.holding-row strong,.holding-row small,.funding-quote strong,.result-value,.result-bottom,.ranking-row b,.ranking-row .rank-number,.ranking-row>span,.rankings-count,.chat-meta time,.chart-guide{font-family:var(--font-mono),monospace;font-variant-numeric:tabular-nums}
+
+.login-actions{display:flex;gap:10px;flex-wrap:wrap}.login-actions .outline.large{padding:13px 17px;font-size:13px}.button-spinner{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:button-spin .75s linear infinite}@keyframes button-spin{to{transform:rotate(360deg)}}

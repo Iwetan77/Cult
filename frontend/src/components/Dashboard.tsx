@@ -40,6 +40,7 @@ export function Dashboard() {
   const { sendTransaction } = useSendTransaction();
   const { addSigners } = useSigners();
   const { fundWallet } = useFundWallet();
+  const [pendingLogin, setPendingLogin] = useState<'google' | 'wallet' | null>(null);
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [grant, setGrant] = useState<PrivySignerGrant | null>(null);
@@ -95,6 +96,16 @@ export function Dashboard() {
   const signerReady = me?.signer.attached === true && me.signer.policyCurrent === true;
   const signerUnknown = me?.signer.attached == null || me.signer.policyCurrent == null;
   const signerPrompt = !clanId || signerReady ? null : me?.signer.attached === false ? 'Allow Cult to copy trades for you' : me?.signer.policyCurrent === false ? 'Re-approve your new limits' : 'Signer status unavailable. Retry shortly.';
+  useEffect(() => {
+    if (!ready || !pendingLogin || authenticated) return;
+    const method = pendingLogin;
+    setPendingLogin(null);
+    login({ loginMethods: [method] });
+  }, [ready, pendingLogin, authenticated, login]);
+  const requestLogin = (method: 'google' | 'wallet') => {
+    if (ready) login({ loginMethods: [method] });
+    else setPendingLogin(method);
+  };
   useEffect(() => {
     if (!clanId || policyDraftClanId === clanId) return;
     const current = me?.clans.find(item => item.id === clanId);
@@ -528,7 +539,7 @@ export function Dashboard() {
     setNotice('Invite link copied.');
   };
 
-  if (!ready || !authenticated) return <main className="login-screen"><div className="login-brand">CULT<span>.</span></div><div className="login-main"><p className="eyebrow">CULTS / MONAD</p><h1>Trade together.<br />Own every move.</h1><p>One chart for your cult’s live positions across Perpl and Nad.fun. Your wallet, your funds, your trades.</p><button className="primary large" onClick={login} disabled={!ready}>{ready ? 'Enter with your wallet' : 'Connecting…'} <ArrowRight size={17} /></button></div><div className="login-foot">PUBLIC + PRIVATE CULTS <span>•</span> NO SHARED CUSTODY</div></main>;
+  if (!ready || !authenticated) return <main className="login-screen"><div className="login-brand">CULT<span>.</span></div><div className="login-main"><p className="eyebrow">CULTS / MONAD</p><h1>Trade together.<br />Own every move.</h1><p>One chart for your cult’s live positions across Perpl and Nad.fun. Your wallet, your funds, your trades.</p><div className="login-actions"><button className="primary large" onClick={() => requestLogin('google')}>Continue with Google {pendingLogin === 'google' && <span className="button-spinner" aria-hidden="true" />}</button><button className="outline large" onClick={() => requestLogin('wallet')}>Connect wallet {pendingLogin === 'wallet' && <span className="button-spinner" aria-hidden="true" />}</button></div></div><div className="login-foot">PUBLIC + PRIVATE CULTS <span>•</span> NO SHARED CUSTODY</div></main>;
   if (!wallet) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><h1>Wallet setup</h1><p>Create your Privy trading wallet to fund and trade from your own account.</p><button className="primary" onClick={() => createWallet().catch(err => setError(errorText(err)))}>Create trading wallet</button></main>;
 if (!me && !error) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><p>Loading your cults…</p></main>;
 
