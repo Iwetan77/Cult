@@ -447,11 +447,14 @@ type ChartSnapshot = {
   markers: ChartMarker[];
   members: {
     id: string; name: string; address: string;
-    winRate: number | null;        // 0..1 across both venues; null = no closed trades or not verified
+    // OWN trades only (product decision 2026-09-27): round trips Cult opened for them
+    // (auto-mirrors, stacks) don't count here; they're in stats.copied.
+    winRate: number | null;        // 0..1 across both venues; null = no closed own trades or not verified
     realizedPnlUsd: number | null; // $: Perpl + Nad.fun (MON at stats.monPriceUsed)
     tradeCount: number; verified: boolean;   // verified = the indexer has this wallet's on-chain history
     stats: { verified: boolean; tradeCount: number; winRate: number | null; realizedPnlPerplUsd: number;
-             realizedPnlMon: number; realizedPnlUsd: number | null; monPriceUsed: number | null; lastTradeAt: number | null };
+             realizedPnlMon: number; realizedPnlUsd: number | null; monPriceUsed: number | null; lastTradeAt: number | null;
+             copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null } };  // show apart, e.g. +3 copied
   }[];
   asOf: string; autoMirrorOptOutWindowSeconds: number;
 };
@@ -475,8 +478,15 @@ type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number 
 **Member track record** comes from the indexer's GraphQL, set by `INDEXER_GRAPHQL_URL`
 (and optionally `INDEXER_GRAPHQL_SECRET` for Hasura), cached for 15s. The backend sends
 exactly:
-`query CultMemberStats($ids: [String!]!) { Trader(where: { id: { _in: $ids } }) { id tradeCount winRate realizedPnlUsd realizedPnlMon lastTradeAt } }`
-with lowercase wallet ids. **Confirmed by the indexer (2026-09-27):** `indexer/API.md`
+`query CultMemberStats($ids: [String!]!) { Trader(where: { id: { _in: $ids } }) { id trades { openTx realizedPnlUsd isWin closedAt } nadFunTrades { openTx realizedPnlMon isWin closedAt } } }`
+with lowercase wallet ids. Or the same rows over SQL with `INDEXER_PG_URL`.
+
+**Own trades only (2026-09-27).** The backend splits each member's round trips by
+their opening tx. If Cult sent it (in `engine_txs`, or a mirror's or stack's
+`open_tx`), the round trip is copied; otherwise it's their own. Only own round trips
+make the record. This was checked live on the indexed partial-sell run: the leader
+has 1 own trade, and both followers have 0 own and 1 copied. (An earlier version
+queried the `Trader` aggregates, which count everything.) **Confirmed by the indexer (2026-09-27):** `indexer/API.md`
 now uses this Hasura `where` form, and the same fields were checked against the live
 indexer's `Trader` table in Postgres for the four reference Nad.fun wallets. Still
 open: a **hosted GraphQL URL**. Hasura needs Docker (not available in either agent's
