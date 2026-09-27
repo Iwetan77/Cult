@@ -423,6 +423,9 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/clans` | `{ name, policy: MirrorPolicy }` | `201 Clan` |
 | POST | `/v1/clans/join/challenge` | `{ inviteCode, policy: MirrorPolicy }` | `{ challengeId, message }` |
 | POST | `/v1/clans/join` | `{ challengeId, signature }` | `Clan` |
+| POST | `/v1/clans/:clanId/policy/challenge` | `{ policy: MirrorPolicy }` | `{ challengeId, message }`. The message starts "Update my mirror policy in Cult clan …" and spells out the new caps |
+| POST | `/v1/clans/:clanId/policy` | `{ challengeId, signature }` | `Clan`. The same signed-consent rule as joining; the signed text is stored. If `maxUsdPerTrade` went up, call `GET /v1/privy/signer` again and `addSigners()` with the new `policyIds`, otherwise Privy keeps the old cap |
+| POST | `/v1/clans/:clanId/leave` | none | `204`. Your pending mirrors are cancelled. Mirrors already open still unwind when their leader exits, so nothing is orphaned |
 | GET | `/v1/clans/:clanId/chart?marketId=&resolution=` | none | `ChartSnapshot`. `marketId` is a Perpl id or a Nad.fun token. `resolution` is in seconds (60, 300, 900, 1800, 3600, 14400, 86400). `markets` = all Perpl markets plus the Nad.fun tokens the clan currently holds |
 | GET | `/v1/clans/:clanId/events` | none | SSE stream (below) |
 | POST | `/v1/clans/:clanId/mirrors/:mirrorId/skip` | none | `204`. `:mirrorId` may be the bare id or the chart marker id (`mirror:<id>`). `409` if not pending or the window has passed |

@@ -133,3 +133,14 @@ test('a mirror the member already sold on their own is closed without a trade', 
   assert.match(after.error!, /already exited/);
   assert.ok(!closes.slice(before).some((c) => c.userId === 'B'), 'no close order sent for B');
 });
+
+test('cancelPending (e.g. member left the clan) stops a mirror from firing', async () => {
+  const before = opens.length;
+  const t = await engine.leaderOpened({ venue: 'perpl', userId: 'A', market: '48', side: 'long', sizeRaw: '1', entryPriceAusd: 1, leverageHundredths: 100, marginFraction: 0.1 });
+  const b = mirrors.forTrade(t!.id).find((m) => m.userId === 'B')!;
+  engine.cancelPending(b.id, 'member left the clan');
+  await wait(400);
+  assert.equal(mirrors.get(b.id)!.status, 'cancelled');
+  assert.match(mirrors.get(b.id)!.error!, /left the clan/);
+  assert.ok(!opens.slice(before).some((o) => o.userId === 'B' && o.market === '48'), 'B was never opened');
+});

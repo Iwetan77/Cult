@@ -31,7 +31,8 @@ import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../fundi
 
 type Vars = { Variables: { userId: string; wallet: string } };
 
-const joinChallenges = new Map<string, { userId: string; clanId: string; policy: MirrorPolicy; message: string; expires: number }>();
+// Signed-consent challenges for joining a clan and for changing your policy in one.
+const joinChallenges = new Map<string, { userId: string; clanId: string; policy: MirrorPolicy; message: string; expires: number; kind: 'join' | 'policy' }>();
 
 function consentMessage(clanName: string, inviteCode: string, wallet: string, p: MirrorPolicy, nonce: string) {
   return [
@@ -352,14 +353,14 @@ export function createApp(engine: MirrorEngine) {
     if (!clan) throw bad(404, 'invite not found');
     const challengeId = randomUUID();
     const message = consentMessage(clan.name, clan.inviteCode, ethers.getAddress(c.get('wallet')), body.policy, challengeId);
-    joinChallenges.set(challengeId, { userId: c.get('userId'), clanId: clan.id, policy: body.policy, message, expires: Date.now() + 10 * 60_000 });
+    joinChallenges.set(challengeId, { userId: c.get('userId'), clanId: clan.id, policy: body.policy, message, expires: Date.now() + 10 * 60_000, kind: 'join' });
     return c.json({ challengeId, message });
   });
 
   authed.post('/clans/join', async (c) => {
     const body = z.object({ challengeId: z.string(), signature: z.string() }).parse(await c.req.json());
     const ch = joinChallenges.get(body.challengeId);
-    if (!ch || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'challenge missing or expired');
+    if (!ch || ch.kind !== 'join' || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'challenge missing or expired');
     const signer = ethers.verifyMessage(ch.message, body.signature);
     if (signer.toLowerCase() !== c.get('wallet')) throw bad(403, 'signature is not from your wallet');
     clans.join(ch.clanId, ch.userId, ch.policy);
@@ -369,6 +370,44 @@ export function createApp(engine: MirrorEngine) {
     joinChallenges.delete(body.challengeId);
     await engine.watch(ch.userId).catch(() => undefined);
     return c.json(clanView(ch.clanId, ch.userId));
+  });
+
+  // Change your mirror policy in a clan. Same consent as joining: sign the new
+  // terms. Raising maxUsdPerTrade also needs a fresh Privy grant: call
+  // GET /v1/privy/signer and addSigners() again with the returned policyIds.
+  authed.post('/clans/:clanId/policy/challenge', async (c) => {
+    const clan = clanFor(c);
+    const body = z.object({ policy: MirrorPolicySchema }).parse(await c.req.json());
+    const challengeId = randomUUID();
+    const message = consentMessage(clan.name, clan.inviteCode, ethers.getAddress(c.get('wallet')), body.policy, challengeId).replace(/^Join Cult clan/, 'Update my mirror policy in Cult clan');
+    joinChallenges.set(challengeId, { userId: c.get('userId'), clanId: clan.id, policy: body.policy, message, expires: Date.now() + 10 * 60_000, kind: 'policy' });
+    return c.json({ challengeId, message });
+  });
+
+  authed.post('/clans/:clanId/policy', async (c) => {
+    const clan = clanFor(c);
+    const body = z.object({ challengeId: z.string(), signature: z.string() }).parse(await c.req.json());
+    const ch = joinChallenges.get(body.challengeId);
+    if (!ch || ch.kind !== 'policy' || ch.clanId !== clan.id || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'challenge missing or expired');
+    if (ethers.verifyMessage(ch.message, body.signature).toLowerCase() !== c.get('wallet')) throw bad(403, 'signature is not from your wallet');
+    clans.setPolicy(clan.id, ch.userId, ch.policy);
+    getDb()
+      .prepare('INSERT OR REPLACE INTO join_consents (clan_id, user_id, message, signature, signed_at) VALUES (?, ?, ?, ?, ?)')
+      .run(clan.id, ch.userId, ch.message, body.signature, Date.now());
+    joinChallenges.delete(body.challengeId);
+    return c.json(clanView(clan.id, ch.userId));
+  });
+
+  // Leave a clan. Pending mirrors for you are cancelled; mirrors already open
+  // still unwind when their leader exits, so nothing is left orphaned.
+  authed.post('/clans/:clanId/leave', async (c) => {
+    const clan = clanFor(c);
+    const userId = c.get('userId');
+    for (const m of mirrors.forClan(clan.id, ['pending'])) {
+      if (m.userId === userId) engine.cancelPending(m.id, 'member left the clan');
+    }
+    clans.leave(clan.id, userId);
+    return c.body(null, 204);
   });
 
   authed.get('/clans/:clanId/chart', async (c) => {
