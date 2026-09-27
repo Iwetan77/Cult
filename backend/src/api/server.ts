@@ -27,7 +27,9 @@ import { UpstreamError } from '../http.js';
 import { balancesFor } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
-import { ChatError, listMessages, MAX_MESSAGE_CHARS, postMessage, type ChatMessage } from './chat.js';
+import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, roomsFor, type ChatMessage } from './chat.js';
+import { countryName } from './countries.js';
+import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError } from './leaderboards.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
@@ -38,24 +40,24 @@ type Vars = { Variables: { userId: string; wallet: string } };
 // Signed-consent challenges for joining a clan and for changing your policy in one.
 const joinChallenges = new Map<string, { userId: string; clanId: string; policy: MirrorPolicy; message: string; expires: number; kind: 'join' | 'policy' }>();
 
-function consentMessage(clanName: string, inviteCode: string, wallet: string, p: MirrorPolicy, nonce: string) {
+function consentMessage(cultName: string, inviteCode: string, wallet: string, p: MirrorPolicy, nonce: string) {
   return [
-    `Join Cult clan "${clanName}" (${inviteCode})`,
+    `Join the Cult "${cultName}" (${inviteCode})`,
     `Wallet: ${wallet}`,
     ``,
     p.enabled
-      ? `When any member of this clan opens a Perpl position, open a mirrored position on my account automatically.`
-      : `Do not auto-mirror trades into my account.`,
-    `Max margin per mirror: ${p.balancePercentCap}% of my free Perpl balance.`,
-    `Max position size per mirror: $${p.maxUsdPerTrade}.`,
-    `When the original position closes, close my mirror too.`,
-    `I can skip any single trade before it fires. The backend can never withdraw my funds.`,
+      ? `When a member of this cult trades on Perpl or Nad.fun, copy it into my account automatically, and follow their adds, partial sells and exits.`
+      : `Do not copy trades into my account.`,
+    `Per copy: at most ${p.balancePercentCap}% of my free balance on that venue, and at most $${p.maxUsdPerTrade}.`,
+    `I can skip any copy or add before it fires; partial sells and exits follow right away.`,
+    `The backend can never withdraw my funds.`,
     ``,
     `Nonce: ${nonce}`,
   ].join('\n');
 }
 
 export function createApp(engine: MirrorEngine) {
+  engine.setMaxListeners(0); // each open clan SSE stream listens; many is normal
   const app = new Hono<Vars>();
   app.use('*', cors({ origin: env.corsOrigins, allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST'], exposeHeaders: ['Retry-After'] }));
 
@@ -92,6 +94,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
+    if (err instanceof LeaderboardError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -256,7 +259,7 @@ export function createApp(engine: MirrorEngine) {
 
   const clanFor = (c: Context<Vars>) => {
     const clan = clans.get(c.req.param('clanId')!);
-    if (!clan || !clans.membership(clan.id, c.get('userId'))) throw bad(404, 'clan not found');
+    if (!clan || !clans.membership(clan.id, c.get('userId'))) throw bad(404, 'cult not found');
     return clan;
   };
   const clanView = (clanId: string, userId: string) => {
@@ -265,6 +268,8 @@ export function createApp(engine: MirrorEngine) {
       id: clan.id,
       name: clan.name,
       inviteCode: clan.inviteCode,
+      visibility: clan.visibility,
+      isOwner: clan.createdBy === userId,
       memberCount: clans.members(clan.id).length,
       myPolicy: clans.membership(clan.id, userId)?.policy ?? null,
     };
@@ -277,6 +282,8 @@ export function createApp(engine: MirrorEngine) {
       id: userId,
       address: m.wallet,
       name: shortName(m.wallet),
+      country: m.country ? { code: m.country, name: countryName(m.country) } : null,
+      rooms: roomsFor(userId),
       clans: clans.forUser(userId).map((cl) => clanView(cl.id, userId)),
       perpl: { accountId: m.perplAccountId, keyEnrolled: !!m.apiKey, forwarding: m.forwarding },
       balances: await balancesFor(userId).catch(() => null),
@@ -285,12 +292,60 @@ export function createApp(engine: MirrorEngine) {
     });
   });
 
+  // Your country: puts you in its chat room and its leaderboard (like picking
+  // your country when you join a fantasy league). Change it any time.
+  authed.post('/me/country', async (c) => {
+    const body = z.object({ country: z.string().length(2) }).parse(await c.req.json());
+    const code = body.country.toUpperCase();
+    const name = countryName(code);
+    if (!name) throw bad(400, `${body.country} isn't a country code (ISO 3166, e.g. NG, GB, US)`);
+    members.setCountry(c.get('userId'), code);
+    return c.json({ country: { code, name }, rooms: roomsFor(c.get('userId')) });
+  });
+
+  // ---- leaderboards: global, a country, public cults ------------------------
+  const boardLimit = (c: Context<Vars>) => Math.min(Math.max(Number(c.req.query('limit') ?? 100) || 100, 1), 500);
+  authed.get('/leaderboards/global', async (c) => c.json(await globalBoard(c.get('userId'), boardLimit(c))));
+  authed.get('/leaderboards/country/:code?', async (c) => {
+    const code = c.req.param('code') ?? members.get(c.get('userId'))?.country;
+    if (!code) throw bad(409, 'pick your country first (POST /v1/me/country)');
+    return c.json(await countryBoard(code, c.get('userId'), boardLimit(c)));
+  });
+  authed.get('/leaderboards/cults', async (c) => c.json(await cultsBoard(c.get('userId'), Math.min(boardLimit(c), 100))));
+
+  // ---- chat rooms: global, your country, your cults ------------------------
+  authed.get('/chat/rooms', (c) => c.json({ rooms: roomsFor(c.get('userId')) }));
+  authed.get('/chat/:room/messages', (c) => {
+    const { room } = openRoom(c.req.param('room'), c.get('userId'));
+    const limit = c.req.query('limit');
+    return c.json(listMessages(room, { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
+  });
+  authed.post('/chat/:room/messages', async (c) => {
+    const { room } = openRoom(c.req.param('room'), c.get('userId'));
+    const body = z
+      .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
+      .parse(await c.req.json());
+    return c.json(postMessage(room, c.get('userId'), body), 201);
+  });
+  // Live messages for one room (the cult stream carries its cult room too).
+  authed.get('/chat/:room/events', (c) => {
+    const { room } = openRoom(c.req.param('room'), c.get('userId'));
+    return streamSSE(c, async (stream) => {
+      const onMessage = (r: string, msg: ChatMessage) => r === room && void stream.writeSSE({ event: 'message', data: JSON.stringify(msg) });
+      clanBus.on('message', onMessage);
+      const ping = setInterval(() => void stream.writeSSE({ event: 'ping', data: String(Date.now()) }), 15_000);
+      await new Promise<void>((resolve) => stream.onAbort(resolve));
+      clearInterval(ping);
+      clanBus.off('message', onMessage);
+    });
+  });
+
   // What the frontend passes to Privy's useSigners().addSigners() so the
   // backend can act on this wallet, only within the policy.
   authed.get('/privy/signer', async (c) => {
     const userId = c.get('userId');
     const caps = clans.forUser(userId).map((cl) => clans.membership(cl.id, userId)!.policy.maxUsdPerTrade);
-    if (caps.length === 0) throw bad(409, 'join or create a clan first; the cap comes from your clan policy');
+    if (caps.length === 0) throw bad(409, 'join or create a cult first; the cap comes from your cult limits');
     const grant = await memberSignerGrant(userId, c.get('wallet'), Math.max(...caps));
     forgetSignerStatus(userId); // the frontend is about to (re)attach it; re-check on next read
     return c.json(grant);
@@ -382,26 +437,35 @@ export function createApp(engine: MirrorEngine) {
     return c.json(await confirmFunding(c.get('wallet'), body.planId, body.hashes));
   });
 
-  // ---- clans ---------------------------------------------------------------
+  // ---- cults (the product's name for clans) --------------------------------
+  // One set of routes, served under /v1/cults and the older /v1/clans.
+  const cultRoutes = new Hono<Vars>();
 
-  authed.post('/clans', async (c) => {
-    const body = z.object({ name: z.string().min(1).max(48), policy: MirrorPolicySchema }).parse(await c.req.json());
-    const clan = clans.create(body.name, c.get('userId'), body.policy);
+  cultRoutes.post('/', async (c) => {
+    const body = z
+      .object({ name: z.string().min(1).max(48), policy: MirrorPolicySchema, visibility: z.enum(['private', 'public']).default('private') })
+      .parse(await c.req.json());
+    const clan = clans.create(body.name, c.get('userId'), body.policy, body.visibility);
     await engine.watch(c.get('userId')).catch(() => undefined);
     return c.json(clanView(clan.id, c.get('userId')), 201);
   });
 
-  authed.post('/clans/join/challenge', async (c) => {
-    const body = z.object({ inviteCode: z.string(), policy: MirrorPolicySchema }).parse(await c.req.json());
-    const clan = clans.byInvite(body.inviteCode);
-    if (!clan) throw bad(404, 'invite not found');
+  cultRoutes.post('/join/challenge', async (c) => {
+    const body = z
+      .object({ inviteCode: z.string().optional(), cultId: z.string().optional(), policy: MirrorPolicySchema })
+      .refine((b) => !!b.inviteCode !== !!b.cultId, 'send an inviteCode, or the cultId of a public cult')
+      .parse(await c.req.json());
+    const clan = body.inviteCode ? clans.byInvite(body.inviteCode) : clans.get(body.cultId!);
+    if (!clan) throw bad(404, body.inviteCode ? 'no cult with that code' : 'cult not found');
+    if (!body.inviteCode && clan.visibility !== 'public') throw bad(404, 'cult not found'); // private: code only
+    if (clans.membership(clan.id, c.get('userId'))) throw bad(409, "you're already in this cult");
     const challengeId = randomUUID();
     const message = consentMessage(clan.name, clan.inviteCode, ethers.getAddress(c.get('wallet')), body.policy, challengeId);
     joinChallenges.set(challengeId, { userId: c.get('userId'), clanId: clan.id, policy: body.policy, message, expires: Date.now() + 10 * 60_000, kind: 'join' });
     return c.json({ challengeId, message });
   });
 
-  authed.post('/clans/join', async (c) => {
+  cultRoutes.post('/join', async (c) => {
     const body = z.object({ challengeId: z.string(), signature: z.string() }).parse(await c.req.json());
     const ch = joinChallenges.get(body.challengeId);
     if (!ch || ch.kind !== 'join' || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'challenge missing or expired');
@@ -419,16 +483,16 @@ export function createApp(engine: MirrorEngine) {
   // Change your mirror policy in a clan. Same consent as joining: sign the new
   // terms. Raising maxUsdPerTrade also needs a fresh Privy grant: call
   // GET /v1/privy/signer and addSigners() again with the returned policyIds.
-  authed.post('/clans/:clanId/policy/challenge', async (c) => {
+  cultRoutes.post('/:clanId/policy/challenge', async (c) => {
     const clan = clanFor(c);
     const body = z.object({ policy: MirrorPolicySchema }).parse(await c.req.json());
     const challengeId = randomUUID();
-    const message = consentMessage(clan.name, clan.inviteCode, ethers.getAddress(c.get('wallet')), body.policy, challengeId).replace(/^Join Cult clan/, 'Update my mirror policy in Cult clan');
+    const message = consentMessage(clan.name, clan.inviteCode, ethers.getAddress(c.get('wallet')), body.policy, challengeId).replace(/^Join the Cult/, 'Update my copy limits in the Cult');
     joinChallenges.set(challengeId, { userId: c.get('userId'), clanId: clan.id, policy: body.policy, message, expires: Date.now() + 10 * 60_000, kind: 'policy' });
     return c.json({ challengeId, message });
   });
 
-  authed.post('/clans/:clanId/policy', async (c) => {
+  cultRoutes.post('/:clanId/policy', async (c) => {
     const clan = clanFor(c);
     const body = z.object({ challengeId: z.string(), signature: z.string() }).parse(await c.req.json());
     const ch = joinChallenges.get(body.challengeId);
@@ -442,10 +506,42 @@ export function createApp(engine: MirrorEngine) {
     return c.json(clanView(clan.id, ch.userId));
   });
 
+  // Public cults anyone can join. Private ones never show here.
+  cultRoutes.get('/discover', async (c) => {
+    const userId = c.get('userId');
+    const limit = Math.min(Number(c.req.query('limit') ?? 50) || 50, 100);
+    const list = clans.publicList(500).map((cl) => ({
+      id: cl.id,
+      name: cl.name,
+      visibility: cl.visibility,
+      memberCount: clans.members(cl.id).length,
+      createdAt: cl.createdAt,
+      joined: !!clans.membership(cl.id, userId),
+    }));
+    list.sort((a, b) => b.memberCount - a.memberCount || b.createdAt - a.createdAt);
+    return c.json({ cults: list.slice(0, limit) });
+  });
+
+  // A cult's own leaderboard: its members, or anyone for a public cult.
+  cultRoutes.get('/:clanId/leaderboard', async (c) => {
+    const clan = clans.get(c.req.param('clanId'));
+    if (!clan || (clan.visibility !== 'public' && !clans.membership(clan.id, c.get('userId')))) throw bad(404, 'cult not found');
+    return c.json(await cultBoard(clan, c.get('userId'), boardLimit(c)));
+  });
+
+  // The owner makes their cult public (listed, joinable without the code) or private again.
+  cultRoutes.post('/:clanId/visibility', async (c) => {
+    const clan = clanFor(c);
+    if (clan.createdBy !== c.get('userId')) throw bad(403, 'only the cult owner can change this');
+    const body = z.object({ visibility: z.enum(['private', 'public']) }).parse(await c.req.json());
+    clans.setVisibility(clan.id, body.visibility);
+    return c.json(clanView(clan.id, c.get('userId')));
+  });
+
   // Leave a clan. Pending mirrors and pending adds for you are cancelled;
   // mirrors already open still follow partial exits and unwind when their
   // leader exits, so nothing is left orphaned.
-  authed.post('/clans/:clanId/leave', async (c) => {
+  cultRoutes.post('/:clanId/leave', async (c) => {
     const clan = clanFor(c);
     const userId = c.get('userId');
     engine.memberLeft(clan.id, userId);
@@ -453,14 +549,14 @@ export function createApp(engine: MirrorEngine) {
     return c.body(null, 204);
   });
 
-  authed.get('/clans/:clanId/chart', async (c) => {
+  cultRoutes.get('/:clanId/chart', async (c) => {
     const clan = clanFor(c);
     const marketId = c.req.query('marketId');
     const resolution = Number(c.req.query('resolution') ?? 300);
     return c.json(await buildChart(clan, c.get('userId'), marketId || undefined, resolution));
   });
 
-  authed.post('/clans/:clanId/mirrors/:mirrorId/skip', async (c) => {
+  cultRoutes.post('/:clanId/mirrors/:mirrorId/skip', async (c) => {
     clanFor(c);
     // Accept the bare mirror id, the chart marker id ("mirror:<id>"), or a
     // pending add to a mirror ("adjust:<id>", from marker.pendingAdd.id).
@@ -471,7 +567,7 @@ export function createApp(engine: MirrorEngine) {
   });
 
   // Manual stack. `markerId` is a ChartMarker id or a bare leader trade id.
-  authed.post('/clans/:clanId/stack', async (c) => {
+  cultRoutes.post('/:clanId/stack', async (c) => {
     const clan = clanFor(c);
     const body = z
       .object({ markerId: z.string(), notionalUsd: z.number().positive(), leverage: z.number().min(1).optional() })
@@ -483,7 +579,7 @@ export function createApp(engine: MirrorEngine) {
 
   // Drag-to-suggest: propose a TP/SL on a clan-mate's Perpl marker. Stored and
   // pushed live; only the owner can apply it (via POST /v1/positions/tpsl).
-  authed.post('/clans/:clanId/markers/:markerId/suggest-tpsl', async (c) => {
+  cultRoutes.post('/:clanId/markers/:markerId/suggest-tpsl', async (c) => {
     const clan = clanFor(c);
     const leg = z.number().positive().nullable().optional();
     const body = z.object({ takeProfit: leg, stopLoss: leg }).parse(await c.req.json());
@@ -497,18 +593,18 @@ export function createApp(engine: MirrorEngine) {
   });
 
   // Clan group chat. Members only; new messages also arrive as SSE `message`.
-  authed.get('/clans/:clanId/messages', (c) => {
+  cultRoutes.get('/:clanId/messages', (c) => {
     const clan = clanFor(c);
     const limit = c.req.query('limit');
-    return c.json(listMessages(clan.id, { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
+    return c.json(listMessages(cultRoom(clan.id), { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
   });
 
-  authed.post('/clans/:clanId/messages', async (c) => {
+  cultRoutes.post('/:clanId/messages', async (c) => {
     const clan = clanFor(c);
     const body = z
       .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
       .parse(await c.req.json());
-    return c.json(postMessage(clan.id, c.get('userId'), body), 201);
+    return c.json(postMessage(cultRoom(clan.id), c.get('userId'), body), 201);
   });
 
   authed.post('/shares', async (c) => {
@@ -517,7 +613,7 @@ export function createApp(engine: MirrorEngine) {
   });
 
   // Live updates for the chart overlay: marker changes as they happen.
-  authed.get('/clans/:clanId/events', (c) => {
+  cultRoutes.get('/:clanId/events', (c) => {
     const clan = clanFor(c);
     const inClan = (userId: string) => !!clans.membership(clan.id, userId);
     return streamSSE(c, async (stream) => {
@@ -533,7 +629,7 @@ export function createApp(engine: MirrorEngine) {
       engine.on('mirror', onMirror);
       engine.on('adjustment', onAdjust);
       const onSuggestion = (clanId: string, sug: TpSlSuggestion) => clanId === clan.id && send('suggestion', sug);
-      const onMessage = (clanId: string, msg: ChatMessage) => clanId === clan.id && send('message', msg);
+      const onMessage = (room: string, msg: ChatMessage) => room === cultRoom(clan.id) && send('message', msg);
       clanBus.on('suggestion', onSuggestion);
       clanBus.on('message', onMessage);
       const ping = setInterval(() => void stream.writeSSE({ event: 'ping', data: String(Date.now()) }), 15_000);
@@ -549,6 +645,8 @@ export function createApp(engine: MirrorEngine) {
     });
   });
 
+  authed.route('/cults', cultRoutes);
+  authed.route('/clans', cultRoutes);
   app.route('/v1', authed);
   return app;
 }

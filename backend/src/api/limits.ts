@@ -43,8 +43,8 @@ export function resetLimits() {
 // Routes that send orders or transactions.
 const TRADE_ROUTES: RegExp[] = [
   /^\/v1\/positions\/(open|close|tpsl)$/,
-  /^\/v1\/clans\/[^/]+\/stack$/,
-  /^\/v1\/clans\/[^/]+\/markers\/[^/]+\/suggest-tpsl$/,
+  /^\/v1\/(clans|cults)\/[^/]+\/stack$/,
+  /^\/v1\/(clans|cults)\/[^/]+\/markers\/[^/]+\/suggest-tpsl$/,
   /^\/v1\/funding\/usdc\/(prepare|confirm)$/,
 ];
 export const isTradeRoute = (method: string, path: string) => method === 'POST' && TRADE_ROUTES.some((r) => r.test(path));

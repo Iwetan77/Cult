@@ -35,6 +35,21 @@ await call('bad policy', 'POST', '/v1/clans', auth(alice, 'alice'), { name: 'x',
 const ch = await call('join challenge', 'POST', '/v1/clans/join/challenge', auth(bob, 'bob'), { inviteCode: clan.inviteCode, policy: { enabled: true, balancePercentCap: 10, maxUsdPerTrade: 50 } });
 await call('join with wrong signer', 'POST', '/v1/clans/join', auth(bob, 'bob'), { challengeId: ch.challengeId, signature: await alice.signMessage(ch.message) });
 await call('join', 'POST', '/v1/clans/join', auth(bob, 'bob'), { challengeId: ch.challengeId, signature: await bob.signMessage(ch.message) });
+// Cults: ABC-DEF codes (typed any way), /v1/cults paths, public cults.
+if (!/^[A-Z]{3}-[A-Z]{3}$/.test(clan.inviteCode)) throw new Error(`invite code ${clan.inviteCode} is not ABC-DEF`);
+const dave = ethers.Wallet.createRandom();
+const typed = clan.inviteCode.replace('-', '').toLowerCase();
+const dch = await call('join with the code typed lowercase, no dash', 'POST', '/v1/cults/join/challenge', auth(dave, 'dave'), { inviteCode: typed, policy });
+if (!dch.message?.startsWith('Join the Cult')) throw new Error('consent text wrong');
+await call('private cult by id is refused', 'POST', '/v1/cults/join/challenge', auth(dave, 'dave'), { cultId: clan.id, policy });
+await call('already a member', 'POST', '/v1/cults/join/challenge', auth(bob, 'bob'), { inviteCode: clan.inviteCode, policy });
+const openCult = await call('create a public cult', 'POST', '/v1/cults', auth(alice, 'alice'), { name: 'open floor', policy, visibility: 'public' });
+const disc = await call('discover public cults', 'GET', '/v1/cults/discover', auth(dave, 'dave'));
+if (!disc.cults.some((x: any) => x.id === openCult.id) || disc.cults.some((x: any) => x.id === clan.id)) throw new Error('discover lists the wrong cults');
+const och = await call('join a public cult by id', 'POST', '/v1/cults/join/challenge', auth(dave, 'dave'), { cultId: openCult.id, policy });
+await call('join it', 'POST', '/v1/cults/join', auth(dave, 'dave'), { challengeId: och.challengeId, signature: await dave.signMessage(och.message) });
+await call('only the owner changes visibility', 'POST', `/v1/cults/${openCult.id}/visibility`, auth(dave, 'dave'), { visibility: 'private' });
+await call('old /v1/clans paths still work', 'GET', `/v1/clans/${clan.id}/messages`, auth(bob, 'bob'));
 const btc = cfg.markets.find((m: any) => m.baseSymbol === 'BTC');
 const chart = await call('chart', 'GET', `/v1/clans/${clan.id}/chart?marketId=${btc.id}&resolution=60`, auth(bob, 'bob'));
 console.log('candles:', chart.candles.length, 'first', chart.candles[0], 'markers', chart.markers.length);
@@ -90,15 +105,40 @@ const page = await call('chat: list', 'GET', `/v1/clans/${clan.id}/messages?limi
 if (page.messages.length !== 1 || !page.hasMore || page.messages[0].replyTo !== hi.id) throw new Error('chat page wrong');
 const older = await call('chat: older page', 'GET', `/v1/clans/${clan.id}/messages?before=${page.messages[0].id}`, auth(bob, 'bob'));
 if (older.messages[0]?.id !== hi.id || older.hasMore) throw new Error('chat paging wrong');
+// Global and country rooms.
+await call('not a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'EU' });
+const ctry = await call('pick a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'ng' });
+if (ctry.country?.name !== 'Nigeria' || !ctry.rooms.some((r: any) => r.id === 'country:NG')) throw new Error('country room missing');
+const rooms = await call('my rooms', 'GET', '/v1/chat/rooms', auth(alice, 'alice'));
+if (rooms.rooms[0]?.id !== 'global') throw new Error('global room missing');
+await call('post in global', 'POST', '/v1/chat/global/messages', auth(alice, 'alice'), { body: 'gm from Lagos' });
+const g = await call('read global (anyone signed in)', 'GET', '/v1/chat/global/messages', auth(bob, 'bob'));
+if (!g.messages.some((m: any) => m.body === 'gm from Lagos' && m.room === 'global')) throw new Error('global message missing');
+await call('post in my country room', 'POST', '/v1/chat/country:NG/messages', auth(alice, 'alice'), { body: 'naija traders' });
+await call("someone else's country room", 'GET', '/v1/chat/country:NG/messages', auth(bob, 'bob'));
+await call('a cult room via /chat', 'GET', `/v1/chat/cult:${clan.id}/messages`, auth(bob, 'bob'));
+const me2 = await call('me shows country and rooms', 'GET', '/v1/me', auth(alice, 'alice'));
+if (me2.country?.code !== 'NG' || me2.rooms.length < 3) throw new Error('me is missing country/rooms');
+// Leaderboards (no indexer in the smoke run, so everyone is unranked; shapes and access only).
+const gb = await call('global leaderboard', 'GET', '/v1/leaderboards/global', auth(alice, 'alice'));
+if (gb.scope !== 'global' || !Array.isArray(gb.entries) || gb.me?.rank !== null) throw new Error('global board shape');
+await call('my country board', 'GET', '/v1/leaderboards/country', auth(alice, 'alice'));
+await call('country board before picking one', 'GET', '/v1/leaderboards/country', auth(bob, 'bob'));
+await call('another country board', 'GET', '/v1/leaderboards/country/GB', auth(bob, 'bob'));
+const cb = await call('public cults ranked', 'GET', '/v1/leaderboards/cults', auth(bob, 'bob'));
+if (!cb.entries.some((e: any) => e.cultId === openCult.id) || cb.entries.some((e: any) => e.cultId === clan.id)) throw new Error('cults board lists the wrong cults');
+await call('my cult board', 'GET', `/v1/cults/${clan.id}/leaderboard`, auth(bob, 'bob'));
+await call("a private cult's board, as an outsider", 'GET', `/v1/cults/${clan.id}/leaderboard`, auth(ethers.Wallet.createRandom(), 'eve'));
+await call("a public cult's board, as an outsider", 'GET', `/v1/cults/${openCult.id}/leaderboard`, auth(ethers.Wallet.createRandom(), 'eve2'));
 // Policy change (signed consent) and leaving.
 const newPolicy = { enabled: false, balancePercentCap: 5, maxUsdPerTrade: 20 };
 const polCh = await call('policy change challenge', 'POST', `/v1/clans/${clan.id}/policy/challenge`, auth(bob, 'bob'), { policy: newPolicy });
 await call('policy change, wrong signer', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: polCh.challengeId, signature: await alice.signMessage(polCh.message) });
-const jc = await call('a join challenge…', 'POST', '/v1/clans/join/challenge', auth(bob, 'bob'), { inviteCode: clan.inviteCode, policy: newPolicy });
+const jc = await call('a join challenge…', 'POST', '/v1/cults/join/challenge', auth(bob, 'bob'), { cultId: openCult.id, policy: newPolicy });
 await call('…reused as a policy change', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: jc.challengeId, signature: await bob.signMessage(jc.message) });
 const updated = await call('policy change, signed', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: polCh.challengeId, signature: await bob.signMessage(polCh.message) });
 if (JSON.stringify(updated.myPolicy) !== JSON.stringify(newPolicy)) throw new Error('policy not updated');
-if (!polCh.message.startsWith('Update my mirror policy')) throw new Error('policy consent text wrong');
+if (!polCh.message.startsWith('Update my copy limits in the Cult')) throw new Error('policy consent text wrong');
 await call('leave clan', 'POST', `/v1/clans/${clan.id}/leave`, auth(bob, 'bob'));
 await call('chart after leaving', 'GET', `/v1/clans/${clan.id}/chart`, auth(bob, 'bob'));
 // Rate limits: a burst of order calls from one member is cut off with Retry-After.
