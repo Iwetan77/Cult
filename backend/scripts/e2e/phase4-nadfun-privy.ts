@@ -5,6 +5,8 @@
 //     issues the per-member policy, the member adds our key quorum under it.
 //   The engine uses signerFor() with NO test overrides for B and C, so every
 //   mirror is signed by Privy under that member's policy and broadcast by us.
+// Then A sells half (mirrors sell half of themselves, straight away), A buys
+// more (mirrors add the same share after the skip window), and A exits.
 // Also checks backendSignerStatus() against Privy, and that lowering a cap
 // marks the attached policy as outdated (it must never keep the bigger one).
 import '../../src/config/env.js';
@@ -13,7 +15,7 @@ import { ethers } from 'ethers';
 import { generateP256KeyPair } from '@privy-io/node';
 import { rpc } from '../../src/chain/signer.js';
 import { MirrorEngine } from '../../src/mirror/engine.js';
-import { mirrors, trades } from '../../src/mirror/repo.js';
+import { adjustments, mirrors, trades } from '../../src/mirror/repo.js';
 import { NadWatcher } from '../../src/nadfun/watcher.js';
 import { listMonMarkets, quoteBuy, tokenBalance, buy as nadBuy, sell as nadSell } from '../../src/nadfun/trading.js';
 import { backendSignerStatus, forgetSignerStatus, memberSignerGrant, privy, PrivyPolicySigner } from '../../src/privy/policy.js';
@@ -23,6 +25,7 @@ import { funder, newThrowaway, sweepBack } from './fund.js';
 
 const FUND_EACH = ethers.parseEther(process.env.NAD_E2E_MON_EACH ?? '0.8');
 const LEADER_BUY = ethers.parseEther(process.env.NAD_E2E_LEADER_BUY_MON ?? '0.1');
+const LEADER_ADD = ethers.parseEther(process.env.NAD_E2E_LEADER_ADD_MON ?? '0.05');
 const POLICY_B: MirrorPolicy = { enabled: true, balancePercentCap: 50, maxUsdPerTrade: 1000 };
 const POLICY_C: MirrorPolicy = { enabled: true, balancePercentCap: 5, maxUsdPerTrade: 1000 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -107,6 +110,48 @@ try {
     else if (bal.toString() !== m.size) problems.push(`${u.name} balance ${bal} != mirror size ${m.size}`);
   }
   if (!settled.find((m) => m.userId === C.userId)?.capApplied?.includes('balance_percent_cap')) problems.push('C should be clamped by balancePercentCap');
+
+  // A sells half: each mirror sells half of itself, no window.
+  await sleep(3000);
+  const aHeld = await tokenBalance(token, A.address);
+  const aHalf = await nadSell(leader, token, aHeld / 2n);
+  console.log('A sells half', aHalf.txHash);
+  evidence.leaderHalfSell = json(aHalf);
+  const reduced = await until('mirrors to follow the half sell', async () => {
+    const as = settled.flatMap((m) => adjustments.forMirror(m.id)).filter((a) => a.kind === 'reduce');
+    return as.length === 2 && as.every((a) => !['pending', 'submitting'].includes(a.status)) ? as : null;
+  });
+  for (const u of [B, C]) {
+    const m = mirrors.forTrade(trade.id).find((x) => x.userId === u.userId)!;
+    const a = reduced.find((x) => x.userId === u.userId)!;
+    const before = BigInt(settled.find((x) => x.userId === u.userId)!.size!);
+    const bal = await tokenBalance(token, u.address);
+    console.log(u.name, 'reduce', a.status, a.tx, 'sold', a.sizeDelta, 'of', before, 'now holds', bal, a.error ?? '');
+    evidence[`reduce${u.name}`] = json({ adjustment: a, balance: bal });
+    if (a.status !== 'done') problems.push(`${u.name} reduce ${a.status}: ${a.error}`);
+    else if (bal.toString() !== m.size) problems.push(`${u.name} holds ${bal} but the mirror says ${m.size}`);
+    else if (Math.abs(Number(BigInt(a.sizeDelta!) * 1000n / before) - 500) > 5) problems.push(`${u.name} sold ${a.sizeDelta} of ${before}, not about half`);
+  }
+
+  // A buys more: each mirror adds the same share of itself after the skip window.
+  const aAdd = await nadBuy(leader, token, LEADER_ADD);
+  console.log('A adds', aAdd.txHash);
+  evidence.leaderAdd = json(aAdd);
+  const added = await until('mirrors to follow the add', async () => {
+    const as = settled.flatMap((m) => adjustments.forMirror(m.id)).filter((a) => a.kind === 'add');
+    return as.length === 2 && as.every((a) => !['pending', 'submitting'].includes(a.status)) ? as : null;
+  });
+  const leaderRatio = added[0]!.ratio;
+  for (const u of [B, C]) {
+    const m = mirrors.forTrade(trade.id).find((x) => x.userId === u.userId)!;
+    const a = added.find((x) => x.userId === u.userId)!;
+    const bal = await tokenBalance(token, u.address);
+    console.log(u.name, 'add', a.status, a.tx, 'ratio', a.ratio.toFixed(3), 'bought', a.sizeDelta, 'now holds', bal, a.error ?? '');
+    evidence[`add${u.name}`] = json({ adjustment: a, balance: bal });
+    if (a.status !== 'done') problems.push(`${u.name} add ${a.status}: ${a.error}`);
+    else if (bal.toString() !== m.size) problems.push(`${u.name} holds ${bal} but the mirror says ${m.size}`);
+  }
+  console.log('leader size ratio for the add', leaderRatio.toFixed(3));
 
   await sleep(3000);
   const aSell = await nadSell(leader, token);
