@@ -7,9 +7,9 @@ import { discoverCults } from '@/lib/api';
 import type { DiscoverCult } from '@/lib/contracts';
 import { Leaderboards } from './Leaderboards';
 
-type Props = { busy: boolean; onJoin: (cultId: string) => void; country: { code: string; name: string } | null; cultId: string | null; onProfile: (memberId: string) => void };
+type Props = { busy: boolean; onJoin: (cultId: string) => void; country: { code: string; name: string } | null; cultId: string | null; onProfile: (memberId: string) => void; search: string };
 
-export function DiscoverCults({ busy, onJoin, country, cultId, onProfile }: Props) {
+export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search }: Props) {
   const [tab, setTab] = useState<'cults' | 'rankings'>('cults');
   const [cults, setCults] = useState<DiscoverCult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,11 +29,13 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile }: Prop
     return () => { active = false; };
   }, [revision]);
 
+  const visibleCults = cults.filter(cult => cult.name.toLowerCase().includes(search.trim().toLowerCase()));
+
   return <main className="full-workspace discovery">
     <div className="screen-head"><div><span className="eyebrow">PUBLIC CULTS</span><h1>Discover</h1></div><button className="icon-button" title="Refresh Cults" onClick={() => { setLoading(true); setRevision(value => value + 1); }}><RefreshCw size={17} /></button></div>
     <div className="discovery-tabs"><button className={tab === 'cults' ? 'active' : ''} onClick={() => setTab('cults')}>Cults</button><button className={tab === 'rankings' ? 'active' : ''} onClick={() => setTab('rankings')}>Leaderboards</button></div>
     {tab === 'rankings' ? <Leaderboards embedded country={country} cultId={cultId} onProfile={onProfile} /> : <div className="discovery-body"><div className="discovery-list">
-      {loading ? <p className="field-note">Loading public Cults…</p> : error ? <p className="wallet-warning">{error}</p> : cults.length === 0 ? <p className="field-note">No public Cults yet.</p> : cults.map(cult => <div className="discovery-row" key={cult.id}>
+      {loading ? <p className="field-note">Loading public Cults…</p> : error ? <p className="wallet-warning">{error}</p> : visibleCults.length === 0 ? <p className="field-note">{search.trim() ? 'No public Cults match your search.' : 'No public Cults yet.'}</p> : visibleCults.map(cult => <div className="discovery-row" key={cult.id}>
         <span className="clan-avatar">{cult.name.slice(0, 1).toUpperCase()}</span>
         <div><strong>{cult.name}</strong><small>{cult.memberCount} {cult.memberCount === 1 ? 'member' : 'members'}</small></div>
         {cult.joined ? <span className="discovery-joined">Joined</span> : <button className="outline" disabled={busy} onClick={() => onJoin(cult.id)}>Join <ArrowRight size={14} /></button>}
