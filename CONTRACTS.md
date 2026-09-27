@@ -367,6 +367,8 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/clans/:clanId/mirrors/:mirrorId/skip` | none | `204`. `409` if not pending or the window has passed |
 | POST | `/v1/clans/:clanId/stack` | `{ markerId, notionalUsd, leverage? }` | `StackResult`. Same for both venues; `leverage` is ignored on Nad.fun |
 | GET | `/v1/positions` | none | `{ positions: Holding[] }` (both venues) |
+| POST | `/v1/funding/usdc/prepare` | `{ amountUsdc: "25.5" }` | `FundingPlan = { id, expiresAt, requiredUsdc, minAusdOut, actions: WalletAction[] }`. The member sends the actions in order (approve USDC → Kuru FOK market buy → approve AUSD → `createAccount`/`depositCollateral`). `409` with a plain-English `message` when it can't work: on testnet (Kuru has no AUSD market there), or when Kuru's book is empty |
+| POST | `/v1/funding/usdc/confirm` | `{ planId, hashes: string[] }` | `{ planId, done, steps: [{ label, txHash, ok }], perplAccountId }`. Each hash is checked on-chain against the planned action |
 | POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage? }` | `Fill`. Perpl: side `long`/`short`, notional = margin x leverage. Nad.fun: side `buy`, spends `marginUsd` worth of MON, signed by the backend signer |
 | POST | `/v1/positions/close` | `{ marketId, sizeRaw? }` | `Fill`. Nad.fun sells the whole balance unless `sizeRaw` (token wei) is given |
 

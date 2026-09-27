@@ -47,6 +47,7 @@ if (tok) {
   console.log('nadfun candles:', nchart.candles.length, 'first', JSON.stringify(nchart.candles[0]), 'selected', JSON.stringify(nchart.selectedMarket));
 }
 await call('positions (both venues)', 'GET', '/v1/positions', auth(bob, 'bob'));
+await call('usdc funding on testnet', 'POST', '/v1/funding/usdc/prepare', auth(bob, 'bob'), { amountUsdc: '25.5' });
 await call('open nadfun with perpl side', 'POST', '/v1/positions/open', auth(bob, 'bob'), { marketId: tok, side: 'long', marginUsd: 1 });
 await call('skip unknown mirror', 'POST', `/v1/clans/${clan.id}/mirrors/nope/skip`, auth(bob, 'bob'));
 await call('indexer accounts (no key)', 'GET', '/v1/indexer/accounts');
