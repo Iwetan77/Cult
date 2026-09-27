@@ -41,7 +41,7 @@ export type Me = {
   id: string; address: `0x${string}`; name: string; clans: Clan[];
   perpl: { accountId: string | null; keyEnrolled: boolean; forwarding: boolean };
   balances: {
-    perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number;
+    perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;
     gasReserveMon: number; lowGas: boolean; memesPayWith: 'ausd' | 'mon';
   } | null;
   signerGranted: boolean;

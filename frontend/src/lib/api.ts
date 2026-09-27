@@ -19,7 +19,8 @@ export async function api<T>(path: string, token: string | null, options: Reques
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string };
-    throw new ApiError(body.message ?? `Request failed (${response.status})`, response.status);
+    const message = body.message ?? `Request failed (${response.status})`;
+    throw new ApiError(response.status === 503 && !/retry/i.test(message) ? `${message} Retry shortly.` : message, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -36,6 +37,9 @@ export const closePosition = (token: string, marketId: string) => api<Fill>('/v1
 export const createClan = (token: string, name: string, policy: MirrorPolicy) => api<Clan>('/v1/clans', token, { method: 'POST', body: json({ name, policy }) });
 export const getJoinChallenge = (token: string, inviteCode: string, policy: MirrorPolicy) => api<SignedChallenge>('/v1/clans/join/challenge', token, { method: 'POST', body: json({ inviteCode, policy }) });
 export const joinClan = (token: string, challengeId: string, signature: string) => api<Clan>('/v1/clans/join', token, { method: 'POST', body: json({ challengeId, signature }) });
+export const getPolicyChallenge = (token: string, clanId: string, policy: MirrorPolicy) => api<SignedChallenge>(`/v1/clans/${encodeURIComponent(clanId)}/policy/challenge`, token, { method: 'POST', body: json({ policy }) });
+export const updateClanPolicy = (token: string, clanId: string, challengeId: string, signature: string) => api<Clan>(`/v1/clans/${encodeURIComponent(clanId)}/policy`, token, { method: 'POST', body: json({ challengeId, signature }) });
+export const leaveClan = (token: string, clanId: string) => api<void>(`/v1/clans/${encodeURIComponent(clanId)}/leave`, token, { method: 'POST' });
 export const getChart = (token: string, clanId: string, marketId?: string) => api<ChartSnapshot>(`/v1/clans/${encodeURIComponent(clanId)}/chart${marketId ? `?marketId=${encodeURIComponent(marketId)}` : ''}`, token);
 export const getClanEventUrl = (clanId: string) => {
   if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
