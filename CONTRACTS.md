@@ -29,9 +29,15 @@ on `PORT` (default `8787`). All routes are under `/v1`.
 
 ## Product decisions (2026-09-27, from the product owner)
 
-1. **Display unit is AUSD everywhere** (1 AUSD = $1). Balances, PnL, caps and share
-   cards all show AUSD. Nad.fun values (natively in MON) are converted to AUSD for
-   display using a MON price the backend serves.
+1. **The app shows dollars ($) everywhere. The word "AUSD" appears only on the funding
+   screen.** (Corrected 2026-09-27: an earlier version of this line wrongly said to
+   display AUSD everywhere.)
+   - Balances, PnL, prices, caps, markers and share cards all show `$`.
+   - Under the hood everything settles in AUSD 1:1 with the dollar, and Nad.fun values
+     (natively MON) are converted to dollars at the MON price the backend serves.
+   - API fields ending in `Ausd` or `Usd` are all dollar amounts; render them as `$`.
+     The names stay as they are so nothing breaks.
+   - `quoteSymbol` on markets and `displayUnit` in `/v1/config` are `'USD'`.
 2. **Funding has two options:**
    - Deposit **AUSD directly**.
    - Pay with **USDC**, which the backend swaps to AUSD behind the scenes via Kuru
@@ -298,12 +304,12 @@ zero-cost-basis and flag them.
 type MirrorPolicy = {
   enabled: boolean;          // false = member is in the clan but never auto-mirrored
   balancePercentCap: number; // (0, 100]  max % of the free balance on that venue ONE mirror may use
-                             //           (perpl: free AUSD margin; nadfun: MON minus a 0.05 MON gas reserve)
-  maxUsdPerTrade: number;    // [1, 1e6]  max size of ONE mirror in AUSD
-                             //           (perpl: notional = size x mark; nadfun: MON spent, valued in AUSD)
+                             //           (perpl: free margin; nadfun: MON minus a 0.05 MON gas reserve)
+  maxUsdPerTrade: number;    // [1, 1e6]  max size of ONE mirror in $
+                             //           (perpl: notional = size x mark; nadfun: MON spent, valued in $)
 };
-// "Usd" in field names means AUSD (1 AUSD = $1). Kept for compatibility with the
-// frontend's existing types.
+// Every *Usd / *Ausd field is a dollar amount; show it as $. (It settles in AUSD
+// 1:1 under the hood; users only see the word AUSD when funding.)
 
 type Venue = 'perpl' | 'nadfun';
 type TradeSide = 'long' | 'short' | 'buy';   // nadfun is always 'buy' (spot)
@@ -312,7 +318,7 @@ type Market = {
   venue: Venue;
   id: string;            // perpl: market id ("16"); nadfun: token address (lowercase 0x…)
   symbol: string;        // "BTC-PERP" | token symbol
-  baseSymbol: string; quoteSymbol: 'AUSD';
+  baseSymbol: string; quoteSymbol: 'USD';
   maxLeverage: number;   // nadfun: 1
   makerFeeBps: number | null; takerFeeBps: number | null;   // nadfun: null
   tokenAddress?: string; imageUri?: string;                 // nadfun only
@@ -329,9 +335,9 @@ type ChartMarker = {
   origin: 'leader' | 'auto_mirror' | 'manual_stack';
   side: TradeSide;
   entryTime: number;     // ms
-  entryPrice: number | null; markPrice: number;   // AUSD per unit (per token for nadfun)
+  entryPrice: number | null; markPrice: number;   // $ per unit (per token for nadfun)
   size: number | null;   // base units (perpl) / tokens (nadfun)
-  pnlUsd: number | null; valueUsd: number | null; // AUSD. nadfun value = what selling that amount returns now
+  pnlUsd: number | null; valueUsd: number | null; // $. nadfun value = what selling that amount returns now
   leverage: number | null;                        // nadfun: 1
   isMine: boolean;
   mirrorStatus?: 'pending' | 'submitted' | 'filled';   // auto_mirror only
@@ -375,7 +381,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
 | GET | `/v1/health` | none | `{ ok: true }` |
-| GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'AUSD', monPriceAusd, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
+| GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'USD', monPriceAusd /* $ per MON */, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
 | GET | `/v1/nadfun/markets?order=latest_trade\|market_cap\|creation_time` | none | `{ markets: NadMarket[] }` (MON-quoted tokens only) |
 | GET | `/v1/me` | none | `{ id, address, name, clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, usdcBalance: null }` |
 | GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan |
@@ -391,7 +397,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/clans/:clanId/stack` | `{ markerId, notionalUsd, leverage? }` | `StackResult`. Same for both venues; `leverage` is ignored on Nad.fun |
 | GET | `/v1/positions` | none | `{ positions: Holding[] }` (both venues) |
 | POST | `/v1/shares` | `{ markerId, includeClan }` | `201 { id, url }`. Only your own marker (`403` otherwise). A frozen snapshot at share time |
-| GET | `/v1/shares/:id` | none (public) | `PublicShare = { id, traderName, marketSymbol, venue, side, pnlUsd, roiPercent, notionalUsd, entryPrice, markPrice, closedAt, sharedAt, includeClan, clanName? }`. **Never** carries clan id, invite code or members; `clanName` only if `includeClan`. Money in AUSD. `pnlUsd`/`roiPercent`/`notionalUsd` can be `null` when no live holding backs the marker; render that honestly |
+| GET | `/v1/shares/:id` | none (public) | `PublicShare = { id, traderName, marketSymbol, venue, side, pnlUsd, roiPercent, notionalUsd, entryPrice, markPrice, closedAt, sharedAt, includeClan, clanName? }`. **Never** carries clan id, invite code or members; `clanName` only if `includeClan`. Money in $. `pnlUsd`/`roiPercent`/`notionalUsd` can be `null` when no live holding backs the marker; render that honestly |
 | POST | `/v1/funding/usdc/prepare` | `{ amountUsdc: "25.5" }` | `FundingPlan = { id, expiresAt, requiredUsdc, minAusdOut, actions: WalletAction[] }`. The member sends the actions in order (approve USDC → Kuru FOK market buy → approve AUSD → `createAccount`/`depositCollateral`). `409` with a plain-English `message` when it can't work: on testnet (Kuru has no AUSD market there), or when Kuru's book is empty |
 | POST | `/v1/funding/usdc/confirm` | `{ planId, hashes: string[] }` | `{ planId, done, steps: [{ label, txHash, ok }], perplAccountId }`. Each hash is checked on-chain against the planned action |
 | POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage? }` | `Fill`. Perpl: side `long`/`short`, notional = margin x leverage. Nad.fun: side `buy`, spends `marginUsd` worth of MON, signed by the backend signer |
