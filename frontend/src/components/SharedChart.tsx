@@ -82,11 +82,11 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
       const hits: Hit[] = [];
       const visible = markers.filter(marker => marker.marketId === market.id && marker.venue === market.venue);
       visible.forEach((marker, index) => {
-        const y = series.priceToCoordinate(marker.entryPrice);
+        const y = series.priceToCoordinate(marker.entryPrice ?? marker.markPrice);
         if (y == null || y < 12 || y > height - 24) return;
         const x = width < 480 ? 16 : Math.max(80, Math.min(width - 260, width * 0.58));
         const offset = visible.slice(0, index).filter(previous => {
-          const previousY = series.priceToCoordinate(previous.entryPrice);
+          const previousY = series.priceToCoordinate(previous.entryPrice ?? previous.markPrice);
           return previousY != null && Math.abs(previousY - y) < 28;
         }).length;
         const markerY = Math.max(20, Math.min(height - 28, y + offset * 25));
@@ -111,7 +111,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
             if (selected) ctx.fillText(`${label} ${usd(price, price < 1 ? 5 : 2)}`, 12, guideY - 10);
           }
         }
-        const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? signedUsd(marker.pnlUsd) : usd(marker.valueUsd)}`;
+        const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedUsd(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : usd(marker.valueUsd)}`;
         const badgeWidth = Math.min(235, Math.max(80, width - x - 62), ctx.measureText(badge).width + 43);
         ctx.fillStyle = selected ? '#313945' : '#292e39';
         ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1;
@@ -138,9 +138,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
     <canvas ref={canvasRef} className="chart-overlay" aria-hidden="true" />
     <div className="chart-hit-layer">{hitRegions.map(hit => {
       const marker = markers.find(item => item.id === hit.id);
-      return marker && <button key={hit.id} className="chart-hit" type="button" style={{ left: hit.x, top: hit.y, width: hit.width, height: hit.height }} title={`${marker.memberName}: ${marker.venue === 'perpl' ? signedUsd(marker.pnlUsd) : usd(marker.valueUsd)}. Open trade details`} aria-label={`Open ${marker.memberName}'s ${market.symbol} trade details`} onClick={() => onSelect(marker)} />;
+      return marker && <button key={hit.id} className="chart-hit" type="button" style={{ left: hit.x, top: hit.y, width: hit.width, height: hit.height }} title={`${marker.memberName}: ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedUsd(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : usd(marker.valueUsd)}. Open trade details`} aria-label={`Open ${marker.memberName}'s ${market.symbol} trade details`} onClick={() => onSelect(marker)} />;
     })}</div>    {!candles.length && <div className="chart-empty">Waiting for live market data</div>}
   </div>;
 }
-
-
