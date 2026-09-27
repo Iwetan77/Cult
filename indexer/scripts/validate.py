@@ -36,10 +36,18 @@ RC = [
 ]
 
 def _rotl(x, n):
+    if n == 0:
+        return x
     return ((x << n) | (x >> (64 - n))) & 0xFFFFFFFFFFFFFFFF
 
 def _keccak_f(state):
-    R = [[0,36,3,41,18],[1,44,10,45,2],[62,6,43,15,61],[28,55,25,21,56],[27,20,39,8,14]]
+    ROT = [
+        0, 1, 62, 28, 27,
+        36, 44, 6, 55, 20,
+        3, 10, 43, 25, 39,
+        41, 45, 15, 21, 8,
+        18, 2, 61, 56, 14,
+    ]
     for rc in RC:
         C = [state[x] ^ state[x+5] ^ state[x+10] ^ state[x+15] ^ state[x+20] for x in range(5)]
         D = [C[(x-1)%5] ^ _rotl(C[(x+1)%5], 1) for x in range(5)]
@@ -48,7 +56,7 @@ def _keccak_f(state):
         B = [0]*25
         for x in range(5):
             for y in range(5):
-                B[y % 5 * 5 + x] = _rotl(state[x + 5*y], R[x][y])
+                B[y + 5 * ((2*x + 3*y) % 5)] = _rotl(state[x + 5*y], ROT[x + 5*y])
         for x in range(5):
             for y in range(5):
                 idx = x + 5*y
@@ -57,8 +65,11 @@ def _keccak_f(state):
 
 def keccak256(data: bytes) -> bytes:
     rate = 136
-    pad = 0x01 if len(data) % rate == rate - 1 else 0x00
-    data = data + bytes([pad]) + b"\x00" * (rate - 1 - (len(data) % rate)) + b"\x80"
+    pad = rate - (len(data) % rate)
+    if pad == 1:
+        data = data + b"\x81"
+    else:
+        data = data + b"\x01" + b"\x00" * (pad - 2) + b"\x80"
     state = [0]*25
     for i in range(0, len(data), rate):
         block = data[i:i+rate]
