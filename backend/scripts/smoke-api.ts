@@ -35,6 +35,21 @@ await call('bad policy', 'POST', '/v1/clans', auth(alice, 'alice'), { name: 'x',
 const ch = await call('join challenge', 'POST', '/v1/clans/join/challenge', auth(bob, 'bob'), { inviteCode: clan.inviteCode, policy: { enabled: true, balancePercentCap: 10, maxUsdPerTrade: 50 } });
 await call('join with wrong signer', 'POST', '/v1/clans/join', auth(bob, 'bob'), { challengeId: ch.challengeId, signature: await alice.signMessage(ch.message) });
 await call('join', 'POST', '/v1/clans/join', auth(bob, 'bob'), { challengeId: ch.challengeId, signature: await bob.signMessage(ch.message) });
+// Cults: ABC-DEF codes (typed any way), /v1/cults paths, public cults.
+if (!/^[A-Z]{3}-[A-Z]{3}$/.test(clan.inviteCode)) throw new Error(`invite code ${clan.inviteCode} is not ABC-DEF`);
+const dave = ethers.Wallet.createRandom();
+const typed = clan.inviteCode.replace('-', '').toLowerCase();
+const dch = await call('join with the code typed lowercase, no dash', 'POST', '/v1/cults/join/challenge', auth(dave, 'dave'), { inviteCode: typed, policy });
+if (!dch.message?.startsWith('Join the Cult')) throw new Error('consent text wrong');
+await call('private cult by id is refused', 'POST', '/v1/cults/join/challenge', auth(dave, 'dave'), { cultId: clan.id, policy });
+await call('already a member', 'POST', '/v1/cults/join/challenge', auth(bob, 'bob'), { inviteCode: clan.inviteCode, policy });
+const openCult = await call('create a public cult', 'POST', '/v1/cults', auth(alice, 'alice'), { name: 'open floor', policy, visibility: 'public' });
+const disc = await call('discover public cults', 'GET', '/v1/cults/discover', auth(dave, 'dave'));
+if (!disc.cults.some((x: any) => x.id === openCult.id) || disc.cults.some((x: any) => x.id === clan.id)) throw new Error('discover lists the wrong cults');
+const och = await call('join a public cult by id', 'POST', '/v1/cults/join/challenge', auth(dave, 'dave'), { cultId: openCult.id, policy });
+await call('join it', 'POST', '/v1/cults/join', auth(dave, 'dave'), { challengeId: och.challengeId, signature: await dave.signMessage(och.message) });
+await call('only the owner changes visibility', 'POST', `/v1/cults/${openCult.id}/visibility`, auth(dave, 'dave'), { visibility: 'private' });
+await call('old /v1/clans paths still work', 'GET', `/v1/clans/${clan.id}/messages`, auth(bob, 'bob'));
 const btc = cfg.markets.find((m: any) => m.baseSymbol === 'BTC');
 const chart = await call('chart', 'GET', `/v1/clans/${clan.id}/chart?marketId=${btc.id}&resolution=60`, auth(bob, 'bob'));
 console.log('candles:', chart.candles.length, 'first', chart.candles[0], 'markers', chart.markers.length);
@@ -94,11 +109,11 @@ if (older.messages[0]?.id !== hi.id || older.hasMore) throw new Error('chat pagi
 const newPolicy = { enabled: false, balancePercentCap: 5, maxUsdPerTrade: 20 };
 const polCh = await call('policy change challenge', 'POST', `/v1/clans/${clan.id}/policy/challenge`, auth(bob, 'bob'), { policy: newPolicy });
 await call('policy change, wrong signer', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: polCh.challengeId, signature: await alice.signMessage(polCh.message) });
-const jc = await call('a join challenge…', 'POST', '/v1/clans/join/challenge', auth(bob, 'bob'), { inviteCode: clan.inviteCode, policy: newPolicy });
+const jc = await call('a join challenge…', 'POST', '/v1/cults/join/challenge', auth(bob, 'bob'), { cultId: openCult.id, policy: newPolicy });
 await call('…reused as a policy change', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: jc.challengeId, signature: await bob.signMessage(jc.message) });
 const updated = await call('policy change, signed', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: polCh.challengeId, signature: await bob.signMessage(polCh.message) });
 if (JSON.stringify(updated.myPolicy) !== JSON.stringify(newPolicy)) throw new Error('policy not updated');
-if (!polCh.message.startsWith('Update my mirror policy')) throw new Error('policy consent text wrong');
+if (!polCh.message.startsWith('Update my copy limits in the Cult')) throw new Error('policy consent text wrong');
 await call('leave clan', 'POST', `/v1/clans/${clan.id}/leave`, auth(bob, 'bob'));
 await call('chart after leaving', 'GET', `/v1/clans/${clan.id}/chart`, auth(bob, 'bob'));
 // Rate limits: a burst of order calls from one member is cut off with Retry-After.
