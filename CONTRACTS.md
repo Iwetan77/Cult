@@ -139,6 +139,26 @@ on `PORT` (default `8787`). All routes are under `/v1`.
    - **Leaderboards rank own trades only:** verified realized PnL in $, then win rate,
      then trade count. Copies don't count. Only members with a verified closed trade
      get a rank, and everyone still sees their own row. They're all-time for now.
+8. **Social flow** (2026-09-27, the product owner's redesign).
+   - **Signing in** lands you in **Global**, and in your country once you pick it.
+     Nobody is forced to create or join a cult.
+   - **Joining a cult is one tap:** `{ inviteCode }` or `{ cultId }`, no signature,
+     copying **off**. Creating one takes just a name (plus visibility).
+   - **Copying is an Auto-follow switch per cult.**
+     - **On:** the member signs their limits once, with `/policy/challenge` then
+       `/policy`, using `enabled: true`. The suggestions come from
+       `/v1/config.autoFollowDefaults`.
+     - **Off:** instant, with no signature.
+   - **Chats double as the activity feed:**
+     - "X joined the cult / Cult / your country", "turned on Auto-follow";
+     - members' trades: "opened BTC-PERP long 5x", "sold 50% of $MOE",
+       "closed …", each linking to its chart marker.
+
+     Global and country rooms have a pinned welcome, and a cult owner can pin a
+     message.
+   - **Home:** the week's top trades across Cult, with "N traders were in", plus your
+     7 days. **Profiles:** record (win rate, streak, average win %), open and closed
+     trades.
 
 ## Decisions and blockers
 
@@ -407,8 +427,9 @@ type Clan = {                        // a Cult
   id: string; name: string;
   inviteCode: string;                 // ABC-DEF (older cults may show a legacy code)
   visibility: 'private' | 'public';
-  isOwner: boolean;                   // only the owner can change visibility
+  isOwner: boolean;                   // only the owner can change visibility or pin
   memberCount: number; myPolicy: MirrorPolicy | null;
+  autoFollow: boolean;                // = myPolicy.enabled; the switch in the cult's side panel
 };
 
 type ChartMarker = {
@@ -454,17 +475,54 @@ type Adjustment = {
   createdAt: number; updatedAt: number;
 };
 
-type ChatRoom = { id: string; kind: 'global' | 'country' | 'cult'; name: string };  // ids: "global" | "country:NG" | "cult:<id>"
+type ChatRoom = {                    // ids: "global" | "country:NG" | "cult:<id>"
+  id: string; kind: 'global' | 'country' | 'cult'; name: string;
+  memberCount: number;
+  lastMessage: ChatMessage | null;    // the 'your groups' list line + time
+};
 
 type ChatMessage = {
   id: string;
   room: string;              // "global" | "country:NG" | "cult:<id>"
+  kind: 'text' | 'system';   // system = a notice ("joined the cult", "opened BTC-PERP long 5x"): render as a pill; markerId links the trade
   clanId: string | null;     // set for cult rooms
   memberId: string; memberName: string;
   body: string;              // plain text, up to 1000 chars. Render as text, never as HTML
   replyTo: string | null;    // a message id in the same room
   markerId: string | null;   // optional ChartMarker.id the message is about
   createdAt: string;         // ISO
+};
+
+type MemberStats = {         // ChartSnapshot.members[].stats, Profile.record
+  verified: boolean; tradeCount: number; winRate: number | null;
+  realizedPnlPerplUsd: number; realizedPnlMon: number; realizedPnlUsd: number | null; monPriceUsed: number | null;
+  lastTradeAt: number | null;
+  streak: number;            // own wins in a row, back from the latest close
+  avgWinPct: number | null;  // mean return % of own winning trades
+  copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
+};
+
+type ClosedTrade = { venue: 'perpl' | 'nadfun'; market: string; symbol: string; side: string;
+                     returnPct: number | null;  // perpl: price move in the trade's direction; nad.fun: proceeds / cost - 1
+                     pnlUsd: number | null; isWin: boolean; openedAt: number | null; closedAt: number; openTx: string;
+                     copied: boolean };          // Cult opened it for them (never counts in the record)
+
+type Profile = {             // GET /v1/members/:id  (id = "me" | user id | wallet)
+  id: string; name: string; address: string; country: { code: string; name: string } | null;
+  memberSince: number; isMe: boolean;
+  record: MemberStats;
+  openTrades: { tradeId: string; markerId: string; venue: string; market: string; symbol: string; side: string; leverage: number; openedAt: number }[];
+  closedTrades: ClosedTrade[];                // newest first, up to 50
+  cults: { id: string; name: string; visibility: string }[];   // public ones + any shared with you
+};
+
+type Home = {                // GET /v1/home
+  topTrades: { rank: number; memberId: string; name: string; venue: string; market: string; symbol: string; side: string;
+               returnPct: number; pnlUsd: number | null; closedAt: number;
+               tradersIn: number;            // the caller + everyone who copied or stacked it ("3 traders were in")
+               markerId: string | null }[];  // the week's best own trades across Cult
+  sevenDay: { trades: number; profitUsd: number; positionsOpened: number };   // yours
+  asOf: string;
 };
 
 type Leaderboard = {
@@ -565,12 +623,17 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
 | POST | `/v1/enrollment/perpl` | `{ challengeId, signature }` | `204` |
 | POST | `/v1/me/country` | `{ country: "NG" }` | `{ country: { code, name }, rooms: ChatRoom[] }`. ISO 3166 alpha-2. Adds you to that country's chat and leaderboard. Change it any time. `400` if it isn't a country |
-| POST | `/v1/cults` | `{ name, policy: MirrorPolicy, visibility?: 'private' \| 'public' }` | `201 Clan`. Private is the default |
+| POST | `/v1/cults` | `{ name, visibility?: 'private' \| 'public', policy? }` | `201 Clan`. Just a name is enough: private, Auto-follow off |
+| POST | `/v1/cults/join` | `{ inviteCode }` or `{ cultId }` | `Clan`. **One tap, no signature**, Auto-follow off. `cultId` only for public cults. `409` if you're already in. (`{ challengeId, signature }` still completes a join with Auto-follow on) |
+| POST | `/v1/cults/:id/auto-follow` | `{ enabled: false }` | `Clan`. Turns copying off at once; anything pending for you there is cancelled; open copies still follow their leader's partial sells and exit. `{ enabled: true }` is a `400`: turn it on with `/policy/challenge` (`enabled: true`, limits from `/v1/config.autoFollowDefaults`) then `/policy`; that message starts "Turn on Auto-follow in the Cult" |
+| POST | `/v1/chat/:room/pin` | `{ messageId }` or `{ messageId: null }` | `{ pinned }`. The cult owner only (`403`) |
+| GET | `/v1/home` | none | `Home` |
+| GET | `/v1/members/:id` | none | `Profile`. `id` = `me`, a user id, or a wallet. `404` if unknown |
 | GET | `/v1/cults/discover?limit=` | none | `{ cults: [{ id, name, visibility: 'public', memberCount, createdAt, joined }] }`. Public cults only |
 | POST | `/v1/cults/:id/visibility` | `{ visibility }` | `Clan`. Owner only (`403` otherwise) |
 | POST | `/v1/cults/join/challenge` | `{ inviteCode, policy }` **or** `{ cultId, policy }` | `{ challengeId, message }`. `inviteCode` is `ABC-DEF`, and `abcdef` or `abc def` work too. `cultId` only works for public cults (`404` for private). `409` if you're already in it. The message starts `Join the Cult "…" (ABC-DEF)` |
 | GET | `/v1/chat/rooms` | none | `{ rooms: ChatRoom[] }`: global, your country, your cults |
-| GET | `/v1/chat/:room/messages?before=&limit=` | none | `{ messages: ChatMessage[], hasMore }`. Global is open to everyone signed in; a country room only to members who picked that country (`403`); a cult room only to its members (`404`) |
+| GET | `/v1/chat/:room/messages?before=&limit=` | none | `{ messages: ChatMessage[], hasMore, pinned: { id, memberName, body } \| null }`. Global is open to everyone signed in; a country room only to members who picked that country (`403`); a cult room only to its members (`404`) |
 | POST | `/v1/chat/:room/messages` | `{ body, replyTo?, markerId? }` | `201 ChatMessage`. The same limits as the cult chat |
 | GET | `/v1/chat/:room/events` | none | SSE: `message` (a `ChatMessage`) and `ping`. For the global and country rooms; cult rooms also come on the cult stream |
 | GET | `/v1/leaderboards/global?limit=` | none | `Leaderboard` |
