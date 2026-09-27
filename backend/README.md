@@ -24,8 +24,13 @@ watcher, mirror timers and a SQLite file. So it can't run on serverless platform
 like Vercel; the frontend can. Any Node ≥ 22.5 host with a persistent disk works
 (Railway, Render, Fly):
 
+`backend/railway.json` carries the build, start, pre-deploy, health check and volume
+settings for Railway. There, only set the root directory, the config file path
+(`/backend/railway.json`), the volume and the variables. On other hosts:
+
 | Setting | Value |
 |---|---|
+| Node | 24 (`engines`; tests pass on 24 and 25) |
 | Root directory | `backend` |
 | Build | `npm ci --include=dev && npm run build` |
 | Start | `npm start` (runs the compiled `dist/`) |
