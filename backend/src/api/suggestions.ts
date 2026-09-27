@@ -18,6 +18,7 @@ export interface TpSlSuggestion {
 
 // Clan-level events that aren't engine events (SSE fans these out too).
 export const clanBus = new EventEmitter<{ suggestion: [string, TpSlSuggestion]; message: [string, ChatMessage] }>();
+clanBus.setMaxListeners(0); // one listener per open SSE stream; many is normal
 
 interface Row {
   id: string;
