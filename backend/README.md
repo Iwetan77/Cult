@@ -13,8 +13,19 @@ Requirements: Node 22 or newer (it uses the built-in `node:sqlite`).
 ```bash
 cp .env.example .env     # then fill in the values below
 npm ci
+npm run preflight        # checks config + every outside service; exit 1 on any FAIL
 npm start                # http://localhost:8787, all routes under /v1
 ```
+
+Run `npm run preflight` on every new host, and before switching networks. It checks:
+
+- the RPC is on the configured chain;
+- the Perpl URLs match that chain, and its exchange and AUSD are deployed there;
+- the Nad.fun router and Kuru Flow are there, and fit the memes pay-with setting;
+- the Privy credentials work, and the backend's signing key is the one on its Privy
+  key quorum;
+- dev auth is off, the key-sealing secret is valid and the DB path is writable;
+- CORS and the indexer settings are in place.
 
 | Variable | What it's for |
 |---|---|
