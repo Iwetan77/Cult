@@ -5,9 +5,9 @@ import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { getAccessToken, useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSigners, useWallets } from '@privy-io/react-auth';
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
-import { ArrowRight, Compass, ExternalLink, Home, Link2, Plus, RefreshCw, Search, ShieldCheck, UserRound, Wallet, X } from 'lucide-react';
+import { ArrowRight, CandlestickChart, Compass, ExternalLink, Home, Link2, Plus, RefreshCw, Search, ShieldCheck, UserRound, Wallet, X } from 'lucide-react';
 import { createClan, createShare, enrollPerpl, getChart, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getNadMarkets, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl } from '@/lib/api';
-import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Holding, Me, MirrorPolicy, NadMarket, SetupStatus, TpslSuggestion, TpslValues, Venue, WalletAction } from '@/lib/contracts';
+import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Holding, Me, MirrorPolicy, NadMarket, SetupStatus, TpslSuggestion, TpslValues, Venue, WalletAction, MarketListing } from '@/lib/contracts';
 import { dollars, percent, shortAddress, signedDollars, signedMon } from '@/lib/format';
 import { SharedChart } from './SharedChart';
 import { ClanChat } from './ClanChat';
@@ -18,6 +18,7 @@ import { HomeView } from './HomeView';
 import { AccountView } from './AccountView';
 import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
+import { MarketsView } from './MarketsView';
 import { DepositSheet } from './DepositSheet';
 
 const venueName = (venue: Venue) => venue === 'perpl' ? 'Perpl' : 'Nad.fun';
@@ -55,7 +56,9 @@ export function Dashboard() {
   const [tradeLeverage, setTradeLeverage] = useState('2');
   const [depositOpen, setDepositOpen] = useState(false);
   const [createVisibility, setCreateVisibility] = useState<'private' | 'public'>('private');
-  const [view, setView] = useState<'home' | 'cult' | 'discover' | 'chat' | 'account' | 'leaderboards'>('home');
+  const [view, setView] = useState<'home' | 'cult' | 'discover' | 'chat' | 'account' | 'leaderboards' | 'markets'>('home');
+  const [marketPage, setMarketPage] = useState<string | null>(null);
+  const openMarket = (id: string | null) => { setMarketPage(id || null); setView('markets'); };
   const [profileId, setProfileId] = useState('me');
   const [tradeSheetTarget, setTradeSheetTarget] = useState<TradeSheetTarget | null>(null);
   const [formOpen, setFormOpen] = useState<'create' | 'join' | null>(null);
@@ -447,6 +450,17 @@ export function Dashboard() {
     await loadMe();
     setNotice('Your own trade is open on the cult chart.');
   });
+  // A trade from the Markets page: same checks as the cult ticket (funds, gas,
+  // one-time perps setup), then it's the member's own trade and cult-mates on
+  // Auto-follow copy it.
+  const placeMarketTrade = (target: MarketListing, side: 'long' | 'short' | 'buy', amountUsd: number, leverage?: number) => perform('open', async () => {
+    if (target.venue === 'nadfun') requireNadFunds(amountUsd);
+    if (target.venue === 'perpl' && !await ensurePerps()) return;
+    await openPosition(await token(), target.id, target.venue === 'nadfun' ? 'buy' : side, amountUsd, leverage);
+    setHoldings((await getHoldings(await token())).positions);
+    await loadMe();
+    setNotice(`Trade placed on ${target.symbol}. Cult-mates on Auto-follow will copy it.`);
+  });
   const closeTrade = (holding: Holding) => perform('close', async () => {
     await closePosition(await token(), holding.market);
     if (clanId) await loadChart(clanId, marketId ?? undefined);
@@ -572,6 +586,7 @@ export function Dashboard() {
         <div className="rail-logo">CULT<span>.</span></div>
         <nav className="primary-nav" aria-label="Main navigation">
           <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home size={17} /> Home</button>
+          <button className={view === 'markets' ? 'active' : ''} onClick={() => openMarket(null)}><CandlestickChart size={17} /> Markets</button>
           <button className={view === 'discover' || view === 'leaderboards' ? 'active' : ''} onClick={() => setView('discover')}><Compass size={17} /> Discover</button>
           <button className={view === 'account' ? 'active' : ''} onClick={() => openAccount()}><UserRound size={17} /> Account</button>
         </nav>
@@ -586,7 +601,8 @@ export function Dashboard() {
       </aside>
       <div className="content-topbar"><label className="top-search"><Search size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search groups or markets" aria-label="Search groups or markets" /></label><div className="topbar-right"><span className="balance-pill">{me?.balances ? dollars(me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0)) : '—'}</span><button className="primary" onClick={() => setDepositOpen(true)}><Wallet size={15} /> Deposit</button></div></div>
     {!me ? <main className="home-layout shell-loading"><div className="home-main"><div className="skeleton-line wide" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line short" /></div><aside className="home-right"><div className="skeleton-card" /><div className="skeleton-card" /></aside></main>
-      : view === 'home' ? <HomeView me={me} config={config} holdings={holdings} nadMarkets={nadMarkets} search={search} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} />
+      : view === 'home' ? <HomeView me={me} holdings={holdings} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} />
+      : view === 'markets' ? <MarketsView search={search} openId={marketPage} onOpen={openMarket} busy={busy === 'open'} onTrade={placeMarketTrade} />
       : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me?.country ?? null} cultId={clanId} onProfile={openAccount} search={search} />
       : view === 'leaderboards' ? <Leaderboards country={me?.country ?? null} cultId={clanId} />
       : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onSignOut={logout} onTrade={setTradeSheetTarget} />

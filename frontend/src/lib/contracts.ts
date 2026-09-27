@@ -127,5 +127,5 @@ export type Profile = { id: string; name: string; username: string | null; avata
   closedTrades: ClosedTrade[]; cults: { id: string; name: string; visibility: string }[] };
 
 export type MarketListing = { venue: Venue; id: string; symbol: string; name: string; priceUsd: number | null; change24hPct: number | null; volume24hUsd: number | null; imageUri: string | null; maxLeverage: number };
-export type MarketDetail = { market: MarketListing; candles: Candle[]; resolution: string };
+export type MarketDetail = { market: MarketListing; candles: Candle[]; resolution: number };
 export type DepositInfo = { address: string; network: { name: string; chainId: number }; tokens: { symbol: 'MON' | 'USDC' | 'AUSD'; name: string; what: string; balance: number; balanceUsd: number | null }[]; tradingAccountUsd: number | null; totalUsd: number | null };

@@ -89,4 +89,4 @@ export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: s
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
 export const getDeposit = (token: string) => api<DepositInfo>('/v1/wallet/deposit', token);
 export const getMarkets = (query = '', venue?: Venue) => api<{ markets: MarketListing[] }>(`/v1/markets?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(venue ? { venue } : {}), limit: '100' })}`, null);
-export const getMarket = (id: string, resolution = '1h') => api<MarketDetail>(`/v1/markets/${encodeURIComponent(id)}?resolution=${encodeURIComponent(resolution)}`, null);
+export const getMarket = (id: string, resolutionSec = 3600) => api<MarketDetail>(`/v1/markets/${encodeURIComponent(id)}?resolution=${resolutionSec}`, null);

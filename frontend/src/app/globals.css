@@ -91,3 +91,22 @@
 @media(max-width:650px){.deposit-sheet{width:100%;padding:20px}.profile-screen.own-profile{grid-column:auto}}
 
 .profile-trade-open{border:0;background:none;color:var(--text);padding:0;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;flex:1;min-width:0}.profile-trade-open>span{display:flex;flex-direction:column;gap:4px}.profile-trade-open:hover strong{color:var(--green)}
+
+/* Markets */
+.markets-screen,.market-page{grid-column:2 / 4;grid-row:2;padding:36px 38px 55px;background:var(--surface);min-width:0}
+.markets-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}.markets-head h1{font-size:26px;margin:10px 0 0}
+.markets-tabs{display:flex;gap:4px;background:#242831;border:1px solid #373f49;border-radius:8px;padding:3px}.markets-tabs button{border:0;background:none;color:#a6b0b8;padding:8px 14px;border-radius:6px;font-size:12px;font-weight:700}.markets-tabs button.active{background:#323845;color:var(--text)}.markets-tabs.small{display:inline-flex;margin:14px 0 10px}.markets-tabs.small button{padding:6px 11px;font-size:11px}
+.market-list{border-top:1px solid var(--line)}.market-row{width:100%;display:flex;align-items:center;gap:14px;padding:14px 4px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--text);text-align:left}.market-row:hover{background:#252a33}
+.market-icon{flex:none;width:36px;height:36px;border-radius:50%;object-fit:cover;background:#2c323d}.market-icon.letter{display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:var(--green)}
+.market-name{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}.market-name strong{font-family:var(--font-mono),monospace;font-size:13px}.market-name small{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.market-price{display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-family:var(--font-mono),monospace;font-variant-numeric:tabular-nums}.market-price strong{font-size:13px;font-weight:500}
+.market-change{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--muted)}.positive{color:var(--green)}.negative{color:#e4777d}
+.back-link{display:inline-flex;align-items:center;gap:6px;border:0;background:none;color:#a6b0b8;padding:0;font-size:12px;font-weight:700;margin-bottom:18px}.back-link:hover{color:var(--text)}
+.market-page-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:28px}.market-page-main{min-width:0}
+.market-page-head{display:flex;align-items:center;gap:12px}.market-page-head h1{font-size:22px;margin:0;font-family:var(--font-mono),monospace}.market-page-head small{color:var(--muted);font-size:11px}.market-page-price{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-family:var(--font-mono),monospace}.market-page-price strong{font-size:22px}
+.market-chart{height:380px;border:1px solid #373f49;border-radius:8px;overflow:hidden;background:#1e2229}
+.trade-ticket{border:1px solid #373f49;background:#242831;border-radius:8px;padding:19px;display:flex;flex-direction:column;gap:9px;align-self:start}.trade-ticket input{width:100%;background:#2c323d;border:1px solid #505c67;border-radius:6px;color:var(--text);padding:11px;font:inherit;font-family:var(--font-mono),monospace}
+.side-toggle{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0}.side-toggle button{border:1px solid #45505a;background:none;color:#a6b0b8;padding:9px;border-radius:6px;font-weight:700}.side-toggle .active.long{background:#2c4a40;border-color:var(--green);color:var(--text)}.side-toggle .active.short{background:#4a2c30;border-color:#e4777d;color:var(--text)}
+.home-card-head{display:flex;align-items:center;justify-content:space-between}.text-link{border:0;background:none;color:var(--green);font-size:11px;font-weight:700;padding:0}
+.trending-row.clickable{width:100%;border:0;border-bottom:1px solid var(--line);background:none;color:var(--text);text-align:left;cursor:pointer}.trending-row.clickable:hover{background:#2a2f39}.trending-price{font-family:var(--font-mono),monospace;font-size:10px}
+@media(max-width:850px){.markets-screen,.market-page{grid-column:2}.market-page-grid{grid-template-columns:1fr}}@media(max-width:650px){.markets-screen,.market-page{padding:24px 16px}.market-chart{height:280px}}
