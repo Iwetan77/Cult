@@ -22,6 +22,7 @@ import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
+import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
 
@@ -286,6 +287,23 @@ export function createApp(engine: MirrorEngine) {
     const v = venueOf(body.marketId);
     if (v === 'perpl' && !members.get(userId)?.perplAccountId) throw bad(409, 'no Perpl account');
     return c.json(await venue(v).close({ userId, market: body.marketId, sizeRaw: body.sizeRaw }));
+  });
+
+  // "Pay with USDC": ordered wallet actions (Kuru swap -> Perpl deposit) for
+  // the member to sign. 409 with a plain reason where it can't work (testnet,
+  // empty book). amountUsdc is a decimal string, e.g. "25.5".
+  authed.post('/funding/usdc/prepare', async (c) => {
+    const body = z.object({ amountUsdc: z.string().regex(/^\d+(\.\d{1,6})?$/) }).parse(await c.req.json());
+    try {
+      return c.json(await prepareUsdcFunding(c.get('wallet'), ethers.parseUnits(body.amountUsdc, 6)));
+    } catch (e) {
+      if (e instanceof FundingUnavailable) throw bad(409, e.message);
+      throw e;
+    }
+  });
+  authed.post('/funding/usdc/confirm', async (c) => {
+    const body = z.object({ planId: z.string(), hashes: z.array(z.string().regex(/^0x[0-9a-fA-F]{64}$/)) }).parse(await c.req.json());
+    return c.json(await confirmFunding(c.get('wallet'), body.planId, body.hashes));
   });
 
   // ---- clans ---------------------------------------------------------------
