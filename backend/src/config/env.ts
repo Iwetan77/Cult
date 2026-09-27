@@ -1,4 +1,9 @@
 import 'dotenv/config';
+import dns from 'node:dns';
+
+// Some hosts resolve IPv6 first without an IPv6 route, which makes fetch to
+// Cloudflare-fronted APIs (nad.fun, kuru) time out. Prefer IPv4.
+dns.setDefaultResultOrder('ipv4first');
 
 function opt(name: string, fallback: string): string {
   const v = process.env[name];

@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { getJson } from '../http.js';
 import { NADFUN } from '../nadfun/constants.js';
 import { getContext, getMarket, scale } from '../perpl/context.js';
 import type { Market as PerplMarket } from '../perpl/types.js';
@@ -96,7 +97,7 @@ const nadMeta = new Map<string, { symbol: string; imageUri?: string }>();
 export async function nadMarket(token: string): Promise<ApiMarket> {
   const t = token.toLowerCase();
   if (!nadMeta.has(t)) {
-    const r = await fetch(`${NADFUN.apiUrl}/token/${token}`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+    const r = await getJson(`${NADFUN.apiUrl}/token/${token}`, { retries: 1 }).catch(() => null);
     const info = (r as { token_info?: { symbol: string; image_uri?: string } } | null)?.token_info;
     nadMeta.set(t, { symbol: info?.symbol ?? 'TOKEN', imageUri: info?.image_uri });
   }
@@ -107,9 +108,9 @@ export async function nadMarket(token: string): Promise<ApiMarket> {
 export async function perplCandles(market: PerplMarket, resolutionSec = 300, count = 300): Promise<Candle[]> {
   const to = Date.now();
   const from = to - resolutionSec * 1000 * count;
-  const res = await fetch(`${env.perplApiUrl}/v1/market-data/${market.id}/candles/${resolutionSec}/${from}-${to}`);
-  if (!res.ok) throw new Error(`perpl candles ${res.status}`);
-  const body = (await res.json()) as { d: { t: number; o: number; h: number; l: number; c: number }[] };
+  const body = await getJson<{ d: { t: number; o: number; h: number; l: number; c: number }[] }>(
+    `${env.perplApiUrl}/v1/market-data/${market.id}/candles/${resolutionSec}/${from}-${to}`,
+  );
   return body.d.map((c) => ({
     time: Math.floor(c.t / 1000),
     open: scale.unprice(c.o, market),
@@ -126,9 +127,7 @@ export async function nadCandles(token: string, resolutionSec = 300, count = 300
   const to = Math.floor(Date.now() / 1000);
   const res = NAD_RES[resolutionSec] ?? '5';
   const url = `${NADFUN.apiUrl}/trade/chart/${token}?resolution=${res}&from=${to - resolutionSec * count}&to=${to}&countback=${count}&chart_type=price_usd`;
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`nad.fun chart ${r.status}`);
-  const b = (await r.json()) as { t: number[]; o: string[]; h: string[]; l: string[]; c: string[] };
+  const b = await getJson<{ t: number[]; o: string[]; h: string[]; l: string[]; c: string[] }>(url);
   return (b.t ?? []).map((t, i) => ({ time: t, open: Number(b.o[i]), high: Number(b.h[i]), low: Number(b.l[i]), close: Number(b.c[i]) }));
 }
 

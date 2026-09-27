@@ -79,6 +79,7 @@ reads) to `data/evidence/`.
 | Spike C: real Nad.fun buy + sell | `npm run spike:nadfun-trade` | passed |
 | Spike D: Kuru USDC→AUSD | `npm run spike:kuru-flow` | **simulated on mainnet** (real route + calldata via `eth_call`; no spend) |
 | Phase 1: account lifecycle, trade, TP/SL | `npm run e2e:phase1` | **not run**: needs Perpl testnet AUSD |
+| Memes paid in $: AUSD→MON→meme | `npm run spike:meme-buy-sim` | **simulated on mainnet**: Kuru Flow leg + mainnet Nad.fun buy |
 | Phase 2: USDC funding | `npm run spike:funding-plan` | plan **simulated on mainnet**; a real signed run needs mainnet USDC |
 | Phase 3: Privy policy rejections | `npm run e2e:phase3` | passed (24 refused, 9 allowed, incl. Kuru swaps) |
 | Phase 4: mirror, Nad.fun half | `npm run e2e:phase4-nadfun` | passed (3 real wallets) |

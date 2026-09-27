@@ -10,6 +10,7 @@ export interface Member {
   apiKey: string | null;
   apiKeyPubkey: string | null;
   forwarding: boolean;
+  privyPolicyId: string | null;
 }
 
 interface Row {
@@ -20,6 +21,7 @@ interface Row {
   api_key: string | null;
   api_key_pubkey: string | null;
   forwarding: number;
+  privy_policy_id: string | null;
 }
 
 const toMember = (r: Row): Member => ({
@@ -30,6 +32,7 @@ const toMember = (r: Row): Member => ({
   apiKey: r.api_key,
   apiKeyPubkey: r.api_key_pubkey,
   forwarding: r.forwarding === 1,
+  privyPolicyId: r.privy_policy_id,
 });
 
 export const members = {
