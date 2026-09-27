@@ -323,7 +323,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/health` | none | `{ ok: true }` |
 | GET | `/v1/config` | none | `{ chainId, venue, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] }` |
 | GET | `/v1/me` | none | `{ id, address, name, clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, usdcBalance: null }` |
-| GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capUsd }`. `409` until the member is in a clan |
+| GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan |
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
 | POST | `/v1/enrollment/perpl` | `{ challengeId, signature }` | `204` |
@@ -347,14 +347,21 @@ Notes:
   wallet, then call it again. On `needs_key`, run the enrollment challenge: sign
   `typedData` with `eth_signTypedData_v4`, exactly as returned, then POST the
   signature. The backend completes the Perpl enrollment.
-- **Backend signer.** After the member joins or creates a clan, call
-  `GET /v1/privy/signer`, then Privy's
-  `useSigners().addSigners({ address, signers: [{ signerId, policyIds }] })`. This
-  lets the backend send the Perpl setup transactions for the member, but only
-  within Privy's policy: Perpl exchange and AUSD only, no withdrawals, no transfers
-  out, no MON value, and at most `capUsd` per deposit or approve. `capUsd` follows
-  the member's largest `maxUsdPerTrade`. Without the signer, the member's wallet
-  sends the setup actions itself. That path works too.
+- **Backend signer (required).** After the member joins or creates a clan, call
+  `GET /v1/privy/signer`. It returns
+  `{ signerId, policyIds, capAusd, maxBuyMon, monPriceAusd }`. Then call Privy's
+  `useSigners().addSigners({ address, signers: [{ signerId, policyIds }] })`.
+  - **Privy's policy lets the backend:** approve and deposit AUSD into Perpl up to
+    `capAusd` per tx; make Nad.fun `buyWithNative` calls up to `maxBuyMon` per buy,
+    with tokens delivered to the member; make Nad.fun `sellToNative` calls with
+    proceeds to the member; and approve tokens to the Nad.fun router.
+  - **Privy refuses everything else:** withdrawals, transfers out, a buy or sell
+    routed to anyone else, `createAccount`, `allowOrderForwarding`, and signing
+    Perpl key enrollments.
+  - Those last three are the member's own one-time setup, signed in the browser via
+    `/v1/perpl/setup` actions and the enrollment challenge.
+  - `maxBuyMon` is the member's `maxUsdPerTrade` converted at Perpl's MON mark price
+    when the grant was made.
 - **Joining a clan** is standing consent. The challenge `message` spells out the
   policy in plain words. The member signs it with `personal_sign`, and the backend
   checks the signer is their wallet and stores the signed text. It is never re-asked
