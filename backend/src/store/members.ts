@@ -11,6 +11,7 @@ export interface Member {
   apiKeyPubkey: string | null;
   forwarding: boolean;
   privyPolicyId: string | null;
+  country: string | null; // ISO 3166 alpha-2
 }
 
 interface Row {
@@ -22,6 +23,7 @@ interface Row {
   api_key_pubkey: string | null;
   forwarding: number;
   privy_policy_id: string | null;
+  country: string | null;
 }
 
 const toMember = (r: Row): Member => ({
@@ -33,6 +35,7 @@ const toMember = (r: Row): Member => ({
   apiKeyPubkey: r.api_key_pubkey,
   forwarding: r.forwarding === 1,
   privyPolicyId: r.privy_policy_id,
+  country: r.country ?? null,
 });
 
 export const members = {
@@ -64,6 +67,18 @@ export const members = {
 
   setAccount(userId: string, accountId: number) {
     getDb().prepare('UPDATE members SET perpl_account_id = ? WHERE user_id = ?').run(accountId, userId);
+  },
+
+  setCountry(userId: string, country: string) {
+    getDb().prepare('UPDATE members SET country = ? WHERE user_id = ?').run(country, userId);
+  },
+
+  // Everyone (global) or one country, for leaderboards.
+  all(country?: string): Member[] {
+    const rows = (country
+      ? getDb().prepare('SELECT * FROM members WHERE country = ?').all(country)
+      : getDb().prepare('SELECT * FROM members').all()) as unknown as Row[];
+    return rows.map(toMember);
   },
 
   setForwarding(userId: string, on: boolean) {

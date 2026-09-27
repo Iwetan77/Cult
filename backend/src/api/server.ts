@@ -27,7 +27,8 @@ import { UpstreamError } from '../http.js';
 import { balancesFor } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
-import { ChatError, listMessages, MAX_MESSAGE_CHARS, postMessage, type ChatMessage } from './chat.js';
+import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, roomsFor, type ChatMessage } from './chat.js';
+import { countryName } from './countries.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
@@ -55,6 +56,7 @@ function consentMessage(cultName: string, inviteCode: string, wallet: string, p:
 }
 
 export function createApp(engine: MirrorEngine) {
+  engine.setMaxListeners(0); // each open clan SSE stream listens; many is normal
   const app = new Hono<Vars>();
   app.use('*', cors({ origin: env.corsOrigins, allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST'], exposeHeaders: ['Retry-After'] }));
 
@@ -278,11 +280,51 @@ export function createApp(engine: MirrorEngine) {
       id: userId,
       address: m.wallet,
       name: shortName(m.wallet),
+      country: m.country ? { code: m.country, name: countryName(m.country) } : null,
+      rooms: roomsFor(userId),
       clans: clans.forUser(userId).map((cl) => clanView(cl.id, userId)),
       perpl: { accountId: m.perplAccountId, keyEnrolled: !!m.apiKey, forwarding: m.forwarding },
       balances: await balancesFor(userId).catch(() => null),
       // prepared = grant issued; attached/policyCurrent = verified with Privy.
       signer: await backendSignerStatus(userId).catch(() => ({ prepared: !!m.privyPolicyId, attached: null, policyCurrent: null })),
+    });
+  });
+
+  // Your country: puts you in its chat room and its leaderboard (like picking
+  // your country when you join a fantasy league). Change it any time.
+  authed.post('/me/country', async (c) => {
+    const body = z.object({ country: z.string().length(2) }).parse(await c.req.json());
+    const code = body.country.toUpperCase();
+    const name = countryName(code);
+    if (!name) throw bad(400, `${body.country} isn't a country code (ISO 3166, e.g. NG, GB, US)`);
+    members.setCountry(c.get('userId'), code);
+    return c.json({ country: { code, name }, rooms: roomsFor(c.get('userId')) });
+  });
+
+  // ---- chat rooms: global, your country, your cults ------------------------
+  authed.get('/chat/rooms', (c) => c.json({ rooms: roomsFor(c.get('userId')) }));
+  authed.get('/chat/:room/messages', (c) => {
+    const { room } = openRoom(c.req.param('room'), c.get('userId'));
+    const limit = c.req.query('limit');
+    return c.json(listMessages(room, { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
+  });
+  authed.post('/chat/:room/messages', async (c) => {
+    const { room } = openRoom(c.req.param('room'), c.get('userId'));
+    const body = z
+      .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
+      .parse(await c.req.json());
+    return c.json(postMessage(room, c.get('userId'), body), 201);
+  });
+  // Live messages for one room (the cult stream carries its cult room too).
+  authed.get('/chat/:room/events', (c) => {
+    const { room } = openRoom(c.req.param('room'), c.get('userId'));
+    return streamSSE(c, async (stream) => {
+      const onMessage = (r: string, msg: ChatMessage) => r === room && void stream.writeSSE({ event: 'message', data: JSON.stringify(msg) });
+      clanBus.on('message', onMessage);
+      const ping = setInterval(() => void stream.writeSSE({ event: 'ping', data: String(Date.now()) }), 15_000);
+      await new Promise<void>((resolve) => stream.onAbort(resolve));
+      clearInterval(ping);
+      clanBus.off('message', onMessage);
     });
   });
 
@@ -535,7 +577,7 @@ export function createApp(engine: MirrorEngine) {
   cultRoutes.get('/:clanId/messages', (c) => {
     const clan = clanFor(c);
     const limit = c.req.query('limit');
-    return c.json(listMessages(clan.id, { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
+    return c.json(listMessages(cultRoom(clan.id), { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
   });
 
   cultRoutes.post('/:clanId/messages', async (c) => {
@@ -543,7 +585,7 @@ export function createApp(engine: MirrorEngine) {
     const body = z
       .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
       .parse(await c.req.json());
-    return c.json(postMessage(clan.id, c.get('userId'), body), 201);
+    return c.json(postMessage(cultRoom(clan.id), c.get('userId'), body), 201);
   });
 
   authed.post('/shares', async (c) => {
@@ -568,7 +610,7 @@ export function createApp(engine: MirrorEngine) {
       engine.on('mirror', onMirror);
       engine.on('adjustment', onAdjust);
       const onSuggestion = (clanId: string, sug: TpSlSuggestion) => clanId === clan.id && send('suggestion', sug);
-      const onMessage = (clanId: string, msg: ChatMessage) => clanId === clan.id && send('message', msg);
+      const onMessage = (room: string, msg: ChatMessage) => room === cultRoom(clan.id) && send('message', msg);
       clanBus.on('suggestion', onSuggestion);
       clanBus.on('message', onMessage);
       const ping = setInterval(() => void stream.writeSSE({ event: 'ping', data: String(Date.now()) }), 15_000);

@@ -105,6 +105,20 @@ const page = await call('chat: list', 'GET', `/v1/clans/${clan.id}/messages?limi
 if (page.messages.length !== 1 || !page.hasMore || page.messages[0].replyTo !== hi.id) throw new Error('chat page wrong');
 const older = await call('chat: older page', 'GET', `/v1/clans/${clan.id}/messages?before=${page.messages[0].id}`, auth(bob, 'bob'));
 if (older.messages[0]?.id !== hi.id || older.hasMore) throw new Error('chat paging wrong');
+// Global and country rooms.
+await call('not a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'EU' });
+const ctry = await call('pick a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'ng' });
+if (ctry.country?.name !== 'Nigeria' || !ctry.rooms.some((r: any) => r.id === 'country:NG')) throw new Error('country room missing');
+const rooms = await call('my rooms', 'GET', '/v1/chat/rooms', auth(alice, 'alice'));
+if (rooms.rooms[0]?.id !== 'global') throw new Error('global room missing');
+await call('post in global', 'POST', '/v1/chat/global/messages', auth(alice, 'alice'), { body: 'gm from Lagos' });
+const g = await call('read global (anyone signed in)', 'GET', '/v1/chat/global/messages', auth(bob, 'bob'));
+if (!g.messages.some((m: any) => m.body === 'gm from Lagos' && m.room === 'global')) throw new Error('global message missing');
+await call('post in my country room', 'POST', '/v1/chat/country:NG/messages', auth(alice, 'alice'), { body: 'naija traders' });
+await call("someone else's country room", 'GET', '/v1/chat/country:NG/messages', auth(bob, 'bob'));
+await call('a cult room via /chat', 'GET', `/v1/chat/cult:${clan.id}/messages`, auth(bob, 'bob'));
+const me2 = await call('me shows country and rooms', 'GET', '/v1/me', auth(alice, 'alice'));
+if (me2.country?.code !== 'NG' || me2.rooms.length < 3) throw new Error('me is missing country/rooms');
 // Policy change (signed consent) and leaving.
 const newPolicy = { enabled: false, balancePercentCap: 5, maxUsdPerTrade: 20 };
 const polCh = await call('policy change challenge', 'POST', `/v1/clans/${clan.id}/policy/challenge`, auth(bob, 'bob'), { policy: newPolicy });
