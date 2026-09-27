@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CandlestickSeries, ColorType, createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
 import type { Candle, ChartMarker, Market } from '@/lib/contracts';
-import { signedAusd, ausd } from '@/lib/format';
+import { signedDollars, dollars } from '@/lib/format';
 
 type Props = { candles: Candle[]; markers: ChartMarker[]; market: Market; selectedId: string | null; onSelect: (marker: ChartMarker) => void };
 type Hit = { id: string; x: number; y: number; width: number; height: number };
@@ -98,7 +98,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
         ctx.setLineDash([4, 5]);
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width - 56, y); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 1;
-        const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedAusd(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : ausd(marker.valueUsd)}`;
+        const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedDollars(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : dollars(marker.valueUsd)}`;
         const badgeWidth = Math.min(235, Math.max(80, width - x - 62), ctx.measureText(badge).width + 43);
         ctx.fillStyle = selected ? '#313945' : '#292e39';
         ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1;
@@ -125,7 +125,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
     <canvas ref={canvasRef} className="chart-overlay" aria-hidden="true" />
     <div className="chart-hit-layer">{hitRegions.map(hit => {
       const marker = markers.find(item => item.id === hit.id);
-      return marker && <button key={hit.id} className="chart-hit" type="button" style={{ left: hit.x, top: hit.y, width: hit.width, height: hit.height }} title={`${marker.memberName}: ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedAusd(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : ausd(marker.valueUsd)}. Open trade details`} aria-label={`Open ${marker.memberName}'s ${market.symbol} trade details`} onClick={() => onSelect(marker)} />;
+      return marker && <button key={hit.id} className="chart-hit" type="button" style={{ left: hit.x, top: hit.y, width: hit.width, height: hit.height }} title={`${marker.memberName}: ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedDollars(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : dollars(marker.valueUsd)}. Open trade details`} aria-label={`Open ${marker.memberName}'s ${market.symbol} trade details`} onClick={() => onSelect(marker)} />;
     })}</div>    {!candles.length && <div className="chart-empty">Waiting for live market data</div>}
   </div>;
 }

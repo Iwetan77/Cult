@@ -1,11 +1,11 @@
 # Frontend-only assumptions
 
-Status (2026-09-27): I read the canonical `origin/backend:CONTRACTS.md` at `3dd4bc2`. The frontend uses its published AUSD, Nad.fun, Privy signer, funding, positions, chart, and public share shapes. This file records only UI-side choices and remaining gaps.
+Status (2026-09-27): I read the canonical `origin/backend:CONTRACTS.md` at `4ac5361`. The frontend uses its corrected dollar display, Nad.fun, Privy signer, funding, positions, chart, and public share shapes. This file records only UI-side choices and remaining gaps. Dollar values render with `$`; `AUSD` appears only within funding UI.
 
 - Direct AUSD deposit means sending AUSD on the configured Monad chain to the member's own embedded-wallet address, then continuing the member-signed Perpl setup. The backend has no separate direct-deposit endpoint. The UI labels `collateralBalance` as Perpl collateral, not wallet balance.
-- The MON balance is read from the configured testnet RPC by the browser. A value under 0.05 MON is shown as low because the backend reserves 0.05 MON for gas. A Nad.fun buy is gated locally on that reserve plus `notionalUsd / monPriceAusd`; the backend remains authoritative.
+- The MON balance is read from the configured testnet RPC by the browser and displayed in dollars using `monPriceAusd` from config. A value under 0.05 MON is shown as low because the backend reserves 0.05 MON for gas. A Nad.fun buy is gated locally on that reserve plus `notionalUsd / monPriceAusd`; the backend remains authoritative.
 - `GET /v1/privy/signer` gives the policy and caps; `useSigners().addSigners` is requested immediately after clan creation/join. The contract has no signer-grant status endpoint, so the frontend offers a visible retry/reconfirmation control after reload. It does not treat local browser storage as proof of authorization.
 - The USDC funding option uses the backend plan/confirm flow. The backend's 409 response is authoritative while Kuru has no liquidity. Privy's card rail is only offered when the runtime chain is mainnet; direct AUSD remains the usable testnet path.
-- Chart markers and Nad.fun values are already AUSD in the backend payload, converted from MON with its served price. The frontend does not convert them again. Null PnL, ROI, holdings, and unverified indexer track records stay empty or pending.
+- Chart markers and Nad.fun values are already dollar-denominated in the backend payload, converted from MON with its served price. The frontend does not convert them again. Null PnL, ROI, holdings, and unverified indexer track records stay empty or pending.
 - TP/SL prices are not in the published `ChartMarker` shape. The frontend cannot draw truthful TP/SL guides until backend adds those values. No synthetic levels are shown.
 - The public share UI shows `clanName` only when `includeClan` is true. The backend's public endpoint must continue omitting the clan ID, invite code, and member list regardless of UI choice.

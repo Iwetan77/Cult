@@ -3,7 +3,7 @@ export type MarkerOrigin = 'leader' | 'auto_mirror' | 'manual_stack';
 export type TradeSide = 'long' | 'short' | 'buy';
 export type MirrorPolicy = { enabled: boolean; balancePercentCap: number; maxUsdPerTrade: number };
 export type Market = {
-  venue: Venue; id: string; symbol: string; baseSymbol: string; quoteSymbol: 'AUSD';
+  venue: Venue; id: string; symbol: string; baseSymbol: string; quoteSymbol: 'USD';
   maxLeverage: number; makerFeeBps: number | null; takerFeeBps: number | null;
   tokenAddress?: string; imageUri?: string;
 };
@@ -28,7 +28,7 @@ export type ChartSnapshot = {
   autoMirrorOptOutWindowSeconds: number;
 };
 export type BackendConfig = {
-  chainId: number; venues: Venue[]; displayUnit: 'AUSD'; monPriceAusd: number | null;
+  chainId: number; venues: Venue[]; displayUnit: 'USD'; monPriceAusd: number | null;
   autoMirrorOptOutWindowSeconds: number; mirrorPolicyBounds: unknown; markets: Market[];
 };
 export type Me = {
