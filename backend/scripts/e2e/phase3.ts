@@ -1,53 +1,72 @@
 // Phase 3 gate: prove Privy's policy engine, not our code, stops the backend
-// from exceeding the cap or withdrawing.
+// from exceeding the member's cap, withdrawing, or moving funds out, on both
+// venues.
 //
 // Setup (all real Privy API calls):
 //   - "member" P-256 key = stand-in for the user owner of the wallet
 //   - "backend" P-256 key, registered as a 1-of-1 key quorum
-//   - the Perpl-only policy from src/privy/policy.ts, cap = $50
-//   - a wallet owned by the member key, with the backend quorum as an
-//     additional signer under that override policy
-// Then the backend key tries things it must not be able to do, and a couple
-// it should (so a deny-all policy can't pass this). Signing only, nothing is
-// broadcast, so this needs no testnet funds.
+//   - a wallet owned by the member key
+//   - the per-member policy from src/privy/policy.ts (pins this wallet; $50 AUSD
+//     cap; Nad.fun buy cap in MON), attached by the owner as an override policy
+//     on the backend signer, the same way the frontend's addSigners() does it
+// Then the backend key tries what it must not be able to do, and what it must
+// (so a deny-all policy can't pass). Signing only, nothing broadcast: no funds.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { ethers } from 'ethers';
 import { generateP256KeyPair } from '@privy-io/node';
 import { env } from '../../src/config/env.js';
 import { erc20Abi, exchangeAbi } from '../../src/chain/exchange.js';
+import { NADFUN } from '../../src/nadfun/constants.js';
+import { routerAbi } from '../../src/nadfun/trading.js';
 import { getExchangeInfo } from '../../src/perpl/context.js';
 import { buildBackendPolicy, privy } from '../../src/privy/policy.js';
 
-const CAP_USD = 50n;
+const CAP_AUSD = 50n;
+const MAX_BUY = ethers.parseEther('0.05');
+const MEME = '0x5e2E014020f31A410cC6Cd44dEfb646b02467777'; // TTT, the token spike C traded
 const evidence: Record<string, unknown> = { startedAt: new Date().toISOString() };
 const results: { attempt: string; signer: string; expected: 'allow' | 'deny'; got: 'allow' | 'deny'; detail: string }[] = [];
 
 try {
   const { exchange, collateralToken, collateralDecimals } = await getExchangeInfo();
   const unit = 10n ** BigInt(collateralDecimals);
-  const cap = CAP_USD * unit;
   const p = privy();
 
   const member = await generateP256KeyPair();
   const backend = await generateP256KeyPair();
   const quorum = await p.keyQuorums().create({ public_keys: [backend.publicKey], authorization_threshold: 1, display_name: 'cult-backend-e2e' });
-  const policy = await p.policies().create(buildBackendPolicy({ exchange, collateralToken, chainId: env.chainId, maxDepositRaw: cap }, `cult-e2e-${Date.now()}`));
-  const wallet = await p.wallets().create({
-    chain_type: 'ethereum',
-    owner: { public_key: member.publicKey },
+  const wallet = await p.wallets().create({ chain_type: 'ethereum', owner: { public_key: member.publicKey } });
+  const policy = await p.policies().create(
+    buildBackendPolicy(
+      {
+        member: wallet.address,
+        chainId: env.chainId,
+        perplExchange: exchange,
+        perplCollateral: collateralToken,
+        maxDepositRaw: CAP_AUSD * unit,
+        nadRouter: NADFUN.router,
+        maxBuyWei: MAX_BUY,
+      },
+      `cult-e2e-${Date.now()}`,
+    ) as never,
+  );
+  // The owner grants the backend signer, scoped by the policy.
+  await p.wallets().update(wallet.id, {
     additional_signers: [{ signer_id: quorum.id, override_policy_ids: [policy.id] }],
-  });
+    authorization_context: { authorization_private_keys: [member.privateKey] },
+  } as never);
   console.log('wallet', wallet.address, 'policy', policy.id, 'backend quorum', quorum.id);
-  evidence.setup = { walletId: wallet.id, address: wallet.address, policyId: policy.id, keyQuorumId: quorum.id, capRaw: cap.toString() };
+  evidence.setup = { walletId: wallet.id, address: wallet.address, policyId: policy.id, keyQuorumId: quorum.id, capAusd: CAP_AUSD.toString(), maxBuyMon: ethers.formatEther(MAX_BUY) };
 
-  const attacker = ethers.Wallet.createRandom().address;
+  const stranger = ethers.Wallet.createRandom().address;
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
   const tx = (to: string, data: string, value = 0n) => ({
     to,
     data: data as `0x${string}`,
     value: ethers.toQuantity(value),
     chain_id: ethers.toQuantity(env.chainId),
     nonce: '0x0',
-    gas_limit: ethers.toQuantity(300_000),
+    gas_limit: ethers.toQuantity(500_000),
     max_fee_per_gas: ethers.toQuantity(ethers.parseUnits('200', 'gwei')),
     max_priority_fee_per_gas: ethers.toQuantity(ethers.parseUnits('2', 'gwei')),
     type: 2 as const,
@@ -63,87 +82,63 @@ try {
       results.push({ attempt: name, signer: who, expected, got: 'deny', detail: `${err.status ?? ''} ${err.message ?? String(e)}`.trim().slice(0, 300) });
     }
     const r = results.at(-1)!;
-    console.log(`${r.got === r.expected ? 'ok  ' : 'FAIL'} [${who}] ${name}: expected ${expected}, got ${r.got}${r.got === 'deny' ? ` (${r.detail})` : ''}`);
+    console.log(`${r.got === r.expected ? 'ok  ' : 'FAIL'} [${who}] ${name}: expected ${expected}, got ${r.got}${r.got === 'deny' ? ` (${r.detail.slice(0, 90)})` : ''}`);
   }
 
   const signTx = (t: ReturnType<typeof tx>) => (key: string) =>
     p.wallets().ethereum().signTransaction(wallet.id, { params: { transaction: t }, authorization_context: { authorization_private_keys: [key] } });
-
   const ex = (fn: string, args: unknown[]) => exchangeAbi.encodeFunctionData(fn, args);
   const erc = (fn: string, args: unknown[]) => erc20Abi.encodeFunctionData(fn, args);
+  const nadBuy = (to: string) => routerAbi.encodeFunctionData('buyWithNative', [{ amountOutMin: 0n, token: MEME, to, deadline }]);
+  const nadSell = (to: string) => routerAbi.encodeFunctionData('sellToNative', [{ amountIn: 10n ** 18n, amountOutMin: 0n, token: MEME, to, deadline }]);
 
-  // Must be refused.
-  await attempt('deposit $60 into Perpl (cap $50)', 'backend', 'deny', signTx(tx(exchange, ex('depositCollateral', [60n * unit]))));
-  await attempt('createAccount with $500 (cap $50)', 'backend', 'deny', signTx(tx(exchange, ex('createAccount', [500n * unit]))));
-  await attempt('approve $51 of AUSD to Perpl (cap $50)', 'backend', 'deny', signTx(tx(collateralToken, erc('approve', [exchange, 51n * unit]))));
-  await attempt('withdrawCollateral $1 from Perpl', 'backend', 'deny', signTx(tx(exchange, ex('withdrawCollateral', [1n * unit]))));
-  await attempt('withdrawCollateral $0', 'backend', 'deny', signTx(tx(exchange, ex('withdrawCollateral', [0n]))));
-  await attempt('transfer AUSD to an outside address', 'backend', 'deny', signTx(tx(collateralToken, erc('transfer', [attacker, 1n * unit]))));
-  await attempt('approve AUSD to an outside address', 'backend', 'deny', signTx(tx(collateralToken, erc('approve', [attacker, 1n * unit]))));
-  await attempt('send 1 MON to an outside address', 'backend', 'deny', signTx(tx(attacker, '0x', ethers.parseEther('1'))));
-  await attempt('deposit with MON value attached', 'backend', 'deny', signTx(tx(exchange, ex('depositCollateral', [10n * unit]), 1n)));
-  await attempt('disable order forwarding', 'backend', 'deny', signTx(tx(exchange, ex('allowOrderForwarding', [false]))));
-
-  // Must be allowed (positive controls).
-  await attempt('deposit $40 into Perpl', 'backend', 'allow', signTx(tx(exchange, ex('depositCollateral', [40n * unit]))));
-  await attempt('approve $50 of AUSD to Perpl', 'backend', 'allow', signTx(tx(collateralToken, erc('approve', [exchange, 50n * unit]))));
-  await attempt('enable order forwarding', 'backend', 'allow', signTx(tx(exchange, ex('allowOrderForwarding', [true]))));
-
-  // Perpl api-key enrollment: fee-free key allowed, builder-fee key refused.
-  const signEnroll = (builderId: string, fee: string) => (key: string) =>
+  // ---- must be refused: over the cap -----------------------------------------
+  await attempt('Perpl: deposit $60 (cap $50)', 'backend', 'deny', signTx(tx(exchange, ex('depositCollateral', [60n * unit]))));
+  await attempt('Perpl: approve $51 AUSD to exchange (cap $50)', 'backend', 'deny', signTx(tx(collateralToken, erc('approve', [exchange, 51n * unit]))));
+  await attempt('Nad.fun: buy with 0.06 MON (cap 0.05)', 'backend', 'deny', signTx(tx(NADFUN.router, nadBuy(wallet.address), ethers.parseEther('0.06'))));
+  // ---- must be refused: withdrawal / moving funds out ------------------------
+  await attempt('Perpl: withdrawCollateral $1', 'backend', 'deny', signTx(tx(exchange, ex('withdrawCollateral', [1n * unit]))));
+  await attempt('Perpl: withdrawCollateral $0', 'backend', 'deny', signTx(tx(exchange, ex('withdrawCollateral', [0n]))));
+  await attempt('AUSD transfer to an outside address', 'backend', 'deny', signTx(tx(collateralToken, erc('transfer', [stranger, 1n * unit]))));
+  await attempt('AUSD approve to an outside address', 'backend', 'deny', signTx(tx(collateralToken, erc('approve', [stranger, 1n * unit]))));
+  await attempt('send 1 MON to an outside address', 'backend', 'deny', signTx(tx(stranger, '0x', ethers.parseEther('1'))));
+  await attempt('Nad.fun: buy with tokens delivered to a stranger', 'backend', 'deny', signTx(tx(NADFUN.router, nadBuy(stranger), ethers.parseEther('0.01'))));
+  await attempt('Nad.fun: sell with MON proceeds to a stranger', 'backend', 'deny', signTx(tx(NADFUN.router, nadSell(stranger))));
+  await attempt('meme token transfer to an outside address', 'backend', 'deny', signTx(tx(MEME, erc('transfer', [stranger, 10n ** 18n]))));
+  await attempt('meme token approve to an outside address', 'backend', 'deny', signTx(tx(MEME, erc('approve', [stranger, 10n ** 18n]))));
+  await attempt('Perpl deposit with MON value attached', 'backend', 'deny', signTx(tx(exchange, ex('depositCollateral', [10n * unit]), 1n)));
+  // ---- must be refused: things only the member does, once, in the browser ----
+  await attempt('Perpl: createAccount', 'backend', 'deny', signTx(tx(exchange, ex('createAccount', [10n * unit]))));
+  await attempt('Perpl: allowOrderForwarding(true)', 'backend', 'deny', signTx(tx(exchange, ex('allowOrderForwarding', [true]))));
+  await attempt('Perpl: allowOrderForwarding(false)', 'backend', 'deny', signTx(tx(exchange, ex('allowOrderForwarding', [false]))));
+  const td = await (
+    await fetch(`${env.perplApiUrl}/v1/api-key/payload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chain_id: env.chainId, address: wallet.address, public_key: '0x' + '22'.repeat(32), scope_mask: 2, label: 'e2e' }),
+    })
+  ).json();
+  await attempt('sign a real Perpl api-key enrollment (mint itself a trading key)', 'backend', 'deny', (key) =>
     p.wallets().ethereum().signTypedData(wallet.id, {
-      params: {
-        typed_data: {
-          domain: { name: 'perpl.xyz', version: '1', chainId: env.chainId, verifyingContract: ethers.ZeroAddress },
-          primary_type: 'PerplRegisterApiKey',
-          types: {
-            EIP712Domain: [
-              { name: 'name', type: 'string' },
-              { name: 'version', type: 'string' },
-              { name: 'chainId', type: 'uint256' },
-              { name: 'verifyingContract', type: 'address' },
-            ],
-            PerplRegisterApiKey: [
-              { name: 'signer', type: 'address' },
-              { name: 'statement', type: 'string' },
-              { name: 'publicKey', type: 'string' },
-              { name: 'scope', type: 'string' },
-              { name: 'label', type: 'string' },
-              { name: 'expiresAt', type: 'string' },
-              { name: 'ipCidrs', type: 'string' },
-              { name: 'origin', type: 'string' },
-              { name: 'builderId', type: 'string' },
-              { name: 'maxBuilderFeePer100K', type: 'string' },
-              { name: 'time', type: 'uint64' },
-            ],
-          },
-          message: {
-            signer: wallet.address,
-            statement: 'I authorize the creation of Perpl API key with the specified scope and parameters',
-            publicKey: 'e2e',
-            scope: '3',
-            label: 'cult',
-            expiresAt: '0',
-            ipCidrs: '',
-            origin: '',
-            builderId,
-            maxBuilderFeePer100K: fee,
-            time: Date.now(),
-          },
-        } as never,
-      },
+      params: { typed_data: { domain: td.typed_data.domain, primary_type: td.typed_data.primaryType, types: td.typed_data.types, message: td.typed_data.message } as never },
       authorization_context: { authorization_private_keys: [key] },
-    });
-  await attempt('sign Perpl key enrollment, no builder fee', 'backend', 'allow', signEnroll('0', '0'));
-  await attempt('sign Perpl key enrollment with a 0.1% builder fee', 'backend', 'deny', signEnroll('7', '100'));
+    }),
+  );
 
-  // The owner is not bound by the backend's policy. The restriction is on the backend only.
+  // ---- must be allowed (positive controls) -----------------------------------
+  await attempt('Perpl: deposit $40', 'backend', 'allow', signTx(tx(exchange, ex('depositCollateral', [40n * unit]))));
+  await attempt('Perpl: approve $50 AUSD to exchange', 'backend', 'allow', signTx(tx(collateralToken, erc('approve', [exchange, 50n * unit]))));
+  await attempt('Nad.fun: buy with 0.05 MON, tokens to member', 'backend', 'allow', signTx(tx(NADFUN.router, nadBuy(wallet.address), MAX_BUY)));
+  await attempt('Nad.fun: sell, proceeds to member', 'backend', 'allow', signTx(tx(NADFUN.router, nadSell(wallet.address))));
+  await attempt('meme token approve to the Nad.fun router', 'backend', 'allow', signTx(tx(MEME, erc('approve', [NADFUN.router, 10n ** 18n]))));
+
+  // The owner isn't bound by the backend's policy.
   await attempt('member (owner) withdraws from Perpl', 'member', 'allow', signTx(tx(exchange, ex('withdrawCollateral', [1n * unit]))));
 
   evidence.results = results;
   const wrong = results.filter((r) => r.got !== r.expected);
   if (wrong.length) throw new Error(`GATE FAILED: ${wrong.map((w) => `${w.attempt} (expected ${w.expected}, got ${w.got})`).join('; ')}`);
-  console.log(`\nGATE OK: ${results.filter((r) => r.expected === 'deny').length} backend attempts refused by Privy's policy engine`);
+  console.log(`\nGATE OK: ${results.filter((r) => r.expected === 'deny').length} backend attempts refused by Privy's policy engine, ${results.filter((r) => r.expected === 'allow').length} allowed`);
   evidence.result = 'pass';
 } catch (e) {
   evidence.result = 'fail';

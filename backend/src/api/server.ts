@@ -182,7 +182,7 @@ export function createApp(engine: MirrorEngine) {
     const userId = c.get('userId');
     const caps = clans.forUser(userId).map((cl) => clans.membership(cl.id, userId)!.policy.maxUsdPerTrade);
     if (caps.length === 0) throw bad(409, 'join or create a clan first; the cap comes from your clan policy');
-    return c.json(await memberSignerGrant(userId, Math.max(...caps)));
+    return c.json(await memberSignerGrant(userId, c.get('wallet'), Math.max(...caps)));
   });
 
   // Perpl account setup, driven by the member's own wallet in the browser.
