@@ -210,18 +210,31 @@ async function handleIncreased(context: any, event: any) {
   const block = BigInt(event.block.number);
   const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
+  // Funding owed on the existing size is settled into collateral when the
+  // position grows; it's realized PnL of this round trip like the fundingCNS
+  // a close carries. (Sign as emitted: +received, -paid. To be confirmed by the
+  // Perpl gate against Perpl's account history once a funded account exists.)
+  const settledCNS = BigInt(event.params.premiumPnlSettledCNS ?? 0);
+
   const pos = await getPosition(context, perpId, accountId);
   if (!pos) return;
+
+  // Entry becomes the size-weighted average of the old entry and this fill,
+  // like Perpl's own position entry; the last fill price alone would skew
+  // every return computed off the round trip.
+  const added = endLotLNS - startLotLNS;
+  const avgEntry = endLotLNS > 0n ? (pos.entryPricePNS * startLotLNS + pricePNS * added) / endLotLNS : pricePNS;
 
   context.PerplPosition.set({
     ...pos,
     sizeLNS: endLotLNS,
-    entryPricePNS: pricePNS,
+    entryPricePNS: avgEntry,
+    realizedPnlCNS: pos.realizedPnlCNS + settledCNS,
   });
 
   recordEvent(
     context, tx, block, event.logIndex, ts, pos.owner, perpId, pos.side, "INCREASED",
-    pricePNS, endLotLNS - startLotLNS, 0n, 0n,
+    pricePNS, added, 0n, settledCNS,
   );
 }
 
@@ -472,3 +485,36 @@ indexer.onEvent(
   { contract: "Exchange", event: "PositionUnwoundV2" },
   async ({ event, context }) => handleUnwound(context, event),
 );
+
+// --- Maker fills -------------------------------------------------------------
+// Every resting-order fill on a member's account, with its price, size and fee:
+// the raw fill history under the position events. Taker fills carry no account
+// id on-chain (Perpl's operator submits them), so they're only visible through
+// the position events they cause.
+
+async function handleMakerFill(context: any, event: any) {
+  const perpId = BigInt(event.params.perpId);
+  const accountId = BigInt(event.params.accountId);
+  const acct = await context.PerplAccount.get(accountId);
+  if (!acct) return; // an account created before our start block
+  const cfg = market(perpId);
+  await ensureTrader(context, acct.owner);
+  context.PerplFill.set({
+    id: `${event.transaction.hash}-${event.logIndex}`,
+    trader_id: acct.owner,
+    accountId,
+    marketId: perpId,
+    symbol: cfg.symbol,
+    orderId: BigInt(event.params.orderId),
+    price: pnsToPrice(BigInt(event.params.pricePNS), cfg.priceDecimals),
+    size: lnsToSize(BigInt(event.params.lotLNS), cfg.sizeDecimals),
+    feeUsd: cnsToUsd(BigInt(event.params.feeCNS)),
+    timestamp: BigInt(event.block.timestamp) * 1000n,
+    tx: event.transaction.hash,
+    block: BigInt(event.block.number),
+    logIndex: event.logIndex,
+  });
+}
+
+indexer.onEvent({ contract: "Exchange", event: "MakerOrderFilled" }, async ({ event, context }) => handleMakerFill(context, event));
+indexer.onEvent({ contract: "Exchange", event: "MakerOrderFilledV2" }, async ({ event, context }) => handleMakerFill(context, event));

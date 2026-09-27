@@ -8,12 +8,15 @@
     "codegen": "envio codegen",
     "dev": "envio dev",
     "start": "envio start",
-    "test": "envio test"
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "envio": "^3.12.1"
   },
   "engines": {
     "node": "24.x"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
   }
 }

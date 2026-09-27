@@ -6,10 +6,11 @@ import { BigDecimal } from "envio";
 export const COLLATERAL_DECIMALS = 6;
 const CNS_DIVISOR = new BigDecimal("1000000");
 
-// Perpl testnet market config, snapshotted from GET /v1/pub/context.
-// `priceDecimals` scales pricePNS, `sizeDecimals` scales lotLNS.
-// NOTE: market ids are network-specific. This table is for Monad testnet (10143).
-// Mainnet ids (1,10,20,31,40,50,60,70,90) need a separate table.
+// Perpl market config, snapshotted from GET /v1/pub/context on each network.
+// `priceDecimals` scales pricePNS, `sizeDecimals` scales lotLNS. Market ids are
+// network-specific but don't overlap, so one table serves testnet (10143:
+// 16..320) and mainnet (143: 1..90). Mainnet names come from the market's
+// `name` (its `symbol` is blank for BTC and MON there).
 export interface MarketConfig {
   symbol: string;
   priceDecimals: number;
@@ -24,6 +25,16 @@ export const MARKETS: Record<string, MarketConfig> = {
   "256": { symbol: "ZEC", priceDecimals: 3, sizeDecimals: 3 },
   "272": { symbol: "LIT", priceDecimals: 5, sizeDecimals: 1 },
   "320": { symbol: "PUMP", priceDecimals: 6, sizeDecimals: 0 },
+  // mainnet (app.perpl.xyz/api/v1/pub/context, 2026-09-27)
+  "1": { symbol: "BTC", priceDecimals: 1, sizeDecimals: 5 },
+  "10": { symbol: "MON", priceDecimals: 6, sizeDecimals: 0 },
+  "20": { symbol: "ETH", priceDecimals: 2, sizeDecimals: 3 },
+  "31": { symbol: "SOL", priceDecimals: 3, sizeDecimals: 3 },
+  "40": { symbol: "HYPE", priceDecimals: 4, sizeDecimals: 2 },
+  "50": { symbol: "ZEC", priceDecimals: 2, sizeDecimals: 4 },
+  "60": { symbol: "LIT", priceDecimals: 5, sizeDecimals: 1 },
+  "70": { symbol: "VVV", priceDecimals: 4, sizeDecimals: 2 },
+  "90": { symbol: "PUMP", priceDecimals: 6, sizeDecimals: 0 },
 };
 
 export function market(perpId: bigint): MarketConfig {
