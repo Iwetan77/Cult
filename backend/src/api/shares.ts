@@ -6,6 +6,7 @@ import { clans } from '../store/clans.js';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
 import { buildChart, shortName } from './chart.js';
+import { displayName } from './names.js';
 
 // Shareable result card: public by design, the clan isn't. The snapshot is
 // frozen at share time from the same live numbers the chart shows, and the
@@ -74,7 +75,7 @@ export async function createShare(userId: string, markerId: string, includeClan:
   const wallet = members.get(userId)!.wallet;
   const rec = (await statsFor([wallet])).get(wallet.toLowerCase())!;
   const snapshot: Omit<PublicShare, 'id' | 'includeClan' | 'clanName'> = {
-    traderName: shortName(members.get(userId)!.wallet),
+    traderName: displayName(members.get(userId)),
     marketSymbol: chart.selectedMarket.symbol,
     venue: marker.venue,
     side: marker.side,

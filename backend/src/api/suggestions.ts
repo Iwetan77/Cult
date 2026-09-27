@@ -4,6 +4,7 @@ import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
 import type { ChatMessage } from './chat.js';
 import { shortName } from './names.js';
+import { nameOf } from './names.js';
 
 export interface TpSlSuggestion {
   id: string;
@@ -36,7 +37,7 @@ const toApi = (r: Row): TpSlSuggestion => ({
   markerId: r.marker_id,
   tradeId: r.trade_id,
   fromMemberId: r.from_user,
-  fromName: shortName(members.get(r.from_user)?.wallet ?? r.from_user),
+  fromName: nameOf(r.from_user),
   takeProfitPrice: r.take_profit,
   stopLossPrice: r.stop_loss,
   createdAt: new Date(r.created_at).toISOString(),
