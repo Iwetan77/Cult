@@ -129,6 +129,13 @@ const pin = await call('the owner pins it', 'POST', `/v1/chat/${encodeURICompone
 if (pin.pinned?.id !== pinMsg.id) throw new Error('pin not set');
 const fr = await call('rooms carry latest activity', 'GET', '/v1/chat/rooms', auth(frank, 'frank'));
 if (!fr.rooms.every((r: any) => 'lastMessage' in r && typeof r.memberCount === 'number')) throw new Error('room list shape');
+// Home and profiles.
+const hm = await call('home feed', 'GET', '/v1/home', auth(alice, 'alice'));
+if (!Array.isArray(hm.topTrades) || typeof hm.sevenDay?.trades !== 'number') throw new Error('home shape');
+const pme = await call('my profile', 'GET', '/v1/members/me', auth(alice, 'alice'));
+if (!pme.isMe || typeof pme.record?.streak !== 'number' || !('avgWinPct' in pme.record)) throw new Error('profile shape');
+await call("someone's profile by wallet", 'GET', `/v1/members/${bob.address}`, auth(alice, 'alice'));
+await call('unknown member', 'GET', '/v1/members/nobody', auth(alice, 'alice'));
 // Global and country rooms.
 await call('not a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'EU' });
 const ctry = await call('pick a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'ng' });

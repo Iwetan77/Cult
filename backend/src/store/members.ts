@@ -12,6 +12,7 @@ export interface Member {
   forwarding: boolean;
   privyPolicyId: string | null;
   country: string | null; // ISO 3166 alpha-2
+  createdAt: number; // first sign-in
 }
 
 interface Row {
@@ -24,6 +25,7 @@ interface Row {
   forwarding: number;
   privy_policy_id: string | null;
   country: string | null;
+  created_at: number;
 }
 
 const toMember = (r: Row): Member => ({
@@ -36,6 +38,7 @@ const toMember = (r: Row): Member => ({
   forwarding: r.forwarding === 1,
   privyPolicyId: r.privy_policy_id,
   country: r.country ?? null,
+  createdAt: r.created_at,
 });
 
 export const members = {
