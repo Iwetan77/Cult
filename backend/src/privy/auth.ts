@@ -38,7 +38,7 @@ const walletCache = new Map<string, { at: number; wallet: string | null; walletI
 
 export async function privyEmbeddedWallet(userId: string): Promise<{ wallet: string | null; walletId: string | null }> {
   const hit = walletCache.get(userId);
-  if (hit && Date.now() - hit.at < 5 * 60_000) return hit;
+  if (hit && Date.now() - hit.at < 5 * 60_000) return { wallet: hit.wallet, walletId: hit.walletId };
   const secret = process.env.PRIVY_APP_SECRET;
   if (!secret) throw new Error('PRIVY_APP_SECRET not set');
   const res = await fetch(`https://auth.privy.io/api/v1/users/${encodeURIComponent(userId)}`, {
@@ -52,8 +52,8 @@ export async function privyEmbeddedWallet(userId: string): Promise<{ wallet: str
   const embedded = (user.linked_accounts ?? []).find(
     (a) => a.type === 'wallet' && a.chain_type === 'ethereum' && a.wallet_client_type === 'privy',
   );
-  const out = { at: Date.now(), wallet: embedded?.address ?? null, walletId: embedded?.id ?? null };
-  walletCache.set(userId, out);
+  const out = { wallet: embedded?.address ?? null, walletId: embedded?.id ?? null };
+  walletCache.set(userId, { at: Date.now(), ...out });
   return out;
 }
 
