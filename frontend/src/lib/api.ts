@@ -48,7 +48,7 @@ export const getEnrollmentChallenge = (token: string) => api<EnrollmentChallenge
 export const enrollPerpl = (token: string, challengeId: string, signature: string) => api<void>('/v1/enrollment/perpl', token, { method: 'POST', body: json({ challengeId, signature }) });
 export const skipAutoMirror = (token: string, clanId: string, markerId: string) => api<void>(`/v1/clans/${encodeURIComponent(clanId)}/mirrors/${encodeURIComponent(markerId)}/skip`, token, { method: 'POST' });
 export const stackPosition = (token: string, clanId: string, markerId: string, notionalUsd: number) => api<StackResult>(`/v1/clans/${encodeURIComponent(clanId)}/stack`, token, { method: 'POST', body: json({ markerId, notionalUsd }) });
-export const prepareUsdcFunding = (token: string, amountUsdc: string) => api<FundingPlan>('/v1/funding/usdc/prepare', token, { method: 'POST', body: json({ amountUsdc }) });
+export const prepareUsdcFunding = (token: string, amountUsdc: string, depositToPerpl: boolean) => api<FundingPlan>('/v1/funding/usdc/prepare', token, { method: 'POST', body: json({ amountUsdc, depositToPerpl }) });
 export const confirmUsdcFunding = (token: string, planId: string, hashes: string[]) => api<FundingResult>('/v1/funding/usdc/confirm', token, { method: 'POST', body: json({ planId, hashes }) });
 export const createShare = (token: string, markerId: string, includeClan: boolean) => api<ShareResult>('/v1/shares', token, { method: 'POST', body: json({ markerId, includeClan }) });
 export const getPublicShare = (id: string) => api<PublicShare>(`/v1/shares/${encodeURIComponent(id)}`, null);

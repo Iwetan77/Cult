@@ -40,7 +40,11 @@ export type BackendConfig = {
 export type Me = {
   id: string; address: `0x${string}`; name: string; clans: Clan[];
   perpl: { accountId: string | null; keyEnrolled: boolean; forwarding: boolean };
-  usdcBalance: string | null;
+  balances: {
+    perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number;
+    gasReserveMon: number; lowGas: boolean; memesPayWith: 'ausd' | 'mon';
+  } | null;
+  signerGranted: boolean;
 };
 export type PrivySignerGrant = {
   signerId: string; policyIds: string[]; capAusd: number; maxBuyMon: number; monPriceAusd: number;
@@ -69,7 +73,7 @@ export type Fill = {
   requestId?: number; txHash?: string | null;
 };
 export type FundingPlan = {
-  id: string; expiresAt: string; requiredUsdc: string; minAusdOut: string; actions: WalletAction[];
+  id: string; expiresAt: string; requiredUsdc: string; minAusdOut: string; expectedAusdOut: string; depositToPerpl: boolean; actions: WalletAction[];
 };
 export type FundingResult = {
   planId: string; done: boolean; steps: { label: string; txHash: string; ok: boolean }[];
