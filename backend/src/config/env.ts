@@ -10,6 +10,21 @@ function opt(name: string, fallback: string): string {
   return v && v.length > 0 ? v : fallback;
 }
 
+// A number setting. Unset, blank (hosts often create variables with an empty
+// value) or not a number all mean "use the default", never 0.
+export function numEnv(name: string, fallback: number): number {
+  const v = process.env[name]?.trim();
+  if (!v) return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+// A text setting; blank means the default.
+export function strEnv(name: string, fallback: string): string {
+  const v = process.env[name]?.trim();
+  return v ? v : fallback;
+}
+
 export function required(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`missing env ${name} (see backend/.env.example)`);

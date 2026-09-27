@@ -1,3 +1,4 @@
+import { strEnv } from '../config/env.js';
 import { ethers } from 'ethers';
 import { rpc, type WalletSigner } from '../chain/signer.js';
 import { erc20Abi } from '../chain/exchange.js';
@@ -12,7 +13,7 @@ import { erc20Abi } from '../chain/exchange.js';
 // takes a receiver (executeSwapWithReceiver) is refused here and by the Privy
 // policy, because signing it for a member would be a withdrawal.
 
-export const KURU_FLOW_API = process.env.KURU_FLOW_API ?? 'https://ws.kuru.io';
+export const KURU_FLOW_API = strEnv('KURU_FLOW_API', 'https://ws.kuru.io');
 export const KURU_FLOW_ROUTER = '0xb3e6778480b2E488385E8205eA05E20060B813cb'; // KuruFlowEntrypoint, Monad mainnet
 export const NATIVE = ethers.ZeroAddress; // Kuru Flow's address for native MON
 
