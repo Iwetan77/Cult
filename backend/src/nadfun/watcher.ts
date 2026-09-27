@@ -18,6 +18,7 @@ export interface NadTradeEvent {
   tokenAmount: bigint; // buy: tokens out, sell: tokens in
   txHash: string;
   blockNumber: number;
+  blockTime: number; // ms
 }
 
 const BUY = routerAbi.getEvent('Buy')!.topicHash;
@@ -72,6 +73,10 @@ export class NadWatcher extends EventEmitter<{ trade: [NadTradeEvent] }> {
     if (this.wallets.size > 0) {
       const walletTopics = [...this.wallets].map((w) => ethers.zeroPadValue(w, 32));
       const logs = await rpc().getLogs({ address: NADFUN.router, fromBlock: from, toBlock: to, topics: [[BUY, SELL], walletTopics] });
+      const times = new Map<number, number>();
+      for (const log of logs) {
+        if (!times.has(log.blockNumber)) times.set(log.blockNumber, ((await rpc().getBlock(log.blockNumber))?.timestamp ?? 0) * 1000);
+      }
       for (const log of logs) {
         const ev = routerAbi.parseLog(log);
         if (!ev) continue;
@@ -84,6 +89,7 @@ export class NadWatcher extends EventEmitter<{ trade: [NadTradeEvent] }> {
           tokenAmount: isBuy ? (ev.args[3] as bigint) : (ev.args[2] as bigint),
           txHash: log.transactionHash.toLowerCase(),
           blockNumber: log.blockNumber,
+          blockTime: times.get(log.blockNumber) ?? 0,
         });
       }
     }
