@@ -6,3 +6,5 @@ node_modules/
 .envio/
 dist/
 *.log
+__pycache__/
+*.pyc
