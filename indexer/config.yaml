@@ -1,0 +1,57 @@
+# Cult indexer — Envio HyperIndex
+# Indexes Perpl and Nad.fun on-chain trading events on Monad testnet to compute
+# verified per-address win rate, realized PnL and trade history across both venues.
+#
+# HyperSync is the primary data source for chain 10143 (Monad testnet), with the
+# public testnet RPC as fallback. HyperSync needs ENVIO_API_TOKEN (see README).
+
+name: cult-indexer
+description: Verified per-address trading stats (win rate, realized PnL, trade history) for Perpl + Nad.fun on Monad testnet.
+
+# Frontend joins addresses in lowercase, so normalize everything at the source.
+address_format: lowercase
+
+# Every handler reads event.block.timestamp and event.transaction.hash. `number`
+# and `timestamp` are always available on `event.block`; only `hash` needs asking
+# for on `event.transaction`.
+field_selection:
+  transaction_fields:
+    - hash
+
+contracts:
+  - name: Exchange
+    abi_file_path: ./abis/Exchange.json
+    handler: ./src/EventHandlers.ts
+    events:
+      - event: AccountCreated
+      - event: PositionOpened
+      - event: PositionOpenedV2
+      - event: PositionIncreased
+      - event: PositionIncreasedV2
+      - event: PositionDecreased
+      - event: PositionClosed
+      - event: PositionInverted
+      - event: PositionLiquidated
+      - event: PositionDeleveraged
+      - event: PositionDeleveragedV2
+      - event: PositionUnwound
+      - event: PositionUnwoundV2
+  - name: NadFunRouter
+    abi_file_path: ./abis/NadFunRouter.json
+    handler: ./src/NadFunHandlers.ts
+    events:
+      - event: Buy
+      - event: Sell
+
+chains:
+  - id: 10143 # Monad testnet
+    start_block: 62953 # Perpl testnet exchange deploy block
+    rpc:
+      - url: https://testnet-rpc.monad.xyz
+        for: fallback
+    contracts:
+      - name: Exchange
+        address: "0x1964C32f0bE608E7D29302AFF5E61268E72080cc"
+      - name: NadFunRouter
+        address: "0x75588668999cA0557b78046b8a5E86b47b9234ec"
+        start_block: 30418626 # Nad.fun testnet router deploy block
