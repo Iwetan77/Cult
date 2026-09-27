@@ -1,4 +1,4 @@
-import { indexer, BigDecimal } from "envio";
+import { indexer } from "envio";
 import {
   market,
   symbolFor,
@@ -6,6 +6,7 @@ import {
   pnsToPrice,
   lnsToSize,
   sideLabel,
+  ensureTrader,
 } from "./helpers";
 
 const ZERO = 0n;
@@ -29,21 +30,6 @@ interface PosState {
 
 function eventId(tx: string, logIndex: number): string {
   return `${tx}-${logIndex}`;
-}
-
-async function ensureTrader(context: any, owner: string) {
-  const t = await context.Trader.get(owner);
-  if (!t) {
-    context.Trader.set({
-      id: owner,
-      tradeCount: 0,
-      winningTrades: 0,
-      losingTrades: 0,
-      winRate: 0,
-      realizedPnlCNS: 0n,
-      realizedPnlUsd: new BigDecimal("0"),
-    });
-  }
 }
 
 async function getPosition(context: any, perpId: bigint, accountId: bigint): Promise<PosState | undefined> {

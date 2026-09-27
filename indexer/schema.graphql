@@ -1,9 +1,14 @@
 """
-Verified per-address Perpl trading stats on Monad testnet.
+Verified per-address trading stats on Monad testnet, across two venues.
 
-Every `Trader` is keyed by the lowercase wallet address. The indexer joins
-Perpl's on-chain `accountId` (used by all position events) back to the owning
-wallet through `PerplAccount`, so the whole API surface is address-first.
+Every `Trader` is keyed by the lowercase wallet address. Perpl activity is joined
+back to the wallet through `PerplAccount`; Nad.fun activity is address-native
+(the router's Buy/Sell events carry the trader's wallet directly).
+
+Units are kept separate and are never silently combined: Perpl PnL is AUSD
+(`*CNS` = USD * 1e6), Nad.fun PnL is native MON (`*MonWei` = MON * 1e18). A
+combined AUSD figure is only produced when a MON price is available per event;
+the backend owns that conversion and serves the display value.
 """
 
 enum Venue {
@@ -40,16 +45,22 @@ type Trader {
   losingTrades: Int!
   "winningTrades / tradeCount, 0..1. 0 when there are no closed trades."
   winRate: Float!
-  "All-time realized PnL, raw Perpl CNS (USD * 1e6). Negative = net loss."
+  "All-time realized Perpl PnL, raw AUSD CNS (USD * 1e6). Negative = net loss."
   realizedPnlCNS: BigInt!
-  "All-time realized PnL in USD (combined across venues)."
+  "All-time realized Perpl PnL in AUSD."
   realizedPnlUsd: BigDecimal!
+  "All-time realized Nad.fun PnL, raw MON wei (MON * 1e18). Negative = net loss."
+  realizedPnlMonWei: BigInt!
+  "All-time realized Nad.fun PnL in MON."
+  realizedPnlMon: BigDecimal!
   "Epoch ms of the first closed trade, if any."
   firstTradeAt: BigInt
   "Epoch ms of the last closed trade, if any."
   lastTradeAt: BigInt
   trades: [Trade!]! @derivedFrom(field: "trader")
   events: [PositionEvent!]! @derivedFrom(field: "trader")
+  nadFunTrades: [NadFunTrade!]! @derivedFrom(field: "trader")
+  nadFunEvents: [NadFunEvent!]! @derivedFrom(field: "trader")
 }
 
 """
@@ -130,5 +141,83 @@ type PerplPosition @internal {
   openedAt: BigInt!
   openTx: String!
   openBlock: BigInt!
+  status: String!
+}
+
+"""
+A single closed Nad.fun round trip (buy a token back to zero). Realized PnL is
+in native MON. `qtyRaw` is in the token's own decimals; MON fields are scaled
+by 1e18.
+"""
+type NadFunTrade {
+  id: ID!
+  venue: Venue!
+  trader: Trader!
+  token: String!
+  "Total token quantity of the round trip, raw token units."
+  qtyRaw: BigInt!
+  "Total MON spent across all buys, MON."
+  costMon: BigDecimal!
+  "Total MON received across all sells, MON."
+  proceedsMon: BigDecimal!
+  "proceeds - cost, in MON."
+  realizedPnlMon: BigDecimal!
+  "proceeds - cost, raw MON wei."
+  realizedPnlMonWei: BigInt!
+  isWin: Boolean!
+  buyCount: Int!
+  sellCount: Int!
+  openedAt: BigInt!
+  closedAt: BigInt!
+  openTx: String!
+  closeTx: String!
+  openBlock: BigInt!
+  closeBlock: BigInt!
+}
+
+"""
+One Nad.fun router Buy/Sell event. The raw, timestamped list behind `NadFunTrade`.
+`amountIn`/`amountOut` semantics depend on `kind`: for BUY amountIn is MON wei
+spent and amountOut is tokens; for SELL amountIn is tokens and amountOut is MON
+wei received.
+"""
+type NadFunEvent {
+  id: ID!
+  trader: Trader!
+  token: String!
+  kind: String!
+  amountInRaw: BigInt!
+  amountOutRaw: BigInt!
+  graduated: Boolean!
+  timestamp: BigInt!
+  tx: String!
+  block: BigInt!
+  logIndex: Int!
+}
+
+"""
+Internal Nad.fun cost basis per (wallet, token). Average cost in MON wei.
+"""
+type NadFunPosition @internal {
+  id: ID!
+  wallet: String!
+  token: String!
+  "Current token balance, raw token units."
+  qtyRaw: BigInt!
+  "Average-cost basis of the remaining balance, raw MON wei."
+  costMonWei: BigInt!
+  "Cumulative realized PnL since the balance last hit zero, raw MON wei."
+  realizedMonWei: BigInt!
+  "Largest balance reached this round trip, raw token units."
+  peakQtyRaw: BigInt!
+  "Total MON wei spent across all buys this round trip."
+  totalCostMonWei: BigInt!
+  "Total MON wei received across all sells this round trip."
+  totalProceedsMonWei: BigInt!
+  openedAt: BigInt!
+  openTx: String!
+  openBlock: BigInt!
+  buyCount: Int!
+  sellCount: Int!
   status: String!
 }
