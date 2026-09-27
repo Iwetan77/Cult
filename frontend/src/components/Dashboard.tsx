@@ -16,6 +16,7 @@ import { CountryPicker } from './CountryPicker';
 import { Leaderboards } from './Leaderboards';
 import { HomeView } from './HomeView';
 import { AccountView } from './AccountView';
+import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
 
 const testnetAusd = '0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC';
@@ -59,6 +60,7 @@ export function Dashboard() {
   const [createVisibility, setCreateVisibility] = useState<'private' | 'public'>('private');
   const [view, setView] = useState<'home' | 'cult' | 'discover' | 'chat' | 'account' | 'leaderboards'>('home');
   const [profileId, setProfileId] = useState('me');
+  const [tradeSheetTarget, setTradeSheetTarget] = useState<TradeSheetTarget | null>(null);
   const [formOpen, setFormOpen] = useState<'create' | 'join' | null>(null);
   const [search, setSearch] = useState('');
   const [roomId, setRoomId] = useState('global');
@@ -575,21 +577,17 @@ export function Dashboard() {
     if (id.startsWith('cult:')) { setClanId(id.slice(5)); setSnapshot(null); setSelectedId(null); }
   };
   const openAccount = (id = 'me') => { setProfileId(id); setPanel('wallet'); setView('account'); };
-  const openHomeTrade = (markerId: string, memberId: string, tradeMarket: string) => perform('open-result', async () => {
-    const auth = await token();
-    for (const cult of me?.clans ?? []) {
-      const result = await getChart(auth, cult.id, tradeMarket).catch(() => null);
-      const marker = result?.markers.find(item => item.id === markerId);
-      if (!result || !marker) continue;
-      setClanId(cult.id);
-      setSnapshot(result);
-      setMarketId(result.selectedMarket.id);
-      selectMarker(marker);
-      setView('cult');
-      return;
-    }
-    openAccount(memberId);
-    setNotice('This closed result is no longer a live chart marker. Opened the member record instead.');
+  const openTradeChart = (cultId: string, markerId: string, tradeMarket: string) => perform('open-chart', async () => {
+    const result = await getChart(await token(), cultId, tradeMarket);
+    const marker = result.markers.find(item => item.id === markerId);
+    if (!marker) throw new Error('This trade is no longer open on the Cult chart.');
+    setClanId(cultId);
+    setRoomId(`cult:${cultId}`);
+    setSnapshot(result);
+    setMarketId(result.selectedMarket.id);
+    selectMarker(marker);
+    setTradeSheetTarget(null);
+    setView(me?.clans.some(item => item.id === cultId) ? 'chat' : 'cult');
   });
   const roomIcon = (room: ChatRoom) => room.kind === 'global' ? 'G' : room.kind === 'country'
     ? String.fromCodePoint(...room.id.slice(8).toUpperCase().split('').map(letter => letter.charCodeAt(0) + 127397))
@@ -623,10 +621,10 @@ if (!me && !error) return <main className="config-state"><div className="brand">
         <div className="rail-footer"><span className="tiny-label">SIGNED IN AS</span><strong>{me?.name ?? shortAddress(wallet.address)}</strong><span>{shortAddress(wallet.address)}</span></div>
       </aside>
       <div className="content-topbar"><label className="top-search"><Search size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search groups or markets" aria-label="Search groups or markets" /></label><div className="topbar-right"><span className="balance-pill">{me?.balances ? dollars(me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0)) : '—'}</span><button className="primary" onClick={() => openAccount()}><Wallet size={15} /> Deposit</button></div></div>
-    {view === 'home' && me ? <HomeView me={me} config={config} holdings={holdings} nadMarkets={nadMarkets} search={search} onRoom={openRoom} onProfile={openAccount} onTrade={openHomeTrade} onDeposit={() => openAccount()} />
+    {view === 'home' && me ? <HomeView me={me} config={config} holdings={holdings} nadMarkets={nadMarkets} search={search} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => openAccount()} />
       : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me?.country ?? null} cultId={clanId} onProfile={openAccount} search={search} />
       : view === 'leaderboards' ? <Leaderboards country={me?.country ?? null} cultId={clanId} />
-      : view === 'account' ? <AccountView id={profileId} onCountrySaved={loadMe} onDeposit={() => setPanel('wallet')} onPerplSetup={enroll} onSignOut={logout} onTrade={openLinkedMarker} />
+      : view === 'account' ? <AccountView id={profileId} onCountrySaved={loadMe} onDeposit={() => setPanel('wallet')} onPerplSetup={enroll} onSignOut={logout} onTrade={setTradeSheetTarget} />
       : view === 'chat' ? <main className="full-workspace room-screen">{activeRoom ? <ClanChat key={activeRoom.id} room={activeRoom} liveMessage={activeRoom.kind === 'cult' ? liveMessage : null} selectedMarker={activeRoom.kind === 'cult' ? selected : null} onOpenMarker={openLinkedMarker} onMember={openAccount} onActivity={loadMe} onInvite={activeRoom.kind === 'cult' ? copyInvite : undefined} canPin={!!clan?.isOwner && activeRoom.kind === 'cult'} /> : <p className="field-note">This room is unavailable. Refresh your account or choose a country.</p>}</main>
       : !clanId ? <main className="full-workspace"><p className="field-note">Choose a Cult from your groups.</p></main> : <main className="main"><div className="main-head"><div><div className="eyebrow">CULT / {clan?.memberCount ?? 0} MEMBERS</div><h1>{clan?.name ?? 'Cult'}</h1></div><button className="outline" onClick={copyInvite}><Link2 size={15} /> Invite</button></div>{signerPrompt && <div className="signer-alert"><span><ShieldCheck size={15} /> {signerPrompt}. Nad.fun copies are paused until your signer is attached under the current limits.</span><button className="outline" onClick={() => setPanel('wallet')}>Review wallet</button></div>}<div className="market-head"><div className="market-tabs">{snapshot?.markets.map(item => <button key={`${item.venue}:${item.id}`} className={item.id === market?.id && item.venue === market.venue ? 'active' : ''} onClick={() => { setMarketId(item.id); setSelectedId(null); }}><span>{item.symbol}</span><small>{venueName(item.venue)}</small></button>)}</div><select className="nad-market-picker" aria-label="Nad.fun token" value={market?.venue === 'nadfun' ? market.id : ''} onChange={event => { if (event.target.value) { setMarketId(event.target.value); setSelectedId(null); } }}><option value="">Nad.fun token</option>{nadMarkets.map(item => <option key={item.id} value={item.id}>{item.symbol}</option>)}</select><button className="icon-button" title="Refresh chart" onClick={() => loadChart(clanId, marketId ?? undefined).catch(err => setError(errorText(err)))}><RefreshCw size={16} /></button></div><section className="chart-section"><div className="chart-title"><div><span className="market-symbol">{market?.symbol ?? 'MARKET'}</span><span className="venue-badge">{market ? venueName(market.venue) : 'LIVE'}</span></div><span className="chart-updated">{lastRefresh ? `${liveConnected ? 'LIVE' : 'UPDATED'} ${lastRefresh.toLocaleTimeString()}` : 'CONNECTING'}</span></div><SharedChart candles={snapshot?.candles ?? []} markers={visibleMarkers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null }} selectedId={selectedId} onSelect={selectMarker} onGuideDrop={(marker, kind, price) => { void submitGuide(marker, kind, price); }} guidesDisabled={!!busy} /><div className="chart-legend"><span><i className="legend-triangle" /> Cult position</span><span><i className="legend-circle" /> Auto mirrored</span><span><i className="legend-square" /> Manual stack</span><span className="chart-legend-right">{visibleMarkers.length} LIVE MARKERS</span></div></section><div className="positions-strip"><div className="strip-heading"><h2>On this chart</h2><span>{visibleMarkers.length} positions</span></div><div className="position-list">{visibleMarkers.length ? visibleMarkers.map(item => <button key={item.id} className={`position-row ${item.id === selectedId ? 'selected' : ''}`} onClick={() => selectMarker(item)}><i className={`origin-icon ${item.origin}`} /><span className="position-person">{item.memberName}{item.isMine && <small>YOU</small>}</span><span className="position-meta">{originName(item.origin)} · {item.side.toUpperCase()}{item.mirrorStatus === 'pending' && mirrorRetries[item.id] ? ' · RETRYING' : ''}{item.pendingAdd ? ` · ADD x${item.pendingAdd.ratio.toFixed(2)}` : ''}</span><strong className={(item.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{item.venue === 'perpl' ? item.pnlUsd == null ? 'Pending' : signedDollars(item.pnlUsd) : item.valueUsd == null ? 'Pending' : dollars(item.valueUsd)}</strong></button>) : <p className="empty-line">No open cult positions on this market yet.</p>}</div></div></main>}
     {view === 'chat' && activeRoom && <GroupPanel room={activeRoom} cult={activeRoom.kind === 'cult' ? clan ?? null : null} config={config} snapshot={activeRoom.kind === 'cult' ? snapshot : null} selected={activeRoom.kind === 'cult' ? selected : null} busy={!!busy} signerPrompt={signerPrompt} onGrantSigner={() => { void perform('grant-signer', async () => { const confirmed = await grantSigner(); setNotice(confirmed ? 'Trading signer is active.' : 'Signer approval is awaiting Privy verification.'); }); }} onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker} onOpenTrade={() => { setView('cult'); setPanel('positions'); }} onGuideDrop={(marker, kind, price) => { void submitGuide(marker, kind, price); }} onInvite={copyInvite} onVisibility={changeVisibility} onLeave={leave} onProfile={openAccount} />}
@@ -682,6 +680,7 @@ if (!me && !error) return <main className="config-state"><div className="brand">
     {(error || notice) && <div className={`toast ${error ? 'error' : ''}`} role="status">{error ?? notice}<button className="icon-button compact" title="Dismiss" onClick={() => { setError(null); setNotice(null); }}><X size={14} /></button></div>}
     {me && !me.country && countryHintReady && !countrySkipped && <div className="modal-backdrop"><section className="simple-dialog" role="dialog" aria-modal="true" aria-label="Choose your country"><CountryPicker onSaved={async () => { await loadMe(); skipCountry(); }} onSkip={skipCountry} /></section></div>}
     {formOpen && <div className="modal-backdrop"><section className="simple-dialog" role="dialog" aria-modal="true" aria-label={formOpen === 'create' ? 'Create a cult' : 'Join a cult'}><button className="icon-button dialog-close" title="Close" onClick={() => setFormOpen(null)}><X size={16} /></button><span className="eyebrow">{formOpen === 'create' ? 'NEW CULT' : 'INVITATION'}</span><h2>{formOpen === 'create' ? 'Create a cult' : 'Join a cult'}</h2>{formOpen === 'create' ? <><label className="field-label" htmlFor="cult-name">NAME</label><input id="cult-name" value={name} onChange={event => setName(event.target.value)} maxLength={36} placeholder="Name your cult" /><label className="switch-row"><span>Public</span><input type="checkbox" checked={createVisibility === 'public'} onChange={event => setCreateVisibility(event.target.checked ? 'public' : 'private')} /></label><p className="field-note">Auto-follow starts off. Members choose whether to turn it on later.</p><button className="primary full" disabled={!!busy || !name.trim()} onClick={create}>Create cult <ArrowRight size={15} /></button></> : <><label className="field-label" htmlFor="invite-code">INVITE CODE</label><input id="invite-code" value={inviteCode} onChange={event => setInviteCode(formatInviteCode(event.target.value))} autoCapitalize="characters" maxLength={7} placeholder="ABC-DEF" /><p className="field-note">Joining is instant. Auto-follow stays off.</p><button className="primary full" disabled={!!busy || !/^[A-Z]{3}-[A-Z]{3}$/.test(inviteCode)} onClick={join}>Join cult <ArrowRight size={15} /></button></>}</section></div>}
+    {tradeSheetTarget && <TradeSheet target={tradeSheetTarget} onClose={() => setTradeSheetTarget(null)} onProfile={openAccount} onChart={openTradeChart} />}
     {busy && <div className="busy-bar"><span>{busy === 'stack' ? 'Authorizing your trade' : busy === 'fund' ? 'Preparing wallet funding' : busy === 'join' ? 'Signing cult authorization' : 'Working'}…</span></div>}
   </div>;
 }
