@@ -5,6 +5,7 @@ import { members } from '../store/members.js';
 import { venue as defaultVenue, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
 import { MirrorError } from './engine.js';
 import { recordRef } from './origin.js';
+import { landed as defaultLanded, type LandedLookup } from './reconcile.js';
 import { trades } from './repo.js';
 
 // Manual stack: a member taps someone's marker on the clan chart and opens
@@ -88,5 +89,36 @@ export async function stackOnTrade(req: StackRequest, venueOf: (v: Venue) => Ven
   } catch (e) {
     db.prepare(`UPDATE stacks SET status = 'failed', error = ? WHERE id = ?`).run(String(e).slice(0, 500), id);
     return { id, venue: trade.venue, status: 'failed', market: trade.market, side: trade.side, size: 0, notionalAusd: req.notionalAusd, leverage, error: String(e) };
+  }
+}
+
+// After a restart: settle stacks that were mid-send by what reached the venue.
+// A stack is the member's own one-off action, so it's never sent again on
+// their behalf: filled -> open, anything else -> failed with the reason.
+export async function reconcileStacks(lookup: LandedLookup = defaultLanded, recheckMs = 15_000, tries = 40): Promise<void> {
+  const db = getDb();
+  const stuck = db.prepare(`SELECT id, venue, user_id FROM stacks WHERE status = 'submitting'`).all() as { id: string; venue: Venue; user_id: string }[];
+  for (const s of stuck) {
+    const settle = async (left: number): Promise<void> => {
+      const r = await lookup(s.venue, 'stack_open', s.id, s.user_id);
+      if (r.state === 'pending') {
+        if (left > 0) setTimeout(() => void settle(left - 1).catch((e) => console.error('[stack] reconcile', e)), recheckMs);
+        return;
+      }
+      if (r.state === 'filled') {
+        db.prepare(`UPDATE stacks SET status = 'open', size = ?, notional_usd = ?, open_oid = ?, open_tx = ?, error = ? WHERE id = ? AND status = 'submitting'`).run(
+          r.sizeRaw,
+          r.notionalUsd,
+          r.orderId,
+          r.txHash,
+          'recovered after a restart',
+          s.id,
+        );
+        return;
+      }
+      const why = r.state === 'failed' ? r.reason : 'nothing reached the venue';
+      db.prepare(`UPDATE stacks SET status = 'failed', error = ? WHERE id = ? AND status = 'submitting'`).run(`interrupted by a restart; ${why}`, s.id);
+    };
+    await settle(tries).catch((e) => console.error('[stack] reconcile', e));
   }
 }

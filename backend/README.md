@@ -13,8 +13,39 @@ Requirements: Node 22 or newer (it uses the built-in `node:sqlite`).
 ```bash
 cp .env.example .env     # then fill in the values below
 npm ci
-npm start                # http://localhost:8787, all routes under /v1
+npm run preflight        # checks config + every outside service; exit 1 on any FAIL
+npm run start:dev        # http://localhost:8787, all routes under /v1 (npm run build && npm start for the compiled one)
 ```
+
+### Hosting
+
+The backend is a long-running process: one Perpl websocket per member, the Nad.fun
+watcher, mirror timers and a SQLite file. So it can't run on serverless platforms
+like Vercel; the frontend can. Any Node ≥ 22.5 host with a persistent disk works
+(Railway, Render, Fly):
+
+| Setting | Value |
+|---|---|
+| Root directory | `backend` |
+| Build | `npm ci --include=dev && npm run build` |
+| Start | `npm start` (runs the compiled `dist/`) |
+| Health check | `GET /v1/health` |
+| Disk | a volume mounted for the DB, with `DB_PATH=/data/cult.db` |
+| Env | everything in the table above, plus `NODE_ENV=production`. Set `CORS_ORIGINS` and `PUBLIC_APP_URL` to the frontend's URL, and add that URL to Privy's allowed domains |
+
+Run one instance only: rate limits and mirror timers live in memory, and two
+instances would both mirror every trade. `npm run preflight` on the host must show
+0 FAIL before traffic goes to it.
+
+Run `npm run preflight` on every new host, and before switching networks. It checks:
+
+- the RPC is on the configured chain;
+- the Perpl URLs match that chain, and its exchange and AUSD are deployed there;
+- the Nad.fun router and Kuru Flow are there, and fit the memes pay-with setting;
+- the Privy credentials work, and the backend's signing key is the one on its Privy
+  key quorum;
+- dev auth is off, the key-sealing secret is valid and the DB path is writable;
+- CORS and the indexer settings are in place.
 
 | Variable | What it's for |
 |---|---|
@@ -27,6 +58,10 @@ npm start                # http://localhost:8787, all routes under /v1
 | `MIRROR_OPT_OUT_SECONDS` | Skip window before a mirror fires (provisional: 20) |
 | `CORS_ORIGINS`, `PUBLIC_APP_URL` | Frontend origin(s), and the base for share links |
 | `NADFUN_PAY_WITH` | `ausd` (swap via Kuru Flow; default on mainnet) or `mon` (default on testnet) |
+| `RATE_MEMBER_PER_MIN`, `RATE_TRADE_PER_MIN`, `RATE_PUBLIC_PER_MIN` | Request limits: per member (240), per member on order/tx routes (20), per IP on public routes (120) |
+| `LOG_REQUESTS` | One log line per request (method, path, status, ms, member). `0` turns it off |
+| `NADFUN_WATCHER_PARALLEL` | Log windows read at once while the meme watcher catches up after downtime (6) |
+| `MIRROR_RECONCILE_RECHECK_MS` | After a restart, how often to re-check a send that's still in flight (15000) |
 | `FUNDER_PRIVATE_KEY` | **Test scripts only.** A throwaway testnet wallet that seeds fresh wallets |
 
 Never commit `.env`. It's git-ignored.
