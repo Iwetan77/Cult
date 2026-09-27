@@ -91,3 +91,20 @@ test('recent windows: 7 and 30 days of own trades', async () => {
   const q = await P.profile(W(2), 'u2');
   assert.equal(q.record.recent.d7.tradeCount, 0, "u2's own trade is 30 days old; the week's one was a copy");
 });
+
+test('view trade: top trades link to the trade and a shared cult; the sheet has the verified result', async () => {
+  const { trades } = await import('../src/mirror/repo.js');
+  trades.markClosed(tradeId);
+  const h = await P.home('u2');
+  const card = h.topTrades.find((t) => t.tradeId === tradeId)!;
+  assert.ok(card.cultId, 'u2 shares a cult with the trader, so the card opens it');
+  assert.equal(card.openTx, '0xL1');
+  const v = await P.tradeView(tradeId, 'u2');
+  assert.equal(v.status, 'closed');
+  assert.equal(v.symbol, 'BTC-PERP');
+  assert.deepEqual(v.result, { returnPct: 10, pnlUsd: 10, entryPrice: 100, exitPrice: 110, isWin: true });
+  assert.equal(v.tradersIn, 3);
+  assert.equal(v.youCopied, true);
+  assert.equal((await P.tradeView(tradeId, 'u1')).youCopied, false, 'the trader themself');
+  await assert.rejects(() => P.tradeView('nope', 'u1'), /no such trade/);
+});
