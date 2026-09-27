@@ -81,6 +81,7 @@ reads) to `data/evidence/`.
 | Phase 1: account lifecycle, trade, TP/SL | `npm run e2e:phase1` | **not run**: needs Perpl testnet AUSD |
 | Memes paid in $: AUSD→MON→meme | `npm run spike:meme-buy-sim` | **simulated on mainnet**: Kuru Flow leg + mainnet Nad.fun buy |
 | Phase 2: USDC funding | `npm run spike:funding-plan` | plan **simulated on mainnet**; a real signed run needs mainnet USDC |
+| Production Privy signer, live trades | `npm run e2e:privy-nadfun` | passed: real Nad.fun buy + sell signed by Privy under policy; over-cap refused, nothing broadcast |
 | Privy login path (real app) | `npm run e2e:privy-auth` | passed: embedded-wallet lookup matches; forged/garbage/missing tokens refused |
 | Phase 3: Privy policy rejections | `npm run e2e:phase3` | passed (24 refused, 9 allowed, incl. Kuru swaps) |
 | Phase 4: mirror, Nad.fun half | `npm run e2e:phase4-nadfun` | passed (3 real wallets) |

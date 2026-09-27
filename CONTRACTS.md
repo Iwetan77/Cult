@@ -49,6 +49,16 @@ on `PORT` (default `8787`). All routes are under `/v1`.
    - **Passed with real transactions:**
      - Spike C: a real Nad.fun buy and sell.
      - Phase 3: Privy's policy engine, 24 refusals and 9 allows, Kuru swaps included.
+     - **The production signing path, live on testnet:** the backend's own Privy signer,
+       attached to a Privy wallet under that member's policy:
+       - made a real Nad.fun buy (`0xf9412214…f79e`) and sell (`0xaabb8204…371e`),
+         signed by Privy and broadcast by the backend;
+       - had an over-cap buy refused by Privy with nothing broadcast.
+
+       The member's own key then swept the leftovers, since the owner isn't bound by
+       the policy. Run it with `npm run e2e:privy-nadfun`.
+     - The Privy login path against the real app: the embedded-wallet lookup matches,
+       and forged, garbage and missing tokens are refused (`npm run e2e:privy-auth`).
      - Kuru Flow swaps and the USDC funding plan, **simulated on mainnet**: real
        routes and real calldata executed via `eth_call` with balance overrides. No
        money is spent; the swap output must meet the guaranteed minimum.
