@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { getJson } from '../http.js';
 import type { Context, Market, MarketState } from './types.js';
 
 // /v1/pub/context changes rarely (market list, fee schedule), so cache it for a
@@ -9,9 +10,7 @@ let cached: { at: number; ctx: Context } | undefined;
 
 export async function getContext(force = false): Promise<Context> {
   if (!force && cached && Date.now() - cached.at < TTL_MS) return cached.ctx;
-  const res = await fetch(`${env.perplApiUrl}/v1/pub/context`);
-  if (!res.ok) throw new Error(`perpl context: ${res.status} ${await res.text()}`);
-  const ctx = (await res.json()) as Context;
+  const ctx = await getJson<Context>(`${env.perplApiUrl}/v1/pub/context`);
   cached = { at: Date.now(), ctx };
   return ctx;
 }
@@ -54,9 +53,7 @@ export async function getExchangeInfo(): Promise<ExchangeInfo> {
 // Ticker: live mark/mid for every market, plus `sn` = the block it's current at,
 // which is the only head-block source an HTTP-only client has.
 export async function getTicker(): Promise<{ sn: number; d: Record<string, MarketState> }> {
-  const res = await fetch(`${env.perplApiUrl}/v1/market-data/ticker`);
-  if (!res.ok) throw new Error(`perpl ticker: ${res.status}`);
-  return (await res.json()) as { sn: number; d: Record<string, MarketState> };
+  return getJson<{ sn: number; d: Record<string, MarketState> }>(`${env.perplApiUrl}/v1/market-data/ticker`);
 }
 
 export const scale = {

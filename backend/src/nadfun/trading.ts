@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { rpc, type WalletSigner } from '../chain/signer.js';
 import { NADFUN } from './constants.js';
+import { getJson } from '../http.js';
 
 // Nad.fun v2 via its router. Every trade is a transaction from the member's
 // own wallet (no API key like Perpl), which is why Privy's policy is the cap
@@ -41,9 +42,7 @@ export interface NadMarket {
 // Live token list from Nad.fun's API, filtered to MON-quoted tokens, the only
 // ones Cult trades (see CONTRACTS.md, decision 2).
 export async function listMonMarkets(order: 'latest_trade' | 'market_cap' | 'creation_time' = 'latest_trade', limit = 50): Promise<NadMarket[]> {
-  const res = await fetch(`${NADFUN.apiUrl}/order/${order}?page=1&limit=${limit}`);
-  if (!res.ok) throw new Error(`nad.fun api ${res.status}`);
-  const body = (await res.json()) as { tokens: { token_info: any; market_info: any }[] };
+  const body = await getJson<{ tokens: { token_info: any; market_info: any }[] }>(`${NADFUN.apiUrl}/order/${order}?page=1&limit=${limit}`);
   return body.tokens
     .filter((t) => t.market_info?.quote_info?.quote_id?.toLowerCase() === NADFUN.wmon.toLowerCase())
     .map((t) => ({

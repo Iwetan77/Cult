@@ -22,6 +22,8 @@ import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
+import { UpstreamError } from '../http.js';
+import { balancesFor } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
@@ -59,6 +61,11 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
+    // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
+    if (err instanceof UpstreamError || (err instanceof TypeError && /fetch failed/.test(err.message)) || (err as { name?: string })?.name === 'TimeoutError') {
+      console.warn('[api] upstream unavailable:', err.message);
+      return c.json({ message: 'a trading service is unreachable right now, retry shortly' }, 503);
+    }
     console.error('[api]', err);
     return c.json({ message: 'internal error' }, 500);
   });
@@ -232,8 +239,8 @@ export function createApp(engine: MirrorEngine) {
       name: shortName(m.wallet),
       clans: clans.forUser(userId).map((cl) => clanView(cl.id, userId)),
       perpl: { accountId: m.perplAccountId, keyEnrolled: !!m.apiKey, forwarding: m.forwarding },
-      // USDC funding isn't wired yet (see CONTRACTS.md blockers); null, not a guess.
-      usdcBalance: null,
+      balances: await balancesFor(userId).catch(() => null),
+      signerGranted: !!m.privyPolicyId,
     });
   });
 

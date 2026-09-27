@@ -316,7 +316,8 @@ zero-cost-basis and flag them.
   Ethereum wallet. A user with no embedded wallet gets `409`.
 - **Indexer:** `X-Indexer-Key: <INDEXER_API_KEY>`, server-to-server only.
 - **Errors:** always `{ "message": string, "issues"?: ZodIssue[] }` with a 4xx or 5xx
-  status.
+  status. A `503` means an upstream (Perpl, Nad.fun, Kuru, RPC) is unreachable; retry
+  after a moment.
 
 ### Types
 
@@ -409,7 +410,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/health` | none | `{ ok: true }` |
 | GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'USD', monPriceAusd /* $ per MON */, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
 | GET | `/v1/nadfun/markets?order=latest_trade\|market_cap\|creation_time` | none | `{ markets: NadMarket[] }` (MON-quoted tokens only) |
-| GET | `/v1/me` | none | `{ id, address, name, clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, usdcBalance: null }` |
+| GET | `/v1/me` | none | `{ id, address, name, clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signerGranted }`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
 | GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan |
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
