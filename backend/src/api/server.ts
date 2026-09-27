@@ -28,6 +28,8 @@ import { balancesFor } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
 import { ChatError, listMessages, MAX_MESSAGE_CHARS, postMessage, type ChatMessage } from './chat.js';
+import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
@@ -55,7 +57,34 @@ function consentMessage(clanName: string, inviteCode: string, wallet: string, p:
 
 export function createApp(engine: MirrorEngine) {
   const app = new Hono<Vars>();
-  app.use('*', cors({ origin: env.corsOrigins, allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST'] }));
+  app.use('*', cors({ origin: env.corsOrigins, allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST'], exposeHeaders: ['Retry-After'] }));
+
+  // One line per request: method, path, status, time, and who (the member's DID tail).
+  if (process.env.LOG_REQUESTS !== '0') {
+    app.use('*', async (c, next) => {
+      const t0 = Date.now();
+      await next();
+      if (c.req.path === '/v1/health') return;
+      const who = (c.get('userId') as string | undefined)?.slice(-8) ?? '-';
+      console.log(`[api] ${c.req.method} ${c.req.path} ${c.res.status} ${Date.now() - t0}ms ${who}`);
+    });
+  }
+
+  const limited = (c: Context<Vars>, key: string, limit: Limit) => {
+    const r = take(key, limit);
+    if (r.ok) return;
+    const secs = Math.max(1, Math.ceil(r.retryAfterMs / 1000));
+    c.header('Retry-After', String(secs));
+    throw new HTTPException(429, { message: `too many requests, retry in ${secs}s` });
+  };
+  // Public routes: per IP (the first X-Forwarded-For hop when behind a proxy).
+  app.use('/v1/*', async (c, next) => {
+    if (c.req.path !== '/v1/health' && !c.req.header('Authorization') && !c.req.path.startsWith('/v1/indexer/')) {
+      const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || remoteAddress(c) || 'unknown';
+      limited(c, `ip:${ip}`, PUBLIC_LIMIT);
+    }
+    await next();
+  });
 
   app.onError((err, c) => {
     if (err instanceof HTTPException) return c.json({ message: err.message }, err.status);
@@ -220,6 +249,8 @@ export function createApp(engine: MirrorEngine) {
     members.upsert(id.userId, id.wallet, id.walletId);
     c.set('userId', id.userId);
     c.set('wallet', id.wallet.toLowerCase());
+    limited(c, `member:${id.userId}`, MEMBER_LIMIT);
+    if (isTradeRoute(c.req.method, c.req.path)) limited(c, `trade:${id.userId}`, TRADE_LIMIT);
     await next();
   });
 
@@ -520,6 +551,14 @@ export function createApp(engine: MirrorEngine) {
 
   app.route('/v1', authed);
   return app;
+}
+
+function remoteAddress(c: Context<Vars>): string | undefined {
+  try {
+    return getConnInfo(c).remote.address;
+  } catch {
+    return undefined; // not behind the node server (e.g. app.request in scripts)
+  }
 }
 
 function resolveTradeId(markerId: string): string {
