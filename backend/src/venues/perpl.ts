@@ -6,6 +6,27 @@ import { readTpSl, type TpSl } from '../trading/tpsl.js';
 import type { CloseInput, Fill, Holding, OpenInput, VenueAdapter } from './types.js';
 
 // Perpl: orders go over the member's trading session with their Perpl API key.
+
+// A chart load reads each member's positions (holdings) and open orders
+// (TP/SL) from Perpl; cache both for a moment so one render doesn't hit
+// Perpl's rate limit twice per member. In-flight reads are shared too.
+const READ_TTL_MS = 2_000;
+const reads = new Map<string, { at: number; p: Promise<unknown> }>();
+function cachedRead<T>(key: string, load: () => Promise<T>): Promise<T> {
+  const hit = reads.get(key);
+  if (hit && Date.now() - hit.at < READ_TTL_MS) return hit.p as Promise<T>;
+  const p = load();
+  reads.set(key, { at: Date.now(), p });
+  p.catch(() => reads.delete(key)); // don't cache failures
+  return p;
+}
+const positionsOf = (userId: string) => cachedRead(`pos:${userId}`, () => restFor(userId).positions());
+const ordersOf = (userId: string) => cachedRead(`ord:${userId}`, () => restFor(userId).openOrders());
+// After this process trades for a member, their next read must be fresh.
+export function invalidatePerplReads(userId: string) {
+  reads.delete(`pos:${userId}`);
+  reads.delete(`ord:${userId}`);
+}
 function accountOf(userId: string): number {
   const id = members.get(userId)?.perplAccountId;
   if (!id) throw new Error(`member ${userId} has no Perpl account`);
@@ -38,6 +59,7 @@ export const perpl: VenueAdapter = {
       leverage: i.leverage ?? 1,
       onRq: (rq) => i.onRef?.({ rq, accountId }),
     });
+    invalidatePerplReads(i.userId);
     const filled = scale.unsize(order.fs, m);
     const fillPx = scale.unprice(order.fp, m);
     return {
@@ -63,6 +85,7 @@ export const perpl: VenueAdapter = {
       sizeScaled: i.sizeRaw != null ? Number(i.sizeRaw) : undefined,
       onRq: (rq) => i.onRef?.({ rq, accountId }),
     });
+    invalidatePerplReads(i.userId);
     const filled = scale.unsize(order.fs, m);
     const fillPx = scale.unprice(order.fp, m);
     return {
@@ -81,7 +104,7 @@ export const perpl: VenueAdapter = {
 
   async holdings(userId: string, markets?: string[]): Promise<Holding[]> {
     if (!members.credentials(userId)) return [];
-    const raw = (await restFor(userId).positions()).d.filter((p) => !markets || markets.includes(String(p.mkt)));
+    const raw = (await positionsOf(userId)).d.filter((p) => !markets || markets.includes(String(p.mkt)));
     const views = await viewPositions(raw);
     // sizeRaw is Perpl's scaled integer size, the same unit fills and mirrors record.
     return raw.map((p, i) => {
@@ -123,8 +146,7 @@ export const perpl: VenueAdapter = {
 // (untriggered trigger orders are listed there). Null legs = not set.
 export async function perplTpSl(userId: string, marketId: number): Promise<TpSl | null> {
   if (!members.credentials(userId)) return null;
-  const rest = restFor(userId);
-  const [pos, orders] = await Promise.all([rest.positions(), rest.openOrders()]);
+  const [pos, orders] = await Promise.all([positionsOf(userId), ordersOf(userId)]);
   const p = pos.d.find((x) => x.mkt === marketId);
   if (!p) return null;
   const m = await getMarket(marketId);

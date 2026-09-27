@@ -15,6 +15,7 @@ import { getContext, getMarket } from '../perpl/context.js';
 import { listMonMarkets } from '../nadfun/trading.js';
 import { monPriceAusd } from '../prices.js';
 import { venue, venueOf } from '../venues/index.js';
+import { invalidatePerplReads } from '../venues/perpl.js';
 import { AuthError, identify } from '../privy/auth.js';
 import { memberSignerGrant } from '../privy/policy.js';
 import { clans, MirrorPolicySchema, type MirrorPolicy } from '../store/clans.js';
@@ -310,7 +311,9 @@ export function createApp(engine: MirrorEngine) {
     const userId = c.get('userId');
     const m = members.get(userId)!;
     if (!m.perplAccountId) throw bad(409, 'no Perpl account');
-    return c.json(await setTpSl(await sessionFor(userId), m.perplAccountId, Number(body.marketId), { takeProfit: body.takeProfit, stopLoss: body.stopLoss }));
+    const out = await setTpSl(await sessionFor(userId), m.perplAccountId, Number(body.marketId), { takeProfit: body.takeProfit, stopLoss: body.stopLoss });
+    invalidatePerplReads(userId);
+    return c.json(out);
   });
 
   authed.post('/positions/close', async (c) => {
