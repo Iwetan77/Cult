@@ -103,6 +103,17 @@ on `PORT` (default `8787`). All routes are under `/v1`.
    popup. This needs the backend signer added to the member's wallet at clan-join (see
    `GET /v1/privy/signer`), which is **required**, because Nad.fun mirrors are wallet
    transactions.
+6. **A leader's adds and partial sells are mirrored too** (2026-09-27), on both venues.
+   Clans have a **group chat**, and leaders are expected to say what they're about to do
+   there first.
+   - **Partial sell:** the leader sells X% of a trade → every open mirror sells X% of
+     itself, **straight away** (no skip window; it only takes risk off, like an exit).
+   - **Add:** the leader grows a trade by X% → every open mirror adds X% of itself
+     **after the usual skip window**, capped like a new mirror (`maxUsdPerTrade` per add,
+     `balancePercentCap` of what's free). The member can skip it (`pendingAdd` on their
+     marker).
+   - A leader selling down to under 1% of the trade counts as the exit.
+   - Only mirrors follow. Manual stacks stay manual.
 
 ## Decisions and blockers
 
@@ -384,6 +395,11 @@ type ChartMarker = {
   isMine: boolean;
   mirrorStatus?: 'pending' | 'submitted' | 'filled';   // auto_mirror only
   skipUntil?: string;    // ISO, only while pending. Backend enforces it; the UI clock is a guide
+  pendingAdd?: {         // auto_mirror only: the leader added, and this mirror will add the same share
+    id: string;          // "adjust:<id>". Skip it with POST /mirrors/adjust:<id>/skip
+    ratio: number;       // leader's size after / before (1.5 = they added 50%)
+    skipUntil: string;   // ISO
+  } | null;
   txHash?: string | null;
   takeProfitPrice?: number | null;   // perpl: the owner's live TP (a real Perpl trigger order), $
   stopLossPrice?: number | null;     // perpl: the owner's live SL, $
@@ -391,6 +407,28 @@ type ChartMarker = {
     id: string; markerId: string; tradeId: string; fromMemberId: string; fromName: string;
     takeProfitPrice: number | null; stopLossPrice: number | null; createdAt: string;
   }[];
+};
+
+// A mirror following its leader's add or partial sell (SSE `adjustment`).
+type Adjustment = {
+  id: string; mirrorId: string; tradeId: string; clanId: string; userId: string;
+  kind: 'add' | 'reduce';
+  ratio: number;         // leader's size after / before the change
+  status: 'pending' | 'skipped' | 'submitting' | 'done' | 'failed' | 'cancelled';
+  skipUntil: number;     // ms. For a reduce it's "now": reductions don't wait
+  sizeDelta: string | null;   // raw, what the member actually bought or sold
+  notionalUsd: number | null; // $ spent (add) or received (reduce)
+  tx: string | null; oid: number | null; rq: number | null;
+  error: string | null;  // e.g. "capped: max_usd_per_trade", "retrying (1/2): …", "member left the clan"
+  createdAt: number; updatedAt: number;
+};
+
+type ChatMessage = {
+  id: string; clanId: string; memberId: string; memberName: string;
+  body: string;              // plain text, up to 1000 chars. Render as text, never as HTML
+  replyTo: string | null;    // a message id in the same clan
+  markerId: string | null;   // optional ChartMarker.id the message is about
+  createdAt: string;         // ISO
 };
 
 type ChartSnapshot = {
@@ -464,10 +502,12 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/clans/join` | `{ challengeId, signature }` | `Clan` |
 | POST | `/v1/clans/:clanId/policy/challenge` | `{ policy: MirrorPolicy }` | `{ challengeId, message }`. The message starts "Update my mirror policy in Cult clan …" and spells out the new caps |
 | POST | `/v1/clans/:clanId/policy` | `{ challengeId, signature }` | `Clan`. The same signed-consent rule as joining; the signed text is stored. If `maxUsdPerTrade` went up, call `GET /v1/privy/signer` again and `addSigners()` with the new `policyIds`, otherwise Privy keeps the old cap |
-| POST | `/v1/clans/:clanId/leave` | none | `204`. Your pending mirrors are cancelled. Mirrors already open still unwind when their leader exits, so nothing is orphaned |
+| POST | `/v1/clans/:clanId/leave` | none | `204`. Your pending mirrors and pending adds are cancelled. Mirrors already open still follow partial sells and unwind when their leader exits, so nothing is orphaned |
 | GET | `/v1/clans/:clanId/chart?marketId=&resolution=` | none | `ChartSnapshot`. `marketId` is a Perpl id or a Nad.fun token. `resolution` is in seconds (60, 300, 900, 1800, 3600, 14400, 86400). `markets` = all Perpl markets plus the Nad.fun tokens the clan currently holds |
 | GET | `/v1/clans/:clanId/events` | none | SSE stream (below) |
-| POST | `/v1/clans/:clanId/mirrors/:mirrorId/skip` | none | `204`. `:mirrorId` may be the bare id or the chart marker id (`mirror:<id>`). `409` if not pending or the window has passed |
+| POST | `/v1/clans/:clanId/mirrors/:mirrorId/skip` | none | `204`. `:mirrorId` may be the bare id, the chart marker id (`mirror:<id>`), or a pending add (`adjust:<id>`, from `marker.pendingAdd.id`). `409` if not pending or the window has passed; partial sells can't be skipped |
+| GET | `/v1/clans/:clanId/messages?before=<messageId>&limit=50` | none | `{ messages: ChatMessage[], hasMore }`. Newest page by default, oldest→newest within the page; pass the first message's id as `before` to load older. Members only (`404` otherwise) |
+| POST | `/v1/clans/:clanId/messages` | `{ body, replyTo?, markerId? }` | `201 ChatMessage`. Also pushed to the clan's SSE as `message`. `400` empty or over 1000 chars; `429` over 8 messages per 10s |
 | POST | `/v1/clans/:clanId/stack` | `{ markerId, notionalUsd, leverage? }` | `StackResult`. Same for both venues; `leverage` is ignored on Nad.fun |
 | GET | `/v1/positions` | none | `{ positions: Holding[] }` (both venues) |
 | POST | `/v1/shares` | `{ markerId, includeClan }` | `201 { id, url }`. Only your own marker (`403` otherwise). A frozen snapshot at share time |
@@ -585,9 +625,12 @@ chart payloads will replace it after the Phase 4 run on funded wallets.
 | event | data |
 |-------|------|
 | `trade` | a new leader trade in this clan: `{ id, userId, accountId, marketId, side, positionId, size, entryPrice, leverage, marginFraction, openTx, openedAt, closedAt: null }` |
+| `trade_changed` | the leader added or partly sold: same shape, with the new `size` (and average `entryPrice` after an add) |
 | `trade_closed` | same shape, `closedAt` set |
 | `mirror` | a mirror changed: `{ id, tradeId, clanId, userId, status, skipUntil, marginUsd, notionalUsd, size, capApplied, openOid, openTx, closeOid, closeTx, error, … }` |
+| `adjustment` | a mirror following an add or partial sell: `Adjustment`. A `pending` add is skippable until `skipUntil` |
 | `suggestion` | a clan-mate suggested a TP/SL: the same shape as `ChartMarker.suggestions[]` |
+| `message` | a new chat message: `ChatMessage` |
 | `ping` | every 15s |
 
 Mirror `status` goes `pending → skipped | submitting → open → closed`. If a mirror
@@ -611,9 +654,13 @@ All routes need `X-Indexer-Key`.
 | Method | Path | Returns |
 |--------|------|---------|
 | GET | `/v1/indexer/accounts` | `{ accounts: [{ userId, wallet, perplAccountId, clanIds: string[] }] }` |
-| GET | `/v1/indexer/orders?since=<ms>` | `{ orders: [{ perplAccountId, requestId, kind: 'mirror_open' \| 'mirror_close' \| 'stack_open', refId, clanId, tradeId, createdAt }] }` |
-| GET | `/v1/indexer/txs?since=<ms>` | `{ txs: [{ venue: 'nadfun', txHash, wallet, kind: 'mirror_open' \| 'mirror_close' \| 'stack_open', refId, clanId, tradeId, createdAt }] }` |
+| GET | `/v1/indexer/orders?since=<ms>` | `{ orders: [{ perplAccountId, requestId, kind: 'mirror_open' \| 'mirror_close' \| 'mirror_add' \| 'mirror_reduce' \| 'stack_open', refId, mirrorId, clanId, tradeId, createdAt }] }` |
+| GET | `/v1/indexer/txs?since=<ms>` | `{ txs: [{ venue: 'nadfun', txHash, wallet, kind: 'mirror_open' \| 'mirror_close' \| 'mirror_add' \| 'mirror_reduce' \| 'stack_open', refId, mirrorId, clanId, tradeId, createdAt }] }` |
 | GET | `/v1/indexer/trades?since=<ms>` | `{ trades: [{ tradeId, venue, userId, perplAccountId, market, side, positionId, openTx, openedAt, closedAt }] }` (`market` = Perpl id or token) |
+
+`mirror_add` / `mirror_reduce` are a mirror following its leader's add or partial sell;
+their `refId` is the adjustment id and `mirrorId` the mirror. Treat every `mirror_*`
+kind as auto-mirror (match the prefix, not a fixed list).
 
 **Nad.fun:** a router `Buy`/`Sell` whose tx hash is in `/txs` was sent by the engine
 (an auto-mirror or a manual stack). Any other router trade by a clan member's wallet
