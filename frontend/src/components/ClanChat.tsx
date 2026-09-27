@@ -6,6 +6,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { Link2, Pin, Reply, Send, X } from 'lucide-react';
 import { getRoomEventUrl, getRoomMessages, pinRoomMessage, sendRoomMessage } from '@/lib/api';
 import type { ChatMessage, ChatPage, ChatRoom, ChartMarker } from '@/lib/contracts';
+import { Avatar } from './Avatar';
 
 type Props = {
   room: ChatRoom;
@@ -180,10 +181,10 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
       if (stickToBottom.current) setUnread(0);
     }}>
       {hasMore && <button className="chat-older" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading...' : 'Older messages'}</button>}
-      {loading ? <p className="field-note">Loading messages...</p> : messages.length === 0 ? <p className="field-note">No messages in this room yet.</p> : messages.map(message => message.kind === 'system' ? <div className="chat-system-wrap" key={message.id}>{message.markerId ? <button className="chat-system" onClick={() => onOpenMarker(message.markerId!)}>{message.body} <Link2 size={13} /></button> : <span className="chat-system">{message.body}</span>}</div> : <div className="chat-message" key={message.id} id={'chat-message-' + message.id}>
-        <span className="room-avatar">{message.memberName.slice(0, 1).toUpperCase()}</span><div className="chat-message-main"><div className="chat-meta"><button onClick={() => onMember(message.memberId)}><strong>{message.memberName}</strong></button><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+      {loading ? <p className="field-note">Loading messages...</p> : messages.length === 0 ? <p className="field-note">No messages in this room yet.</p> : messages.map(message => message.kind === 'system' ? <div className="chat-system-wrap" key={message.id}>{message.markerId ? <button className="chat-system" onClick={() => onOpenMarker(message.markerId!)}>{message.text} <Link2 size={13} /></button> : <span className="chat-system">{message.text}</span>}</div> : <div className="chat-message" key={message.id} id={'chat-message-' + message.id}>
+        <Avatar name={message.memberName} url={message.memberAvatarUrl} /><div className="chat-message-main"><div className="chat-meta"><button onClick={() => onMember(message.memberId)}><strong>{message.memberName}</strong></button><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
         {message.replyTo && <div className="chat-reference"><Reply size={12} /> Reply to {messages.find(item => item.id === message.replyTo)?.memberName ?? 'message'}</div>}
-        <p className="chat-text">{message.body}</p>
+        <p className="chat-text">{message.text}</p>
         <div className="chat-actions"><button title="Reply to message" onClick={() => setReplyTo(message)}><Reply size={13} /> Reply</button>{message.markerId && <button title="Show linked chart marker" onClick={() => onOpenMarker(message.markerId!)}><Link2 size={13} /> View trade</button>}{canPin && <button title="Pin message" onClick={() => void togglePin(message.id)}><Pin size={13} /> Pin</button>}</div></div>
       </div>)}
     </div>
