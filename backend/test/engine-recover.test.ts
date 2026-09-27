@@ -172,3 +172,19 @@ test('an exit that already landed is recorded, never sold twice; a missing one i
   assert.equal(missing.closeTx, '0xsold');
   assert.equal(sent.filter((s) => s.kind === 'close' && s.sizeRaw === '10000').length, 1, 'exactly one exit sold');
 });
+
+test('a manual stack caught mid-send is settled, never re-sent', async () => {
+  const { reconcileStacks } = await import('../src/mirror/stack.js');
+  const t = trade();
+  const put = (id: string) =>
+    db().prepare(`INSERT INTO stacks (id, venue, clan_id, user_id, target_trade, market, side, notional_usd, leverage, status, created_at) VALUES (?, 'nadfun', ?, 'B', ?, ?, 'buy', 5, 100, 'submitting', ?)`).run(id, clanId, t.id, t.market, Date.now());
+  put('s-filled');
+  put('s-none');
+  const before = sent.length;
+  await reconcileStacks(async (_v, kind, refId) => (refId === 's-filled' && kind === 'stack_open' ? { state: 'filled', sizeRaw: '42', notionalUsd: 5, txHash: '0xstk', orderId: null } : { state: 'none' }), 10, 1);
+  const row = (id: string) => db().prepare('SELECT status, size, open_tx, error FROM stacks WHERE id = ?').get(id) as { status: string; size: string; open_tx: string; error: string };
+  assert.deepEqual([row('s-filled').status, row('s-filled').size, row('s-filled').open_tx], ['open', '42', '0xstk']);
+  assert.equal(row('s-none').status, 'failed');
+  assert.match(row('s-none').error, /nothing reached/);
+  assert.equal(sent.length, before, 'nothing sent on the member\'s behalf');
+});
