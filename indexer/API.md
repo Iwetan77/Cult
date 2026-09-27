@@ -47,11 +47,17 @@ across every close-type position event (`Decreased`, `Closed`, `Liquidated`,
 
 **"Recent" PnL** is derived at query time: filter the trade lists by `closedAt`.
 
-## Example query
+## Example queries
+
+The GraphQL endpoint is Envio's Hasura instance, so queries use Hasura's
+`where`-clause syntax, not `Trader(id: …)`.
+
+Single wallet:
 
 ```graphql
 query MemberStats($addr: String!) {
-  Trader(id: $addr) {
+  Trader(where: { id: { _eq: $addr } }) {
+    id
     tradeCount
     winningTrades
     losingTrades
@@ -77,39 +83,76 @@ query MemberStats($addr: String!) {
 }
 ```
 
-Real response for the gate wallet `0xBdd51F3CBCC4890635c75453c93f8aB4C3e0A98A`
+Batch (the shape the backend uses to fill a clan's members):
+
+```graphql
+query CultMemberStats($ids: [String!]!) {
+  Trader(where: { id: { _in: $ids } }) {
+    id
+    tradeCount
+    winRate
+    realizedPnlUsd
+    realizedPnlMon
+    lastTradeAt
+  }
+}
+```
+
+Real single-wallet response for `0xBdd51F3CBCC4890635c75453c93f8aB4C3e0A98A`
 (run against Monad testnet with `envio start`):
 
 ```json
 {
   "data": {
-    "Trader": {
-      "tradeCount": 1,
-      "winningTrades": 0,
-      "losingTrades": 1,
-      "winRate": 0,
-      "realizedPnlCNS": "0",
-      "realizedPnlUsd": "0",
-      "realizedPnlMonWei": "-396000000000000",
-      "realizedPnlMon": "-0.000396",
-      "firstTradeAt": "1790469928000",
-      "lastTradeAt": "1790469928000",
-      "nadFunTrades": [
-        {
-          "token": "0x5e2e014020f31a410cc6cd44defb646b02467777",
-          "qtyRaw": "148479639212850510200",
-          "costMon": "0.01",
-          "proceedsMon": "0.009604",
-          "realizedPnlMon": "-0.000396",
-          "isWin": false,
-          "origin": null,
-          "openTx": "0xe69e2841f2e53076eef897230f18ead60c4edbbbaf8f3e26e9768dbe276c8375",
-          "closeTx": "0xf591776147428b1440ffd8c00883e6514f09391d1cbeee1eb64ff7512f9d06a8",
-          "openedAt": "1790469924000",
-          "closedAt": "1790469928000"
-        }
-      ]
-    }
+    "Trader": [
+      {
+        "id": "0xbdd51f3cbcc4890635c75453c93f8ab4c3e0a98a",
+        "tradeCount": 1,
+        "winningTrades": 0,
+        "losingTrades": 1,
+        "winRate": 0,
+        "realizedPnlCNS": "0",
+        "realizedPnlUsd": "0",
+        "realizedPnlMonWei": "-396000000000000",
+        "realizedPnlMon": "-0.000396",
+        "firstTradeAt": "1790469928000",
+        "lastTradeAt": "1790469928000",
+        "nadFunTrades": [
+          {
+            "token": "0x5e2e014020f31a410cc6cd44defb646b02467777",
+            "qtyRaw": "148479639212850510200",
+            "costMon": "0.01",
+            "proceedsMon": "0.009604",
+            "realizedPnlMon": "-0.000396",
+            "isWin": false,
+            "origin": null,
+            "openTx": "0xe69e2841f2e53076eef897230f18ead60c4edbbbaf8f3e26e9768dbe276c8375",
+            "closeTx": "0xf591776147428b1440ffd8c00883e6514f09391d1cbeee1eb64ff7512f9d06a8",
+            "openedAt": "1790469924000",
+            "closedAt": "1790469928000"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Real batch response for the four gate wallets (the `CultMemberStats` query above):
+
+```json
+{
+  "data": {
+    "Trader": [
+      { "id": "0x6222dda40a6d550b703d0ce62f5bab17fb7907ee", "tradeCount": 1, "winRate": 0,
+        "realizedPnlUsd": "0", "realizedPnlMon": "-0.001088590628317125", "lastTradeAt": "1790474228000" },
+      { "id": "0xbdd51f3cbcc4890635c75453c93f8ab4c3e0a98a", "tradeCount": 1, "winRate": 0,
+        "realizedPnlUsd": "0", "realizedPnlMon": "-0.000396", "lastTradeAt": "1790469928000" },
+      { "id": "0xc434777485d8f4e8a4f6e93a2ace32155c84ef13", "tradeCount": 1, "winRate": 0,
+        "realizedPnlUsd": "0", "realizedPnlMon": "-0.003630122573596442", "lastTradeAt": "1790474224000" },
+      { "id": "0xc4f8c5724313e74759e572065453e7c52c5ec185", "tradeCount": 1, "winRate": 0,
+        "realizedPnlUsd": "0", "realizedPnlMon": "-0.003959679588172805", "lastTradeAt": "1790474219000" }
+    ]
   }
 }
 ```
