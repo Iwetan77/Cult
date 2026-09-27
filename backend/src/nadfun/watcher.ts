@@ -1,3 +1,4 @@
+import { numEnv } from '../config/env.js';
 import { EventEmitter } from 'node:events';
 import { ethers } from 'ethers';
 import { rpc } from '../chain/signer.js';
@@ -27,7 +28,7 @@ const BUY = routerAbi.getEvent('Buy')!.topicHash;
 const SELL = routerAbi.getEvent('Sell')!.topicHash;
 const CURSOR = 'nadfun_router';
 const MAX_RANGE = 100; // blocks per eth_getLogs (the RPC's cap)
-const PARALLEL_WINDOWS = Number(process.env.NADFUN_WATCHER_PARALLEL ?? 6);
+const PARALLEL_WINDOWS = numEnv('NADFUN_WATCHER_PARALLEL', 6);
 
 export class NadWatcher extends EventEmitter<{ trade: [NadTradeEvent] }> {
   private wallets = new Set<string>();
