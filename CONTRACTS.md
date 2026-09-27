@@ -124,6 +124,21 @@ on `PORT` (default `8787`). All routes are under `/v1`.
      marker).
    - A leader selling down to under 1% of the trade counts as the exit.
    - Only mirrors follow. Manual stacks stay manual.
+7. **The groups are called Cults** (2026-09-27). Say "cult" everywhere in the UI.
+   - **API names:** every route answers under `/v1/cults/...`, and the older
+     `/v1/clans/...` still works (same handlers). JSON field names keep `clan`
+     (`clanId`, `clans`) so nothing breaks.
+   - **Join codes** are six letters shown as `ABC-DEF`. Joining forgives case, spaces
+     and a missing dash.
+   - **Public cults:** created with `visibility: 'public'`, or the owner flips one.
+     They're listed in discover and on the cults leaderboard, and anyone can join
+     them by id. Joining still needs the signed consent. Private cults are code-only.
+   - **Like a fantasy league**, everyone is in the **Global** chat and leaderboard.
+     Picking a country (ISO code) adds its **country** chat and leaderboard. Each cult
+     has its own chat and leaderboard too.
+   - **Leaderboards rank own trades only:** verified realized PnL in $, then win rate,
+     then trade count. Copies don't count. Only members with a verified closed trade
+     get a rank, and everyone still sees their own row. They're all-time for now.
 
 ## Decisions and blockers
 
@@ -388,7 +403,13 @@ type Market = {
 };
 // A marketId is either kind. Tell them apart with /^0x[0-9a-fA-F]{40}$/ (nadfun).
 
-type Clan = { id: string; name: string; inviteCode: string; memberCount: number; myPolicy: MirrorPolicy | null };
+type Clan = {                        // a Cult
+  id: string; name: string;
+  inviteCode: string;                 // ABC-DEF (older cults may show a legacy code)
+  visibility: 'private' | 'public';
+  isOwner: boolean;                   // only the owner can change visibility
+  memberCount: number; myPolicy: MirrorPolicy | null;
+};
 
 type ChartMarker = {
   id: string;            // "trade:<id>" | "mirror:<id>" | "stack:<id>"
@@ -433,13 +454,31 @@ type Adjustment = {
   createdAt: number; updatedAt: number;
 };
 
+type ChatRoom = { id: string; kind: 'global' | 'country' | 'cult'; name: string };  // ids: "global" | "country:NG" | "cult:<id>"
+
 type ChatMessage = {
-  id: string; clanId: string; memberId: string; memberName: string;
+  id: string;
+  room: string;              // "global" | "country:NG" | "cult:<id>"
+  clanId: string | null;     // set for cult rooms
+  memberId: string; memberName: string;
   body: string;              // plain text, up to 1000 chars. Render as text, never as HTML
-  replyTo: string | null;    // a message id in the same clan
+  replyTo: string | null;    // a message id in the same room
   markerId: string | null;   // optional ChartMarker.id the message is about
   createdAt: string;         // ISO
 };
+
+type Leaderboard = {
+  scope: string;             // "global" | "country:NG" | "cult:<id>"
+  name: string;              // "Global" | "Nigeria" | cult name
+  metric: 'realizedPnlUsd'; period: 'all';
+  entries: { rank: number; memberId: string; name: string; address: string; country: string | null;
+             realizedPnlUsd: number; winRate: number | null; tradeCount: number; copiedTradeCount: number }[];
+  me: (same fields, but rank: number | null) | null;   // your row even when unranked (rank null)
+  rankedCount: number; memberCount: number; asOf: string;
+};
+
+type CultStanding = { rank: number; cultId: string; name: string; memberCount: number;
+                      realizedPnlUsd: number; winRate: number | null; tradeCount: number; joined: boolean };
 
 type ChartSnapshot = {
   clan: Clan; markets: Market[]; selectedMarket: Market;
@@ -520,14 +559,25 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/health` | none | `{ ok: true }` |
 | GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'USD', monPriceAusd /* $ per MON */, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
 | GET | `/v1/nadfun/markets?order=latest_trade\|market_cap\|creation_time` | none | `{ markets: NadMarket[] }` (MON-quoted tokens only) |
-| GET | `/v1/me` | none | `{ id, address, name, clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent } }`. `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
+| GET | `/v1/me` | none | `{ id, address, name, country: { code, name } | null, rooms: ChatRoom[], clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent } }`. `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
 | GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan. A new policy is issued whenever the cap **changes** (up or down), and the frontend must `addSigners()` again. `/v1/me.signer` tells you when that's needed |
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
 | POST | `/v1/enrollment/perpl` | `{ challengeId, signature }` | `204` |
-| POST | `/v1/clans` | `{ name, policy: MirrorPolicy }` | `201 Clan` |
-| POST | `/v1/clans/join/challenge` | `{ inviteCode, policy: MirrorPolicy }` | `{ challengeId, message }` |
-| POST | `/v1/clans/join` | `{ challengeId, signature }` | `Clan` |
+| POST | `/v1/me/country` | `{ country: "NG" }` | `{ country: { code, name }, rooms: ChatRoom[] }`. ISO 3166 alpha-2. Adds you to that country's chat and leaderboard. Change it any time. `400` if it isn't a country |
+| POST | `/v1/cults` | `{ name, policy: MirrorPolicy, visibility?: 'private' \| 'public' }` | `201 Clan`. Private is the default |
+| GET | `/v1/cults/discover?limit=` | none | `{ cults: [{ id, name, visibility: 'public', memberCount, createdAt, joined }] }`. Public cults only |
+| POST | `/v1/cults/:id/visibility` | `{ visibility }` | `Clan`. Owner only (`403` otherwise) |
+| POST | `/v1/cults/join/challenge` | `{ inviteCode, policy }` **or** `{ cultId, policy }` | `{ challengeId, message }`. `inviteCode` is `ABC-DEF`, and `abcdef` or `abc def` work too. `cultId` only works for public cults (`404` for private). `409` if you're already in it. The message starts `Join the Cult "…" (ABC-DEF)` |
+| GET | `/v1/chat/rooms` | none | `{ rooms: ChatRoom[] }`: global, your country, your cults |
+| GET | `/v1/chat/:room/messages?before=&limit=` | none | `{ messages: ChatMessage[], hasMore }`. Global is open to everyone signed in; a country room only to members who picked that country (`403`); a cult room only to its members (`404`) |
+| POST | `/v1/chat/:room/messages` | `{ body, replyTo?, markerId? }` | `201 ChatMessage`. The same limits as the cult chat |
+| GET | `/v1/chat/:room/events` | none | SSE: `message` (a `ChatMessage`) and `ping`. For the global and country rooms; cult rooms also come on the cult stream |
+| GET | `/v1/leaderboards/global?limit=` | none | `Leaderboard` |
+| GET | `/v1/leaderboards/country/:code?` | none | `Leaderboard`. With no code, it uses your country (`409` if you haven't picked one) |
+| GET | `/v1/cults/:id/leaderboard` | none | `Leaderboard` for that cult. Members only, or anyone for a public cult |
+| GET | `/v1/leaderboards/cults?limit=` | none | `{ entries: CultStanding[], asOf }`. Public cults ranked by their members' summed own PnL |
+| POST | `/v1/cults/join` | `{ challengeId, signature }` | `Clan` |
 | POST | `/v1/clans/:clanId/policy/challenge` | `{ policy: MirrorPolicy }` | `{ challengeId, message }`. The message starts "Update my mirror policy in Cult clan …" and spells out the new caps |
 | POST | `/v1/clans/:clanId/policy` | `{ challengeId, signature }` | `Clan`. The same signed-consent rule as joining; the signed text is stored. If `maxUsdPerTrade` went up, call `GET /v1/privy/signer` again and `addSigners()` with the new `policyIds`, otherwise Privy keeps the old cap |
 | POST | `/v1/clans/:clanId/leave` | none | `204`. Your pending mirrors and pending adds are cancelled. Mirrors already open still follow partial sells and unwind when their leader exits, so nothing is orphaned |
@@ -658,7 +708,7 @@ chart payloads will replace it after the Phase 4 run on funded wallets.
 | `mirror` | a mirror changed: `{ id, tradeId, clanId, userId, status, skipUntil, marginUsd, notionalUsd, size, capApplied, openOid, openTx, closeOid, closeTx, error, … }` |
 | `adjustment` | a mirror following an add or partial sell: `Adjustment`. A `pending` add is skippable until `skipUntil` |
 | `suggestion` | a clan-mate suggested a TP/SL: the same shape as `ChartMarker.suggestions[]` |
-| `message` | a new chat message: `ChatMessage` |
+| `message` | a new message in this cult's room: `ChatMessage` |
 | `ping` | every 15s |
 
 Mirror `status` goes `pending → skipped | submitting → open → closed`. If a mirror
