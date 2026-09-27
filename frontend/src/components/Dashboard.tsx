@@ -133,6 +133,7 @@ export function Dashboard() {
     const controller = new AbortController();
     let refreshTimer: number | undefined;
     class AuthError extends Error {}
+    class RateLimitError extends Error {}
     const refresh = () => {
       window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
@@ -151,6 +152,10 @@ export function Dashboard() {
       },
       onopen: async response => {
         if (response.status === 401 || response.status === 403) throw new AuthError('Live update authorization expired.');
+        if (response.status === 429) {
+          const seconds = Number(response.headers.get('Retry-After'));
+          throw new RateLimitError(Number.isFinite(seconds) && seconds > 0 ? 'Slow down, try again in ' + Math.ceil(seconds) + 's.' : 'Slow down, try again shortly.');
+        }
         if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')) throw new Error('Live chart stream unavailable.');
         setLiveConnected(true);
       },
@@ -180,10 +185,10 @@ export function Dashboard() {
       onclose: () => { setLiveConnected(false); throw new Error('Live chart stream closed.'); },
       onerror: error => {
         setLiveConnected(false);
-        if (error instanceof AuthError) throw error;
+        if (error instanceof AuthError || error instanceof RateLimitError) throw error;
         return 3000;
       },
-    }).catch(() => { if (!controller.signal.aborted) setLiveConnected(false); });
+    }).catch(error => { if (!controller.signal.aborted) { setLiveConnected(false); if (error instanceof RateLimitError) setError(error.message); } });
     return () => { controller.abort(); window.clearTimeout(refreshTimer); setLiveConnected(false); };
   }, [authenticated, clanId, marketId, loadChart, loadMe]);
   useEffect(() => {
