@@ -178,9 +178,18 @@ The backend tags mirror/stack activity so the indexer can tell it apart from a
 member's own trades. It exposes (with header `X-Indexer-Key`):
 
 - `GET /v1/indexer/accounts` -> `{ accounts: [{ userId, wallet, perplAccountId, clanIds }] }`
-- `GET /v1/indexer/orders?since=<ms>` -> Perpl orders, `kind: mirror_open | mirror_close | stack_open`
+- `GET /v1/indexer/orders?since=<ms>` -> Perpl orders, `kind: mirror_open | mirror_close | mirror_add | mirror_reduce | stack_open`, plus `refId` and `mirrorId`
 - `GET /v1/indexer/trades?since=<ms>` -> leader trades with `tradeId`, `perplAccountId`, `openTx`, `venue`, `market`
-- `GET /v1/indexer/txs?since=<ms>` -> `{ txs: [{ venue, txHash, wallet, kind, refId, clanId, tradeId, createdAt }] }`
+- `GET /v1/indexer/txs?since=<ms>` -> `{ txs: [{ venue, txHash, wallet, kind, refId, mirrorId, clanId, tradeId, createdAt }] }`
+
+Since 2026-09-27 the backend also mirrors a leader's **adds and partial sells**:
+- `mirror_add` is a follower buying more because their leader did.
+- `mirror_reduce` is a follower selling part because their leader did.
+
+For these two kinds `refId` is the adjustment id and `mirrorId` is the mirror;
+`mirrorId` is set on every `mirror_*` row. **Match any `mirror_*` kind as
+auto-mirror** (a prefix match, not a fixed list), so new kinds don't break
+the labels.
 
 **Perpl** — `OrderRequest(perpId, accountId, orderDescId, …)` carries `orderDescId`
 = the backend's `requestId`. A fill whose `(accountId, orderDescId)` appears in
@@ -191,7 +200,12 @@ Map `accountId` -> member/clans through `/accounts`.
 indexer exposes `NadFunTrade.openTx` / `closeTx` and a nullable `NadFunTrade.origin`
 (`null` = member's own, `"mirror"`, `"stack"`). The label is set by joining the
 trade's `openTx` against `/v1/indexer/txs` (venue=`nadfun`, `kind`):
-`mirror_open` -> `"mirror"`, `stack_open` -> `"stack"`.
+`mirror_*` -> `"mirror"`, `stack_*` -> `"stack"`.
+
+A round trip is labelled by how it **opened**. A follower's mirrored round trip
+can include `mirror_add` buys and `mirror_reduce` sells; average cost already folds
+them into the one round trip, and it closes when the balance reaches 0. Only
+`openTx` is needed for the label.
 
 The last two gate wallets are the auto-mirror test case (same token, the leader
 `0xc4f8…` opened at block 66006918 and the two mirrors followed):
