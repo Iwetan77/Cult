@@ -22,6 +22,7 @@ import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
+import { createShare, getShare, ShareError } from './shares.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
@@ -53,6 +54,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof HTTPException) return c.json({ message: err.message }, err.status);
     if (err instanceof AuthError) return c.json({ message: err.message }, 401);
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
+    if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     console.error('[api]', err);
     return c.json({ message: 'internal error' }, 500);
@@ -75,6 +77,13 @@ export function createApp(engine: MirrorEngine) {
       mirrorPolicyBounds: { balancePercentCap: { min: 0, minExclusive: true, max: 100 }, maxUsdPerTrade: { min: 1, max: 1_000_000 } },
       markets: ctx.markets.filter((m) => m.config.is_open).map(toApiMarket),
     });
+  });
+
+  // Public share card. No auth, no clan identity unless opted in.
+  app.get('/v1/shares/:id', (c) => {
+    const share = getShare(c.req.param('id'));
+    if (!share) throw bad(404, 'share not found');
+    return c.json(share);
   });
 
   // Nad.fun tokens Cult can trade (MON-quoted only), for the market picker.
@@ -349,7 +358,8 @@ export function createApp(engine: MirrorEngine) {
 
   authed.post('/clans/:clanId/mirrors/:mirrorId/skip', async (c) => {
     clanFor(c);
-    engine.skip(c.req.param('mirrorId'), c.get('userId'));
+    // Accept the bare mirror id or the chart marker id ("mirror:<id>").
+    engine.skip(c.req.param('mirrorId').replace(/^mirror:/, ''), c.get('userId'));
     return c.body(null, 204);
   });
 
@@ -362,6 +372,11 @@ export function createApp(engine: MirrorEngine) {
     const tradeId = resolveTradeId(body.markerId);
     const result = await stackOnTrade({ clanId: clan.id, userId: c.get('userId'), tradeId, notionalAusd: body.notionalUsd, leverage: body.leverage });
     return c.json(result, result.status === 'open' ? 200 : 502);
+  });
+
+  authed.post('/shares', async (c) => {
+    const body = z.object({ markerId: z.string(), includeClan: z.boolean() }).parse(await c.req.json());
+    return c.json(await createShare(c.get('userId'), body.markerId, body.includeClan), 201);
   });
 
   // Live updates for the chart overlay: marker changes as they happen.

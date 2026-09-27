@@ -152,6 +152,18 @@ function migrate(d: DatabaseSync) {
       created_at INTEGER NOT NULL
     );
 
+    -- Public share cards. A frozen snapshot of one of the member's own
+    -- markers at share time; clan identity only if they opted in.
+    CREATE TABLE IF NOT EXISTS shares (
+      id           TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL REFERENCES members(user_id),
+      marker_id    TEXT NOT NULL,
+      include_clan INTEGER NOT NULL,
+      clan_name    TEXT,
+      snapshot     TEXT NOT NULL,       -- JSON, see api/shares.ts
+      created_at   INTEGER NOT NULL
+    );
+
     -- How far the Nad.fun router log watcher has read.
     CREATE TABLE IF NOT EXISTS cursors (
       name  TEXT PRIMARY KEY,
