@@ -1,14 +1,30 @@
 import { ethers } from 'ethers';
 import { signerFor } from '../accounts/signers.js';
 import { rpc } from '../chain/signer.js';
+import { env } from '../config/env.js';
+import { erc20Abi } from '../chain/exchange.js';
 import { buy, quoteSell, sell, tokenAbi, tokenBalance } from '../nadfun/trading.js';
+import { getExchangeInfo } from '../perpl/context.js';
 import { monPriceAusd } from '../prices.js';
+import { NATIVE, swap } from '../swap/kuruFlow.js';
 import { members } from '../store/members.js';
 import type { CloseInput, Fill, Holding, OpenInput, VenueAdapter } from './types.js';
 
 // Nad.fun: every buy/sell is a tx from the member's own wallet, signed by
-// signerFor(userId), which in production is the Privy policy signer. Buys
-// spend native MON; everything is reported back in AUSD at Perpl's MON mark.
+// signerFor(userId), which in production is the Privy policy signer.
+//
+// Memes are priced in MON, but members hold dollars (AUSD). With pay-with
+// 'ausd' (the default on mainnet) a buy is: swap exactly the dollar amount of
+// the member's wallet AUSD to MON on Kuru Flow, then buy with what arrived. A
+// sell is: sell to MON, then swap exactly those proceeds back to AUSD. The
+// gas reserve is never touched. With 'mon' (testnet, where Kuru Flow doesn't
+// exist) buys spend the wallet's MON directly.
+export type PayWith = 'ausd' | 'mon';
+export function nadPaysWith(): PayWith {
+  const v = process.env.NADFUN_PAY_WITH;
+  if (v === 'ausd' || v === 'mon') return v;
+  return env.chainId === 143 ? 'ausd' : 'mon';
+}
 
 // MON always kept back for gas, so a mirror can't leave a member unable to
 // sell or to pay for their own next transaction.
@@ -16,6 +32,8 @@ export const GAS_RESERVE_WEI = ethers.parseEther(process.env.NADFUN_GAS_RESERVE_
 const SLIPPAGE_BPS = Number(process.env.NADFUN_SLIPPAGE_BPS ?? 300);
 const ONE = 10n ** 18n; // Nad.fun tokens are 18 decimals
 const toNum = (wei: bigint) => Number(ethers.formatEther(wei));
+const toAusdRaw = (usd: number) => ethers.parseUnits(usd.toFixed(6), 6);
+const ausdToken = async () => (await getExchangeInfo()).collateralToken; // same AUSD Perpl settles in
 
 const symbols = new Map<string, string>();
 async function symbolOf(token: string) {
@@ -38,13 +56,34 @@ export const nadfun: VenueAdapter = {
 
   async open(i: OpenInput): Promise<Fill> {
     if (i.side !== 'buy') throw new Error('nad.fun only buys (spot)');
-    const monPx = await monPriceAusd();
-    const monIn = ethers.parseEther((i.notionalAusd / monPx).toFixed(18));
-    if (monIn <= 0n) throw new Error('buy rounds to 0 MON');
     const signer = signerFor(i.userId);
-    const fill = await buy(signer, i.market, monIn, SLIPPAGE_BPS, (txHash) => i.onRef?.({ txHash, wallet: signer.address }));
+    const tag = (txHash: string) => i.onRef?.({ txHash, wallet: signer.address });
+    const monPx = await monPriceAusd();
+    let monIn: bigint;
+    let spentAusd: number;
+    const extraTxs: string[] = [];
+    if (nadPaysWith() === 'ausd') {
+      const ausdIn = toAusdRaw(i.notionalAusd);
+      if (ausdIn <= 0n) throw new Error('buy rounds to $0');
+      const sw = await swap(signer, await ausdToken(), NATIVE, ausdIn, { onHash: tag });
+      if (sw.approveTx) extraTxs.push(sw.approveTx);
+      extraTxs.push(sw.txHash);
+      monIn = sw.received;
+      spentAusd = Number(ethers.formatUnits(ausdIn, 6));
+    } else {
+      monIn = ethers.parseEther((i.notionalAusd / monPx).toFixed(18));
+      if (monIn <= 0n) throw new Error('buy rounds to 0 MON');
+      spentAusd = 0; // filled in from the fill below
+    }
+    let fill;
+    try {
+      fill = await buy(signer, i.market, monIn, SLIPPAGE_BPS, tag);
+    } catch (e) {
+      if (extraTxs.length) throw new Error(`swapped to MON (${extraTxs.at(-1)}) but the meme buy failed; the MON is still in the member's wallet: ${String(e)}`);
+      throw e;
+    }
+    if (nadPaysWith() === 'mon') spentAusd = toNum(fill.monAmount) * monPx;
     const tokens = toNum(fill.tokenAmount);
-    const spentAusd = toNum(fill.monAmount) * monPx;
     return {
       venue: 'nadfun',
       market: i.market.toLowerCase(),
@@ -54,17 +93,29 @@ export const nadfun: VenueAdapter = {
       priceAusd: tokens > 0 ? spentAusd / tokens : 0,
       notionalAusd: spentAusd,
       txHash: fill.txHash,
+      extraTxs,
     };
   },
 
   async close(i: CloseInput): Promise<Fill> {
-    const monPx = await monPriceAusd();
     const signer = signerFor(i.userId);
-    const fill = await sell(signer, i.market, i.sizeRaw != null ? BigInt(i.sizeRaw) : undefined, SLIPPAGE_BPS, (txHash) =>
-      i.onRef?.({ txHash, wallet: signer.address }),
-    );
+    const tag = (txHash: string) => i.onRef?.({ txHash, wallet: signer.address });
+    const fill = await sell(signer, i.market, i.sizeRaw != null ? BigInt(i.sizeRaw) : undefined, SLIPPAGE_BPS, tag);
     const tokens = toNum(fill.tokenAmount);
-    const gotAusd = toNum(fill.monAmount) * monPx;
+    const extraTxs: string[] = fill.approveTx ? [fill.approveTx] : [];
+    let gotAusd: number;
+    if (nadPaysWith() === 'ausd') {
+      // Swap back exactly the sale's MON; the gas reserve stays put.
+      try {
+        const sw = await swap(signer, NATIVE, await ausdToken(), fill.monAmount, { onHash: tag });
+        extraTxs.push(sw.txHash);
+        gotAusd = Number(ethers.formatUnits(sw.received, 6));
+      } catch (e) {
+        throw new Error(`sold (${fill.txHash}) but swapping the MON back to dollars failed; the MON is in the member's wallet: ${String(e)}`);
+      }
+    } else {
+      gotAusd = toNum(fill.monAmount) * (await monPriceAusd());
+    }
     return {
       venue: 'nadfun',
       market: i.market.toLowerCase(),
@@ -74,6 +125,7 @@ export const nadfun: VenueAdapter = {
       priceAusd: tokens > 0 ? gotAusd / tokens : 0,
       notionalAusd: gotAusd,
       txHash: fill.txHash,
+      extraTxs,
     };
   },
 
@@ -107,7 +159,13 @@ export const nadfun: VenueAdapter = {
     return out;
   },
 
+  // What a meme mirror may spend: wallet AUSD (pay-with ausd) or MON above the
+  // gas reserve (pay-with mon), in dollars.
   async freeBalanceAusd(userId: string): Promise<number> {
+    if (nadPaysWith() === 'ausd') {
+      const raw: bigint = await new ethers.Contract(await ausdToken(), erc20Abi, rpc()).getFunction('balanceOf')(walletOf(userId));
+      return Number(ethers.formatUnits(raw, 6));
+    }
     const bal = await rpc().getBalance(walletOf(userId));
     const spendable = bal > GAS_RESERVE_WEI ? bal - GAS_RESERVE_WEI : 0n;
     return toNum(spendable) * (await monPriceAusd());

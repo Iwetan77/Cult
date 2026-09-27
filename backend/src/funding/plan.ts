@@ -4,14 +4,19 @@ import { env } from '../config/env.js';
 import { erc20Abi, exchangeAbi, getOnChainAccount } from '../chain/exchange.js';
 import { rpc } from '../chain/signer.js';
 import { getExchangeInfo } from '../perpl/context.js';
-import { kuruMarket, marketBuyCalldata } from './kuru.js';
+import { KURU_FLOW_ROUTER, quoteSwap, SwapUnavailable } from '../swap/kuruFlow.js';
 
-// "Pay with USDC": USDC -> AUSD on Kuru, then straight into the member's
-// Perpl account, as one ordered list of wallet actions the member signs in the
-// browser. The app only ever shows AUSD; the member never handles it.
+// Circle USDC on Monad mainnet.
+export const USDC_MAINNET = '0x754704Bc059F8C67012fEd69BC8A327a5aafb603';
+
+// "Pay with USDC": USDC -> AUSD through Kuru Flow (which routes via the deep
+// AUSD/USDC stable pool), then optionally straight into the member's Perpl
+// account, as one ordered list of wallet actions the member signs in the
+// browser. The app shows dollars; the member never handles AUSD.
 //
-// Only meaningful on mainnet: Kuru's AUSD/USDC book only exists there, and
-// mainnet AUSD can only fund mainnet Perpl.
+// Mainnet only: Kuru Flow routes Monad mainnet liquidity, and mainnet AUSD
+// can only fund mainnet Perpl. Without the Perpl deposit, the AUSD stays in
+// the wallet, which is what meme buys are paid from.
 
 export interface WalletAction {
   to: string;
@@ -25,46 +30,61 @@ export interface FundingPlan {
   id: string;
   expiresAt: string;
   requiredUsdc: string; // raw, 6dp
-  minAusdOut: string; // raw, 6dp
+  minAusdOut: string; // raw, 6dp; guaranteed by the swap
+  expectedAusdOut: string; // raw, 6dp; what the route quotes
+  depositToPerpl: boolean;
   actions: WalletAction[];
 }
 
 const plans = new Map<string, FundingPlan & { wallet: string; expires: number }>();
-const SLIPPAGE_BPS = BigInt(process.env.FUNDING_SLIPPAGE_BPS ?? 30); // AUSD/USDC should trade ~1:1
 
 export class FundingUnavailable extends Error {}
 
-export async function prepareUsdcFunding(wallet: string, usdcIn: bigint): Promise<FundingPlan> {
+export async function prepareUsdcFunding(wallet: string, usdcIn: bigint, depositToPerpl = true): Promise<FundingPlan> {
   if (env.chainId !== 143) {
-    throw new FundingUnavailable('USDC funding runs on Monad mainnet only (Kuru has no AUSD market on testnet). Deposit AUSD directly.');
+    throw new FundingUnavailable('Paying with USDC works on Monad mainnet only (Kuru routes mainnet liquidity). Deposit AUSD directly.');
   }
-  const m = await kuruMarket();
-  if (!m.hasAsks) throw new FundingUnavailable('Kuru AUSD/USDC has no liquidity to buy from right now. Deposit AUSD directly.');
   const { exchange, collateralToken, minAccountOpen, minDeposit } = await getExchangeInfo();
-  if (m.baseAsset.toLowerCase() !== collateralToken.toLowerCase()) throw new Error('Kuru market base is not the Perpl collateral token');
-
-  const minAusdOut = usdcIn - (usdcIn * SLIPPAGE_BPS) / 10_000n;
-  const hasAccount = !!(await getOnChainAccount(wallet));
-  const floor = hasAccount ? minDeposit : minAccountOpen;
-  if (minAusdOut < floor) throw new FundingUnavailable(`fund at least ${ethers.formatUnits(floor, 6)} AUSD worth of USDC`);
-
-  const usdc = new ethers.Contract(m.quoteAsset, erc20Abi, rpc());
-  const actions: WalletAction[] = [];
-  if ((await usdc.getFunction('allowance')(wallet, m.address)) < usdcIn) {
-    actions.push({ to: m.quoteAsset, data: erc20Abi.encodeFunctionData('approve', [m.address, usdcIn]), chainId: env.chainId, label: 'approve USDC to Kuru' });
+  let q;
+  try {
+    q = await quoteSwap(wallet, USDC_MAINNET, collateralToken, usdcIn, Number(process.env.FUNDING_SLIPPAGE_BPS ?? 30));
+  } catch (e) {
+    if (e instanceof SwapUnavailable) throw new FundingUnavailable(`No USDC route right now (${e.message}). Deposit AUSD directly.`);
+    throw e;
   }
-  actions.push({ to: m.address, data: marketBuyCalldata(m, usdcIn, minAusdOut), chainId: env.chainId, label: 'swap USDC to AUSD on Kuru' });
-  // Deposit the guaranteed minimum; any extra from the swap stays in the wallet.
-  actions.push({ to: collateralToken, data: erc20Abi.encodeFunctionData('approve', [exchange, minAusdOut]), chainId: env.chainId, label: 'approve AUSD to Perpl' });
-  actions.push({
-    to: exchange,
-    data: exchangeAbi.encodeFunctionData(hasAccount ? 'depositCollateral' : 'createAccount', [minAusdOut]),
-    chainId: env.chainId,
-    label: hasAccount ? 'deposit into Perpl' : 'open Perpl account',
-  });
 
-  const plan = { id: randomUUID(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), requiredUsdc: usdcIn.toString(), minAusdOut: minAusdOut.toString(), actions };
-  plans.set(plan.id, { ...plan, wallet: wallet.toLowerCase(), expires: Date.now() + 10 * 60_000 });
+  const actions: WalletAction[] = [];
+  const usdc = new ethers.Contract(USDC_MAINNET, erc20Abi, rpc());
+  if ((await usdc.getFunction('allowance')(wallet, KURU_FLOW_ROUTER)) < usdcIn) {
+    actions.push({ to: USDC_MAINNET, data: erc20Abi.encodeFunctionData('approve', [KURU_FLOW_ROUTER, usdcIn]), chainId: env.chainId, label: 'approve USDC' });
+  }
+  actions.push({ to: q.tx.to, data: q.tx.data, value: q.tx.value ? ethers.toQuantity(q.tx.value) : undefined, chainId: env.chainId, label: 'swap USDC to dollars (AUSD)' });
+
+  if (depositToPerpl) {
+    const hasAccount = !!(await getOnChainAccount(wallet));
+    const floor = hasAccount ? minDeposit : minAccountOpen;
+    if (q.minOut < floor) throw new FundingUnavailable(`Fund at least $${ethers.formatUnits(floor, 6)} to ${hasAccount ? 'top up' : 'open'} a Perpl account.`);
+    // Deposit the swap's guaranteed minimum; anything above it stays in the wallet.
+    actions.push({ to: collateralToken, data: erc20Abi.encodeFunctionData('approve', [exchange, q.minOut]), chainId: env.chainId, label: 'approve for Perpl' });
+    actions.push({
+      to: exchange,
+      data: exchangeAbi.encodeFunctionData(hasAccount ? 'depositCollateral' : 'createAccount', [q.minOut]),
+      chainId: env.chainId,
+      label: hasAccount ? 'deposit into Perpl' : 'open Perpl account',
+    });
+  }
+
+  const expires = Date.now() + 5 * 60_000; // routes go stale; re-prepare after this
+  const plan: FundingPlan = {
+    id: randomUUID(),
+    expiresAt: new Date(expires).toISOString(),
+    requiredUsdc: usdcIn.toString(),
+    minAusdOut: q.minOut.toString(),
+    expectedAusdOut: q.out.toString(),
+    depositToPerpl,
+    actions,
+  };
+  plans.set(plan.id, { ...plan, wallet: wallet.toLowerCase(), expires });
   return plan;
 }
 

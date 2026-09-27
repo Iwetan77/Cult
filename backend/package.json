@@ -19,7 +19,8 @@
     "spike:nadfun-trade": "tsx scripts/spikes/nadfun-trade.ts",
     "spike:perpl-order": "tsx scripts/e2e/phase1.ts",
     "e2e:phase4-nadfun": "tsx scripts/e2e/phase4-nadfun.ts",
-    "spike:kuru-flow": "tsx scripts/spikes/kuru-flow.ts"
+    "spike:kuru-flow": "tsx scripts/spikes/kuru-flow.ts",
+    "spike:funding-plan": "tsx scripts/spikes/funding-plan.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
