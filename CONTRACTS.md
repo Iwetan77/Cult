@@ -56,6 +56,11 @@ on `PORT` (default `8787`). All routes are under `/v1`.
        up by the router watcher, B and C mirrored from their own MON (C clamped by
        `balancePercentCap`), and A's full exit made B and C sell out to a 0 balance
        on-chain. Run it with `npm run e2e:phase4-nadfun`.
+       It was re-run after the dollar-share sizing fix (2026-09-27) with 3 new wallets.
+       Leader A `0x078aB3aE426a7c21449d80dBB81E1f1b140275C9` bought in
+       `0x57b53833…4a3e` and sold in `0x79a8dc24…65d9`. B mirrored (buy
+       `0xbb7d3619…5c44`, sell `0x2fc29671…88b2`), and C mirrored clamped by
+       `balancePercentCap` (buy `0x41bf67db…ec7`, sell `0x1e7b82c2…4030`).
    - **Deferred, needing Perpl testnet AUSD or mainnet USDC:** these are marked "not run",
      never "passed". The product owner has no testnet or
    mainnet funds right now, so the affected gates will be run later:
