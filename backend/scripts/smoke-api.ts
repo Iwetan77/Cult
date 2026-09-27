@@ -104,7 +104,31 @@ await call('chat: outsider', 'POST', `/v1/clans/${clan.id}/messages`, auth(ether
 const page = await call('chat: list', 'GET', `/v1/clans/${clan.id}/messages?limit=1`, auth(bob, 'bob'));
 if (page.messages.length !== 1 || !page.hasMore || page.messages[0].replyTo !== hi.id) throw new Error('chat page wrong');
 const older = await call('chat: older page', 'GET', `/v1/clans/${clan.id}/messages?before=${page.messages[0].id}`, auth(bob, 'bob'));
-if (older.messages[0]?.id !== hi.id || older.hasMore) throw new Error('chat paging wrong');
+// The room opens with notices ("created the cult", "joined the cult"), then the first typed message.
+if (older.messages.at(-1)?.id !== hi.id || older.hasMore || older.messages[0]?.kind !== 'system') throw new Error('chat paging wrong');
+// Social flow: create with just a name, join in one tap, copying behind Auto-follow.
+if (!cfg.autoFollowDefaults?.maxUsdPerTrade) throw new Error('config is missing autoFollowDefaults');
+const simple = await call('create a cult with just a name', 'POST', '/v1/cults', auth(alice, 'alice'), { name: 'quick one' });
+if (simple.autoFollow !== false || simple.myPolicy.enabled !== false) throw new Error('a new cult should not copy trades by default');
+const frank = ethers.Wallet.createRandom();
+const fj = await call('join by code, no signature', 'POST', '/v1/cults/join', auth(frank, 'frank'), { inviteCode: simple.inviteCode });
+if (fj.autoFollow !== false) throw new Error('joining should not turn copying on');
+await call('signer before any Auto-follow', 'GET', '/v1/privy/signer', auth(frank, 'frank'));
+const feed = await call('the cult chat shows who joined', 'GET', `/v1/cults/${simple.id}/messages`, auth(frank, 'frank'));
+if (!feed.messages.some((m: any) => m.kind === 'system' && m.body === 'joined the cult')) throw new Error('join notice missing');
+await call('Auto-follow can not be switched on without signing', 'POST', `/v1/cults/${simple.id}/auto-follow`, auth(frank, 'frank'), { enabled: true });
+const afOn = await call('turn Auto-follow on: sign limits', 'POST', `/v1/cults/${simple.id}/policy/challenge`, auth(frank, 'frank'), { policy: { enabled: true, ...cfg.autoFollowDefaults } });
+if (!afOn.message.startsWith('Turn on Auto-follow in the Cult')) throw new Error('auto-follow consent text wrong');
+const afSet = await call('…signed', 'POST', `/v1/cults/${simple.id}/policy`, auth(frank, 'frank'), { challengeId: afOn.challengeId, signature: await frank.signMessage(afOn.message) });
+if (afSet.autoFollow !== true) throw new Error('auto-follow not on');
+const afOff = await call('Auto-follow off, no signature', 'POST', `/v1/cults/${simple.id}/auto-follow`, auth(frank, 'frank'), { enabled: false });
+if (afOff.autoFollow !== false) throw new Error('auto-follow not off');
+const pinMsg = await call('owner posts rules', 'POST', `/v1/cults/${simple.id}/messages`, auth(alice, 'alice'), { body: 'announce before you trade' });
+await call('a member tries to pin', 'POST', `/v1/chat/${encodeURIComponent('cult:' + simple.id)}/pin`, auth(frank, 'frank'), { messageId: pinMsg.id });
+const pin = await call('the owner pins it', 'POST', `/v1/chat/${encodeURIComponent('cult:' + simple.id)}/pin`, auth(alice, 'alice'), { messageId: pinMsg.id });
+if (pin.pinned?.id !== pinMsg.id) throw new Error('pin not set');
+const fr = await call('rooms carry latest activity', 'GET', '/v1/chat/rooms', auth(frank, 'frank'));
+if (!fr.rooms.every((r: any) => 'lastMessage' in r && typeof r.memberCount === 'number')) throw new Error('room list shape');
 // Global and country rooms.
 await call('not a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'EU' });
 const ctry = await call('pick a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'ng' });
