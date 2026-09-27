@@ -1,0 +1,15 @@
+{
+  "name": "cult-indexer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Envio HyperIndex for Cult: verified per-address Perpl trading stats on Monad testnet",
+  "scripts": {
+    "codegen": "envio codegen",
+    "dev": "envio dev",
+    "start": "envio start",
+    "test": "envio test"
+  },
+  "dependencies": {
+    "envio": "^3.12.1"
+  }
+}
