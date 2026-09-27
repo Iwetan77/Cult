@@ -17,6 +17,43 @@ marked **DECISION NEEDED** is waiting on product.
 Run the backend: `cd backend && cp .env.example .env && npm ci && npm start`. It listens
 on `PORT` (default `8787`). All routes are under `/v1`.
 
+## Where this file lives, and who edits what
+
+- **This file on the `backend` branch is the canonical copy until `main` exists.** Read
+  it with `git fetch origin && git show origin/backend:CONTRACTS.md`.
+- Don't keep a divergent full copy on another branch, because it will conflict at
+  merge. Put your branch's own published shapes in your own folder, and this file
+  links to them:
+  - Indexer read API: `indexer/API.md`
+  - Frontend-only assumptions: `frontend/CONTRACT_ASSUMPTIONS.md`
+
+## Product decisions (2026-09-27, from the product owner)
+
+1. **Display unit is AUSD everywhere** (1 AUSD = $1). Balances, PnL, caps and share
+   cards all show AUSD. Nad.fun values (natively in MON) are converted to AUSD for
+   display using a MON price the backend serves.
+2. **Funding has two options:**
+   - Deposit **AUSD directly**.
+   - Pay with **USDC**, which the backend swaps to AUSD behind the scenes via Kuru
+     (mainnet). The Kuru path is built but not proven; see blocker 1.
+3. **Gates that need live funds are deferred.** The product owner has no testnet or
+   mainnet funds right now, so the affected gates will be run later:
+   - Spike B (Perpl order via delegated key)
+   - Phase 1 (both venues end to end)
+   - Phase 2 (Kuru funding)
+   - Phase 4 (multi-account mirror)
+
+   Build against this contract meanwhile. Nothing is faked: a gate is either
+   "passed" with tx hashes or "not run".
+4. **Nad.fun trades need MON, not AUSD.** Cult only trades MON-quoted Nad.fun tokens
+   (bought with native MON). Members need MON for gas on both venues and to buy memes.
+5. **Manual stack works the same on both venues:** `POST /v1/clans/:clanId/stack`, and
+   the backend executes it. On Nad.fun it's signed through the member's Privy wallet by
+   the backend signer, under Privy policy. There's no quote/confirm step and no wallet
+   popup. This needs the backend signer added to the member's wallet at clan-join (see
+   `GET /v1/privy/signer`), which is **required**, because Nad.fun mirrors are wallet
+   transactions.
+
 ## Decisions and blockers
 
 **Venues (decided):** there are two. **Perpl** handles perps (majors). **Nad.fun**
@@ -26,26 +63,18 @@ The product owner made these calls in the updated backend brief (2026-09-27).
 `00_PROJECT_SPEC.md` still lists the old sponsor set and bans Kuru, so **it needs
 updating to match.** Until it is, the brief is what backend follows.
 
-1. **ESCALATED (Spike D): Kuru has no usable AUSD/USDC liquidity, on testnet or
-   mainnet.**
-   - **Testnet:** Kuru lists 4 markets (`api.testnet.kuru.io/api/v1/markets`):
-     cbBTC, WETH, MON and XAUt, all against Kuru's own testnet USDC
-     `0xee0722ead54f1b4fe97be399be43bc0226a6f97e`. None involves AUSD. All 4 show 0
-     trades in 24h and no last price. `0x8cf49e35…c9cc` has no code on testnet.
-   - **Mainnet:** `0x8cf49e35…c9cc` is a Kuru AUSD/USDC order book (base AUSD
-     `0x00000000eFE3…`, quote USDC `0x7547…b603`, 0 fees), but `bestBidAsk()` returns
-     the empty-book sentinels, so there are no resting orders. The listed mainnet
-     AUSD/USDC market shows `liquidity: 0` and 0 trades.
+1. **Kuru USDC→AUSD runs on mainnet (decided), but there's no liquidity to swap
+   against yet.**
+   - **Testnet:** Kuru has no AUSD market at all. Its 4 markets are cbBTC, WETH, MON
+     and XAUt against Kuru test USDC, all with 0 trades.
+   - **Mainnet:** `0x8cf49e35…c9cc` is the AUSD/USDC order book (base AUSD
+     `0x00000000eFE3…`, quote USDC `0x7547…b603`, 0 fees). Its book is currently
+     empty (`bestBidAsk` returns sentinels), and Kuru lists AUSD/USDC with
+     `liquidity: 0`.
 
-   So the Spike D gate (a real USDC→AUSD swap on testnet) can't be met as written.
-   Options:
-   - (a) Ask Kuru (hackathon support) to seed a testnet AUSD/USDC book.
-   - (b) Seed a small AUSD/USDC book ourselves, which needs both tokens.
-   - (c) Run the funding demo on mainnet with real, tiny amounts. That still needs a
-     book to trade against.
-   - (d) Fund Perpl with testnet AUSD directly for the demo, and keep the Kuru path
-     built but unproven.
-
+   The USDC option is built against that book and gets proven later with funds.
+   Mainnet AUSD can only fund mainnet Perpl (min 10 AUSD). Until then, funding means
+   direct AUSD.
    Reproduce with `cd backend && npx tsx scripts/spikes/kuru.ts`.
 2. **Nad.fun buys are priced per token, not in a single currency (Spike C).** Each
    token trades against its own quote token. On testnet that's mostly MON/WMON and
@@ -172,6 +201,20 @@ The token balance went 0 → 148.48 → 0. Both trades appear in Nad.fun's own
 `/trade/swap-history`. **A round trip on the curve cost about 4%** (fees plus curve
 spread at this size). The mirror sizing and the UI should expect that. Reproduce with
 `npm run spike:nadfun-trade`.
+
+**Indexer validation target (real, available now).** Wallet
+`0xBdd51F3CBCC4890635c75453c93f8aB4C3e0A98A` made exactly one round trip on TTT
+`0x5e2E014020f31A410cC6Cd44dEfb646b02467777`:
+
+- A buy of 0.01 MON for 148.4796392128505102 TTT in
+  `0xe69e2841f2e53076eef897230f18ead60c4edbbbaf8f3e26e9768dbe276c8375`.
+- A sell of all 148.4796392128505102 TTT for 0.009604 MON in
+  `0xf591776147428b1440ffd8c00883e6514f09391d1cbeee1eb64ff7512f9d06a8`.
+
+The expected result is **1 closed trade, 0 wins, realized −0.000396 MON**. You can check
+it against Nad.fun's own
+`https://dev-api.nadapp.net/trade/swap-history/0x5e2E014020f31A410cC6Cd44dEfb646b02467777`.
+The router proxy was deployed around block `30418626` (the curve at `30418615`).
 
 **Trading calls (router):**
 
