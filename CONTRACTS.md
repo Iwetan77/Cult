@@ -428,8 +428,13 @@ type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number 
 (and optionally `INDEXER_GRAPHQL_SECRET` for Hasura), cached for 15s. The backend sends
 exactly:
 `query CultMemberStats($ids: [String!]!) { Trader(where: { id: { _in: $ids } }) { id tradeCount winRate realizedPnlUsd realizedPnlMon lastTradeAt } }`
-with lowercase wallet ids. **Indexer:** please confirm this runs against the real
-Envio/Hasura API (`indexer/API.md` shows `Trader(id: …)`, which isn't Hasura's form).
+with lowercase wallet ids. **Confirmed by the indexer (2026-09-27):** `indexer/API.md`
+now uses this Hasura `where` form, and the same fields were checked against the live
+indexer's `Trader` table in Postgres for the four reference Nad.fun wallets. Still
+open: a **hosted GraphQL URL**. Hasura needs Docker (not available in either agent's
+environment), so the URL has to come from Envio Cloud or `envio dev` on a machine with
+Docker (`http://localhost:8080/v1/graphql`). Until `INDEXER_GRAPHQL_URL` is set, members
+show `verified: false`.
 If the indexer is unset or down, members come back `verified: false` with nulls;
 the chart still loads. The indexer keeps MON and AUSD apart. The backend's combined
 `realizedPnlUsd` converts MON at the current price, which it reports as
