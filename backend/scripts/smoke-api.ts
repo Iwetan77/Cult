@@ -119,6 +119,17 @@ await call("someone else's country room", 'GET', '/v1/chat/country:NG/messages',
 await call('a cult room via /chat', 'GET', `/v1/chat/cult:${clan.id}/messages`, auth(bob, 'bob'));
 const me2 = await call('me shows country and rooms', 'GET', '/v1/me', auth(alice, 'alice'));
 if (me2.country?.code !== 'NG' || me2.rooms.length < 3) throw new Error('me is missing country/rooms');
+// Leaderboards (no indexer in the smoke run, so everyone is unranked; shapes and access only).
+const gb = await call('global leaderboard', 'GET', '/v1/leaderboards/global', auth(alice, 'alice'));
+if (gb.scope !== 'global' || !Array.isArray(gb.entries) || gb.me?.rank !== null) throw new Error('global board shape');
+await call('my country board', 'GET', '/v1/leaderboards/country', auth(alice, 'alice'));
+await call('country board before picking one', 'GET', '/v1/leaderboards/country', auth(bob, 'bob'));
+await call('another country board', 'GET', '/v1/leaderboards/country/GB', auth(bob, 'bob'));
+const cb = await call('public cults ranked', 'GET', '/v1/leaderboards/cults', auth(bob, 'bob'));
+if (!cb.entries.some((e: any) => e.cultId === openCult.id) || cb.entries.some((e: any) => e.cultId === clan.id)) throw new Error('cults board lists the wrong cults');
+await call('my cult board', 'GET', `/v1/cults/${clan.id}/leaderboard`, auth(bob, 'bob'));
+await call("a private cult's board, as an outsider", 'GET', `/v1/cults/${clan.id}/leaderboard`, auth(ethers.Wallet.createRandom(), 'eve'));
+await call("a public cult's board, as an outsider", 'GET', `/v1/cults/${openCult.id}/leaderboard`, auth(ethers.Wallet.createRandom(), 'eve2'));
 // Policy change (signed consent) and leaving.
 const newPolicy = { enabled: false, balancePercentCap: 5, maxUsdPerTrade: 20 };
 const polCh = await call('policy change challenge', 'POST', `/v1/clans/${clan.id}/policy/challenge`, auth(bob, 'bob'), { policy: newPolicy });

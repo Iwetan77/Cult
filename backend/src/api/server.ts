@@ -29,6 +29,7 @@ import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
 import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, roomsFor, type ChatMessage } from './chat.js';
 import { countryName } from './countries.js';
+import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError } from './leaderboards.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
@@ -93,6 +94,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
+    if (err instanceof LeaderboardError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -301,6 +303,16 @@ export function createApp(engine: MirrorEngine) {
     return c.json({ country: { code, name }, rooms: roomsFor(c.get('userId')) });
   });
 
+  // ---- leaderboards: global, a country, public cults ------------------------
+  const boardLimit = (c: Context<Vars>) => Math.min(Math.max(Number(c.req.query('limit') ?? 100) || 100, 1), 500);
+  authed.get('/leaderboards/global', async (c) => c.json(await globalBoard(c.get('userId'), boardLimit(c))));
+  authed.get('/leaderboards/country/:code?', async (c) => {
+    const code = c.req.param('code') ?? members.get(c.get('userId'))?.country;
+    if (!code) throw bad(409, 'pick your country first (POST /v1/me/country)');
+    return c.json(await countryBoard(code, c.get('userId'), boardLimit(c)));
+  });
+  authed.get('/leaderboards/cults', async (c) => c.json(await cultsBoard(c.get('userId'), Math.min(boardLimit(c), 100))));
+
   // ---- chat rooms: global, your country, your cults ------------------------
   authed.get('/chat/rooms', (c) => c.json({ rooms: roomsFor(c.get('userId')) }));
   authed.get('/chat/:room/messages', (c) => {
@@ -508,6 +520,13 @@ export function createApp(engine: MirrorEngine) {
     }));
     list.sort((a, b) => b.memberCount - a.memberCount || b.createdAt - a.createdAt);
     return c.json({ cults: list.slice(0, limit) });
+  });
+
+  // A cult's own leaderboard: its members, or anyone for a public cult.
+  cultRoutes.get('/:clanId/leaderboard', async (c) => {
+    const clan = clans.get(c.req.param('clanId'));
+    if (!clan || (clan.visibility !== 'public' && !clans.membership(clan.id, c.get('userId')))) throw bad(404, 'cult not found');
+    return c.json(await cultBoard(clan, c.get('userId'), boardLimit(c)));
   });
 
   // The owner makes their cult public (listed, joinable without the code) or private again.
