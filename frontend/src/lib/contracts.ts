@@ -44,7 +44,7 @@ export type Me = {
     perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;
     gasReserveMon: number; lowGas: boolean; memesPayWith: 'ausd' | 'mon';
   } | null;
-  signerGranted: boolean;
+  signer: { prepared: boolean; attached: boolean | null; policyCurrent: boolean | null };
 };
 export type PrivySignerGrant = {
   signerId: string; policyIds: string[]; capAusd: number; maxBuyMon: number; monPriceAusd: number;
