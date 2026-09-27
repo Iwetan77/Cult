@@ -17,40 +17,62 @@ marked **DECISION NEEDED** is waiting on product.
 Run the backend: `cd backend && cp .env.example .env && npm ci && npm start`. It listens
 on `PORT` (default `8787`). All routes are under `/v1`.
 
-## Open decisions and blockers
+## Decisions and blockers
 
-1. **DECISION NEEDED: no Monad-native meme market on Perpl.** The live markets
-   endpoint (testnet and mainnet) lists no Monad-native meme perp. `PUMP` is pump.fun's
-   Solana token. `MON` is Monad's L1 token, not a meme. The frontend has started a
-   `nadfun` (Nad.fun spot) venue to cover memes. Nad.fun is not on the spec's sponsor
-   list, so backend has not built it. Product needs to pick: build it, take what Perpl
-   lists, or drop the requirement.
-2. **DECISION NEEDED: funding path.** Agora's stable swap is KYC-whitelisted
-   ("available exclusively to verified platform users through a protected
-   whitelist"). On Monad testnet the only pair is `CTK / AUSD`
-   (`0x1Aa8958Aa34cEC8096EF4381cb335effe977b0ae`). There is no USDC pair on testnet.
-   Mainnet has `AUSD / USDC` at `0xf33286E3222D1c829dACeac48c0Ec651F6452470`. The
-   frontend's assumptions mention Kuru for funding. **The spec explicitly bans Kuru**,
-   so backend has not built it. Until this is decided, a member funds their account
-   with testnet AUSD directly (`/v1/perpl/setup` returns `needs_collateral`).
+**Venues (decided):** there are two. **Perpl** handles perps (majors). **Nad.fun**
+handles Monad-native memes (spot, bonding curve through to DEX). No meme markets are
+expected on Perpl. **Kuru** handles USDC→AUSD funding. **Agora is dropped entirely.**
+The product owner made these calls in the updated backend brief (2026-09-27).
+`00_PROJECT_SPEC.md` still lists the old sponsor set and bans Kuru, so **it needs
+updating to match.** Until it is, the brief is what backend follows.
+
+1. **ESCALATED (Spike D): Kuru has no usable AUSD/USDC liquidity, on testnet or
+   mainnet.**
+   - **Testnet:** Kuru lists 4 markets (`api.testnet.kuru.io/api/v1/markets`):
+     cbBTC, WETH, MON and XAUt, all against Kuru's own testnet USDC
+     `0xee0722ead54f1b4fe97be399be43bc0226a6f97e`. None involves AUSD. All 4 show 0
+     trades in 24h and no last price. `0x8cf49e35…c9cc` has no code on testnet.
+   - **Mainnet:** `0x8cf49e35…c9cc` is a Kuru AUSD/USDC order book (base AUSD
+     `0x00000000eFE3…`, quote USDC `0x7547…b603`, 0 fees), but `bestBidAsk()` returns
+     the empty-book sentinels, so there are no resting orders. The listed mainnet
+     AUSD/USDC market shows `liquidity: 0` and 0 trades.
+
+   So the Spike D gate (a real USDC→AUSD swap on testnet) can't be met as written.
+   Options:
+   - (a) Ask Kuru (hackathon support) to seed a testnet AUSD/USDC book.
+   - (b) Seed a small AUSD/USDC book ourselves, which needs both tokens.
+   - (c) Run the funding demo on mainnet with real, tiny amounts. That still needs a
+     book to trade against.
+   - (d) Fund Perpl with testnet AUSD directly for the demo, and keep the Kuru path
+     built but unproven.
+
+   Reproduce with `cd backend && npx tsx scripts/spikes/kuru.ts`.
+2. **Nad.fun buys are priced per token, not in a single currency (Spike C).** Each
+   token trades against its own quote token. On testnet that's mostly MON/WMON and
+   LVMON, plus AUSD (Nad.fun's own testnet AUSD `0x2523…C62b`, which is **not**
+   Perpl's `0xa901…22dC`), USDC, and tokenized stocks. **Backend only trades
+   MON-quoted tokens**, bought with native MON through `buyWithNative`. It never
+   swaps between quote assets. The frontend should filter the token list the same
+   way.
 3. **PROVISIONAL: opt-out window is 20 seconds.** It's the backend env var
    `MIRROR_OPT_OUT_SECONDS`, served live at `GET /v1/config` →
    `autoMirrorOptOutWindowSeconds` and on every `ChartSnapshot`. Read it from there.
    Never hard-code it. Product hasn't set the number yet.
 4. **Chain.** All trading is on Perpl **testnet (chain 10143)**. The frontend currently
    targets 143 (mainnet) in `.env.local.example`. Use `GET /v1/config → chainId`.
-5. **The position cap is enforced by the backend, not by Privy's policy engine.**
-   Perpl orders are signed with the member's Ed25519 API key, not sent as wallet
-   transactions, so Privy's policy layer never sees an order. Two layers do the
-   capping instead:
-   - The mirror engine sizes every mirror under the member's `MirrorPolicy`
-     (`backend/src/mirror/sizing.ts`).
-   - Perpl API keys can never withdraw or transfer out, at any scope. That's Perpl's
-     rule, not ours.
+5. **Where the per-trade cap is enforced differs by venue.**
+   - **Perpl:** orders are signed with the member's Ed25519 API key, not sent as wallet
+     transactions, so Privy's policy layer never sees them. The mirror engine sizes
+     every Perpl mirror under the member's `MirrorPolicy`
+     (`backend/src/mirror/sizing.ts`). Perpl API keys can never withdraw at any scope.
+   - **Nad.fun:** every buy and sell is a wallet transaction, so Privy's policy is the
+     real per-trade cap. It allows only the Nad.fun router, requires the
+     tokens/proceeds recipient `to` to be the member's own wallet, and caps the MON
+     `value` per buy.
 
-   The Privy policy (Phase 3) scopes the wallet transactions the backend may ever
-   send on a member's behalf: only Perpl and AUSD, no `withdrawCollateral`, and a
-   capped deposit amount.
+   Across both venues, the Privy policy scopes every wallet transaction the backend
+   may send: Perpl exchange + AUSD approve + Nad.fun router only. No
+   `withdrawCollateral`, no transfers out, capped amounts.
 6. **Perpl enrollment `Origin`.** Server-side enrollment works on testnet with no
    `Origin` header. Browser-side enrollment needs Perpl to whitelist our domain.
    Enrollment runs server-side, so this isn't blocking.
@@ -117,6 +139,67 @@ Perpl also publishes an on-chain owner/operator contract,
 [PerplFoundation/delegated-account](https://github.com/PerplFoundation/delegated-account)
 (testnet factory `0xf42548Ccb3300Bc76c35dc2D347416db2E8d7209`). We don't need it,
 because an API key already separates trading from withdrawal. It's there as a fallback.
+
+## Nad.fun (Spike C): confirmed integration surface
+
+Source: [Naddotfun/nadfun-v2-intergration](https://github.com/Naddotfun/nadfun-v2-intergration)
+(ABIs + docs, marked "Monad Testnet: Available"), cross-checked on-chain and against the
+testnet API. There's no REST trading API. Buys and sells are **direct contract calls from
+the member's wallet**. The API is read-only (token lists, charts, swap history).
+
+| | Testnet (10143) | Mainnet (143) |
+|---|---|---|
+| `NadFunRouter` (the only contract we call) | `0x75588668999cA0557b78046b8a5E86b47b9234ec` | `0x8986C8fD44eb85294A725a7e61AF35E76bA26F91` |
+| `BondingCurve` | `0x27063a38eC0D3281D354090EB92e669Ed1eB956C` | `0x9f3832732923252A21044F21eE6bd87F09514ae4` |
+| `NadFunFactory` (DEX pairs) | `0x59C51c66B79c68F63d5446940CD13b6968788e36` | `0xA25b13127e63ddae6d0b35570FF3D39dBD621001` |
+| WMON | `0x5a4E0bFDeF88C9032CB4d24338C5EB3d3870BfDd` | `0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A` |
+| Deploy block (curve) | `30418615` | `73857231` |
+| Read API | `https://dev-api.nadapp.net` | `https://api.nad.fun` |
+
+The testnet API lists 412 tokens (`/order/latest_trade`, `/order/market_cap`,
+`/order/creation_time`, `/token/:addr`, `/trade/market/:addr`, `/trade/chart/:addr`,
+`/trade/swap-history/:addr`). `router.getAmountOut(token, 0.01 MON, true)` returns
+live quotes today. Reproduce with `npx tsx scripts/spikes/nadfun.ts`.
+
+**Trading calls (router):**
+
+- `buyWithNative((amountOutMin, token, to, deadline))`: payable. `msg.value` is the MON
+  spent.
+- `sellToNative((amountIn, amountOutMin, token, to, deadline))`: pays out MON. It needs
+  `token.approve(router, amountIn)` first.
+- `getAmountOut(token, amountIn, isBuy)` / `getAmountIn(...)`: lifecycle-aware quotes.
+- `isGraduated(token)`: true once the token has moved from the curve to its DEX pair.
+
+The router picks the bonding curve before graduation and the DEX pair after, so the
+caller never has to.
+
+**Events for the indexer.** Index the **router**: it emits on both the curve and
+DEX paths, with the trader as `buyer`/`seller`.
+
+```solidity
+// NadFunRouter
+event Buy (address indexed buyer,  address indexed token, uint256 amountIn, uint256 amountOut, bool graduated); // amountIn = quote (MON wei), amountOut = tokens
+event Sell(address indexed seller, address indexed token, uint256 amountIn, uint256 amountOut, bool graduated); // amountIn = tokens, amountOut = quote (MON wei)
+event Create(address indexed token, address indexed creator);
+// BondingCurve (curve-only detail, optional)
+event Buy (address indexed token, address indexed buyer, uint256 quoteIn, uint256 tokenOut);
+event Sell(address indexed token, address indexed seller, uint256 tokenIn, uint256 quoteOut);
+event Create(address indexed creator, address indexed token, address indexed pair, address quoteToken, string name, string symbol, string tokenURI, uint256 virtualQuoteReserve, uint256 virtualTokenReserve, uint256 minTokenReserve);
+event Graduate(address indexed token, address indexed pair);
+```
+
+**How buys and sells map to cost basis and PnL.** Use average cost per
+`(wallet, token)`, in the token's quote asset (MON for everything Cult trades):
+
+- **On `Buy`:** `qty += amountOut`, `cost += amountIn`.
+- **On `Sell`:** `realized += amountOut - cost * (amountIn / qty)`, then
+  `cost -= cost * (amountIn / qty)` and `qty -= amountIn`.
+
+A "trade" is the round trip from the first buy (qty 0 → >0) back to qty 0. A win means
+realized > 0. Values are in MON. Converting to USD needs a MON price at the event's
+time, which the indexer should record rather than guess. Token transfers in and out
+of a wallet (not via the router) change qty without a price. Treat them as
+zero-cost-basis and flag them.
 
 ---
 
