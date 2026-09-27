@@ -30,6 +30,7 @@ import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
 import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, postSystem, roomsFor, setPin, type ChatMessage } from './chat.js';
 import { countryName } from './countries.js';
 import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError } from './leaderboards.js';
+import { home, profile, ProfileError } from './profiles.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
@@ -95,6 +96,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
     if (err instanceof LeaderboardError) return c.json({ message: err.message }, err.status);
+    if (err instanceof ProfileError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -308,6 +310,10 @@ export function createApp(engine: MirrorEngine) {
     if (before !== code) postSystem(`country:${code}`, c.get('userId'), 'joined');
     return c.json({ country: { code, name }, rooms: roomsFor(c.get('userId')) });
   });
+
+  // ---- home feed and profiles (the Home and Account screens) ----
+  authed.get('/home', async (c) => c.json(await home(c.get('userId'))));
+  authed.get('/members/:id', async (c) => c.json(await profile(c.req.param('id'), c.get('userId'))));
 
   // ---- leaderboards: global, a country, public cults ------------------------
   const boardLimit = (c: Context<Vars>) => Math.min(Math.max(Number(c.req.query('limit') ?? 100) || 100, 1), 500);

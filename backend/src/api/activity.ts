@@ -1,25 +1,14 @@
-import { ethers } from 'ethers';
-import { rpc } from '../chain/signer.js';
 import type { MirrorEngine } from '../mirror/engine.js';
 import type { LeaderTrade } from '../mirror/repo.js';
-import { tokenAbi } from '../nadfun/trading.js';
-import { getMarket } from '../perpl/context.js';
 import { clans } from '../store/clans.js';
 import { cultRoom, postSystem } from './chat.js';
+import { marketSymbol } from './symbols.js';
 
 // A cult's chat is also its activity feed: when a member opens, adds to,
 // trims or closes a trade, a one-line notice goes into every cult they're in,
 // pointing at that trade's chart marker.
 
-const symbols = new Map<string, string>();
-async function label(t: LeaderTrade): Promise<string> {
-  if (t.venue === 'perpl') return (await getMarket(Number(t.market)).catch(() => null))?.symbol ?? `market ${t.market}`;
-  if (!symbols.has(t.market)) {
-    const sym: string = await new ethers.Contract(t.market, tokenAbi, rpc()).getFunction('symbol')().catch(() => '');
-    symbols.set(t.market, sym ? `$${sym}` : `${t.market.slice(0, 8)}…`);
-  }
-  return symbols.get(t.market)!;
-}
+const label = (t: LeaderTrade) => marketSymbol(t.venue, t.market);
 
 const pct = (x: number) => `${Math.round(Math.abs(x) * 100)}%`;
 
