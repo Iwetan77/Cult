@@ -77,7 +77,7 @@ on `PORT` (default `8787`). All routes are under `/v1`.
      Flow, then buys the token with the MON that arrived;
    - a sale swaps exactly the sale's MON back to AUSD.
 
-   Members still keep a little MON for gas; 0.05 MON is never spent. A member's
+   Members still keep a little MON for gas; 0.25 MON is never spent. On Monad, gas is charged on the whole gas limit: a Nad.fun sell alone is about 0.055 MON on testnet. A member's
    dollars sit in two places: **Perpl margin** (perps) and **wallet AUSD** (memes).
    The backend reports both. Testnet has no Kuru Flow, so there meme buys spend MON
    directly (`NADFUN_PAY_WITH=mon`). Cult only trades MON-quoted Nad.fun tokens.
@@ -330,7 +330,7 @@ zero-cost-basis and flag them.
 type MirrorPolicy = {
   enabled: boolean;          // false = member is in the clan but never auto-mirrored
   balancePercentCap: number; // (0, 100]  max % of the free balance on that venue ONE mirror may use
-                             //           (perpl: free margin; nadfun: MON minus a 0.05 MON gas reserve)
+                             //           (perpl: free margin; nadfun: wallet AUSD, or MON minus a 0.25 MON gas reserve)
   maxUsdPerTrade: number;    // [1, 1e6]  max size of ONE mirror in $
                              //           (perpl: notional = size x mark; nadfun: MON spent, valued in $)
 };
