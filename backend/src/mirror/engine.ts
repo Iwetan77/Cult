@@ -23,6 +23,9 @@ const SR_INVERTED = 18;
 
 export interface MirrorEngineConfig {
   optOutSeconds: number;
+  // A leader trade seen later than this (e.g. catching up after downtime)
+  // is tracked but not mirrored: copying it now would be a different trade.
+  maxLeaderAgeSeconds?: number;
   minMirrorAusd?: number; // don't fire dust mirrors
 }
 
@@ -51,6 +54,7 @@ export interface LeaderOpen {
   accountId?: number;
   positionId?: number;
   openTx?: string | null;
+  detectedLateBySeconds?: number; // set when the trade happened well before we saw it
 }
 
 // One engine, two venues. A clan member opens a trade themselves (Perpl
@@ -177,6 +181,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         leverageHundredths: 100,
         marginFraction: fraction,
         openTx: t.txHash,
+        detectedLateBySeconds: t.blockTime > 0 ? Math.max(0, Math.round((Date.now() - t.blockTime) / 1000)) : undefined,
       });
       return;
     }
@@ -211,6 +216,8 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     this.emit('trade', trade);
 
     const skipUntil = Date.now() + this.cfg.optOutSeconds * 1000;
+    const maxAge = this.cfg.maxLeaderAgeSeconds ?? 120;
+    const stale = (e.detectedLateBySeconds ?? 0) > maxAge;
     const seen = new Set<string>([e.userId]);
     for (const clanId of clanIds) {
       for (const m of clans.members(clanId)) {
@@ -218,6 +225,10 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         seen.add(m.userId);
         if (!m.policy.enabled || !this.canTrade(m.userId, e.venue)) continue;
         const mirror = mirrors.insertPending({ tradeId: trade.id, clanId, userId: m.userId, skipUntil });
+        if (stale) {
+          this.emit('mirror', mirrors.transition(mirror.id, 'pending', 'cancelled', { error: `leader trade detected ${e.detectedLateBySeconds}s late (backend was catching up); not mirrored at a stale price` })!);
+          continue;
+        }
         this.emit('mirror', mirror);
         this.schedule(mirror);
       }

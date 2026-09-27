@@ -572,7 +572,12 @@ chart payloads will replace it after the Phase 4 run on funded wallets.
 Mirror `status` goes `pending → skipped | submitting → open → closed`. If a mirror
 fails **before any order left** (an RPC or route hiccup), it goes back to `pending`
 with a new `skipUntil` and `error: "retrying (n/2): …"`, and is tried up to twice
-more. A failure after an order left is never retried, so a position can't be doubled. It can also
+more. A failure after an order left is never retried, so a position can't be doubled.
+If the backend spots a leader's Nad.fun trade more than 120s after it happened (for
+example, catching up after a restart), that trade is tracked so its exit still
+unwinds anything open, but followers get `cancelled` with `error: "leader trade
+detected Ns late … not mirrored at a stale price"`. Copying it late would be a
+different trade. It can also
 end in `failed` or `cancelled`, where `cancelled` means the leader closed before the
 mirror fired. On any event, re-fetch `/chart` or patch the marker locally. Browser
 `EventSource` can't send headers, so fetch the stream with the `Authorization` header

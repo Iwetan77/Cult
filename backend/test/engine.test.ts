@@ -144,3 +144,13 @@ test('cancelPending (e.g. member left the clan) stops a mirror from firing', asy
   assert.match(mirrors.get(b.id)!.error!, /left the clan/);
   assert.ok(!opens.slice(before).some((o) => o.userId === 'B' && o.market === '48'), 'B was never opened');
 });
+
+test('a leader trade detected long after it happened is tracked but not mirrored', async () => {
+  const before = opens.length;
+  const t = await engine.leaderOpened({ venue: 'nadfun', userId: 'A', market: '0x' + 'ee'.repeat(20), side: 'buy', sizeRaw: '1', entryPriceAusd: 1, leverageHundredths: 100, marginFraction: 0.1, detectedLateBySeconds: 1200 });
+  assert.ok(t, 'trade still recorded so its exit is tracked');
+  await wait(400);
+  const ms = mirrors.forTrade(t!.id);
+  assert.ok(ms.length > 0 && ms.every((m) => m.status === 'cancelled' && /late/.test(m.error!)));
+  assert.equal(opens.length, before, 'nothing opened');
+});
