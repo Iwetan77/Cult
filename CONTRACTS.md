@@ -381,7 +381,14 @@ type ChartSnapshot = {
   clan: Clan; markets: Market[]; selectedMarket: Market;
   candles: { time: number /* unix s */; open: number; high: number; low: number; close: number }[];
   markers: ChartMarker[];
-  members: { id: string; name: string; address: string; winRate: null; realizedPnlUsd: null; tradeCount: number; verified: false }[];
+  members: {
+    id: string; name: string; address: string;
+    winRate: number | null;        // 0..1 across both venues; null = no closed trades or not verified
+    realizedPnlUsd: number | null; // $: Perpl + Nad.fun (MON at stats.monPriceUsed)
+    tradeCount: number; verified: boolean;   // verified = the indexer has this wallet's on-chain history
+    stats: { verified: boolean; tradeCount: number; winRate: number | null; realizedPnlPerplUsd: number;
+             realizedPnlMon: number; realizedPnlUsd: number | null; monPriceUsed: number | null; lastTradeAt: number | null };
+  }[];
   asOf: string; autoMirrorOptOutWindowSeconds: number;
 };
 
@@ -400,6 +407,17 @@ type Fill = {            // POST /v1/positions/open|close
 
 type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number };  // GET /v1/nadfun/markets
 ```
+
+**Member track record** comes from the indexer's GraphQL, set by `INDEXER_GRAPHQL_URL`
+(and optionally `INDEXER_GRAPHQL_SECRET` for Hasura), cached for 15s. The backend sends
+exactly:
+`query CultMemberStats($ids: [String!]!) { Trader(where: { id: { _in: $ids } }) { id tradeCount winRate realizedPnlUsd realizedPnlMon lastTradeAt } }`
+with lowercase wallet ids. **Indexer:** please confirm this runs against the real
+Envio/Hasura API (`indexer/API.md` shows `Trader(id: …)`, which isn't Hasura's form).
+If the indexer is unset or down, members come back `verified: false` with nulls;
+the chart still loads. The indexer keeps MON and AUSD apart. The backend's combined
+`realizedPnlUsd` converts MON at the current price, which it reports as
+`monPriceUsed`, so nothing is mixed silently.
 
 **Perpl marker PnL** is `(mark - entry) x size` against Perpl's live mark, excluding the
 closing fee and unsettled funding. **Nad.fun marker value** is what selling that

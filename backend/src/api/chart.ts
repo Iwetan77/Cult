@@ -12,6 +12,7 @@ import { perplTpSl } from '../venues/perpl.js';
 import type { TpSl } from '../trading/tpsl.js';
 import { shortName } from './names.js';
 import { suggestionsFor, type TpSlSuggestion } from './suggestions.js';
+import { statsFor, type MemberStats } from '../indexer/stats.js';
 
 // Shapes follow frontend/src/lib/contracts.ts (ChartSnapshot, ChartMarker, ...)
 // and are published in CONTRACTS.md. Every money figure is in dollars (settled
@@ -73,7 +74,11 @@ export interface ChartSnapshot {
   selectedMarket: ApiMarket;
   candles: Candle[];
   markers: ChartMarker[];
-  members: { id: string; name: string; address: string; winRate: null; realizedPnlUsd: null; tradeCount: number; verified: false }[];
+  // Track record from the indexer (verified on-chain history). Unverified =
+  // the indexer hasn't seen this wallet or isn't reachable: nulls, not zeros.
+  members: ({ id: string; name: string; address: string; winRate: number | null; realizedPnlUsd: number | null; tradeCount: number; verified: boolean } & {
+    stats: MemberStats;
+  })[];
   asOf: string;
   autoMirrorOptOutWindowSeconds: number;
 }
@@ -289,6 +294,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
     }
   }
 
+  const stats = await statsFor(roster.map((r) => members.get(r.userId)?.wallet ?? '').filter(Boolean));
   const me = clans.membership(clan.id, viewerId);
   return {
     clan: { id: clan.id, name: clan.name, inviteCode: clan.inviteCode, memberCount: roster.length, myPolicy: me?.policy ?? null },
@@ -296,15 +302,20 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
     selectedMarket: selected,
     candles: await (v === 'nadfun' ? nadCandles(selected.id, resolutionSec) : perplCandles(await getMarket(Number(selected.id)), resolutionSec)).catch(() => []),
     markers,
-    members: roster.map((r) => ({
-      id: r.userId,
-      name: name(r.userId),
-      address: members.get(r.userId)?.wallet ?? '',
-      winRate: null,
-      realizedPnlUsd: null,
-      tradeCount: 0,
-      verified: false,
-    })),
+    members: roster.map((r) => {
+      const address = members.get(r.userId)?.wallet ?? '';
+      const st = stats.get(address.toLowerCase())!;
+      return {
+        id: r.userId,
+        name: name(r.userId),
+        address,
+        winRate: st.winRate,
+        realizedPnlUsd: st.realizedPnlUsd,
+        tradeCount: st.tradeCount,
+        verified: st.verified,
+        stats: st,
+      };
+    }),
     asOf: new Date().toISOString(),
     autoMirrorOptOutWindowSeconds: env.mirrorOptOutSeconds,
   };
