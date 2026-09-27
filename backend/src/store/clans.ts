@@ -11,6 +11,12 @@ export const MirrorPolicySchema = z.object({
 });
 export type MirrorPolicy = z.infer<typeof MirrorPolicySchema>;
 
+// Joining a cult is just joining the group: copying stays off until the member
+// turns Auto-follow on (and signs their limits). These are the limits the
+// Auto-follow switch suggests.
+export const AUTO_FOLLOW_DEFAULTS = { balancePercentCap: 10, maxUsdPerTrade: 100 } as const;
+export const COPY_OFF: MirrorPolicy = { enabled: false, ...AUTO_FOLLOW_DEFAULTS };
+
 // A cult (the product's name for a clan; the code and API keep "clan" in
 // identifiers so nothing breaks). Private cults are joined with their code;
 // public ones are listed and anyone can join (still with signed consent).
@@ -78,7 +84,7 @@ const toMembership = (r: MemberRow): ClanMembership => ({
 });
 
 export const clans = {
-  create(name: string, createdBy: string, creatorPolicy: MirrorPolicy, visibility: Visibility = 'private'): Clan {
+  create(name: string, createdBy: string, creatorPolicy: MirrorPolicy = COPY_OFF, visibility: Visibility = 'private'): Clan {
     const id = randomUUID();
     const db = getDb();
     for (let attempt = 0; ; attempt++) {
@@ -123,7 +129,7 @@ export const clans = {
   },
 
   // Policy is written once here. There's deliberately no per-trade prompt.
-  join(clanId: string, userId: string, policy: MirrorPolicy) {
+  join(clanId: string, userId: string, policy: MirrorPolicy = COPY_OFF) {
     const p = MirrorPolicySchema.parse(policy);
     getDb()
       .prepare(
