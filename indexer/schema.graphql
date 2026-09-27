@@ -61,6 +61,7 @@ type Trader {
   events: [PositionEvent!]! @derivedFrom(field: "trader")
   nadFunTrades: [NadFunTrade!]! @derivedFrom(field: "trader")
   nadFunEvents: [NadFunEvent!]! @derivedFrom(field: "trader")
+  perplFills: [PerplFill!]! @derivedFrom(field: "trader")
 }
 
 """
@@ -222,4 +223,27 @@ type NadFunPosition @internal {
   buyCount: Int!
   sellCount: Int!
   status: String!
+}
+
+"""
+One Perpl resting-order (maker) fill on a member's account: price, size, fee.
+Taker fills carry no account id on-chain, so they only show through the
+position events they cause.
+"""
+type PerplFill {
+  id: ID!
+  trader: Trader!
+  accountId: BigInt!
+  marketId: BigInt!
+  symbol: String!
+  orderId: BigInt!
+  price: BigDecimal!
+  size: BigDecimal!
+  "Fee charged on this fill, USD."
+  feeUsd: BigDecimal!
+  "ms"
+  timestamp: BigInt!
+  tx: String!
+  block: BigInt!
+  logIndex: Int!
 }
