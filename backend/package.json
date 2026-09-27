@@ -24,7 +24,8 @@
     "spike:meme-buy-sim": "tsx scripts/spikes/meme-buy-sim.ts",
     "e2e:sweep": "tsx scripts/e2e/sweep.ts",
     "e2e:privy-auth": "tsx scripts/e2e/privy-auth.ts",
-    "e2e:privy-nadfun": "tsx scripts/e2e/privy-nadfun.ts"
+    "e2e:privy-nadfun": "tsx scripts/e2e/privy-nadfun.ts",
+    "e2e:phase4-nadfun-privy": "tsx scripts/e2e/phase4-nadfun-privy.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

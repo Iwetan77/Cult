@@ -315,7 +315,9 @@ export async function memberSignerGrant(userId: string, wallet: string, maxUsdPe
 
   const existing = members.privyPolicy(userId);
   let policyId = existing?.id;
-  if (!existing || existing.capRaw < capRaw) {
+  // Any cap change gets a new policy, down as well as up: a member who lowers
+  // their cap must not leave the backend authorised for the old, bigger one.
+  if (!existing || existing.capRaw !== capRaw) {
     const created = await privy()
       .policies()
       .create(
@@ -326,6 +328,7 @@ export async function memberSignerGrant(userId: string, wallet: string, maxUsdPe
       );
     policyId = created.id;
     members.setPrivyPolicy(userId, created.id, capRaw);
+    signerStatusCache.delete(userId);
   }
   return {
     signerId: required('PRIVY_BACKEND_KEY_QUORUM_ID'),
@@ -334,4 +337,42 @@ export async function memberSignerGrant(userId: string, wallet: string, maxUsdPe
     maxBuyMon: Number(ethers.formatEther(maxBuyWei)),
     monPriceAusd: monPx,
   };
+}
+
+// Is the backend's signer actually attached to this member's Privy wallet,
+// under the member's current policy? Issuing a grant (above) isn't the same
+// as the frontend having called addSigners() with it; this asks Privy.
+export interface SignerStatus {
+  prepared: boolean; // a policy has been issued for this member
+  attached: boolean; // our key quorum is an additional signer on their wallet
+  policyCurrent: boolean; // ...under the policy we last issued (their current cap)
+}
+
+const signerStatusCache = new Map<string, { at: number; status: SignerStatus }>();
+
+export async function backendSignerStatus(userId: string): Promise<SignerStatus> {
+  const hit = signerStatusCache.get(userId);
+  if (hit && Date.now() - hit.at < 60_000) return hit.status;
+  const { members } = await import('../store/members.js');
+  const m = members.get(userId);
+  const issued = members.privyPolicy(userId);
+  const status: SignerStatus = { prepared: !!issued, attached: false, policyCurrent: false };
+  if (m?.privyWalletId) {
+    const appId = required('PRIVY_APP_ID');
+    const r = await fetch(`https://api.privy.io/v1/wallets/${encodeURIComponent(m.privyWalletId)}`, {
+      headers: { Authorization: 'Basic ' + Buffer.from(`${appId}:${required('PRIVY_APP_SECRET')}`).toString('base64'), 'privy-app-id': appId },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!r.ok) throw new Error(`privy wallets/${m.privyWalletId} -> ${r.status}`);
+    const w = (await r.json()) as { additional_signers?: { signer_id: string; override_policy_ids?: string[] }[] };
+    const ours = (w.additional_signers ?? []).find((a) => a.signer_id === process.env.PRIVY_BACKEND_KEY_QUORUM_ID);
+    status.attached = !!ours;
+    status.policyCurrent = !!ours && !!issued && (ours.override_policy_ids ?? []).includes(issued.id);
+  }
+  signerStatusCache.set(userId, { at: Date.now(), status });
+  return status;
+}
+
+export function forgetSignerStatus(userId: string) {
+  signerStatusCache.delete(userId);
 }
