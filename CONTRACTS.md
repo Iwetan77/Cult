@@ -57,6 +57,12 @@ on `PORT` (default `8787`). All routes are under `/v1`.
 
        The member's own key then swept the leftovers, since the owner isn't bound by
        the policy. Run it with `npm run e2e:privy-nadfun`.
+     - **Phase 4, Nad.fun half, on the production signing path:** B and C are real
+       Privy wallets, with the backend signer attached via `memberSignerGrant` under
+       each member's policy, and no test keys. A's own buy was mirrored for B and C
+       through Privy (C clamped by `balancePercentCap`), and A's sell made both exit to
+       0 on-chain. Privy confirmed each signer attached and current, and lowering B's cap
+       made that policy outdated. Run it with `npm run e2e:phase4-nadfun-privy`.
      - The Privy login path against the real app: the embedded-wallet lookup matches,
        and forged, garbage and missing tokens are refused (`npm run e2e:privy-auth`).
      - Kuru Flow swaps and the USDC funding plan, **simulated on mainnet**: real
@@ -443,8 +449,8 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/health` | none | `{ ok: true }` |
 | GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'USD', monPriceAusd /* $ per MON */, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
 | GET | `/v1/nadfun/markets?order=latest_trade\|market_cap\|creation_time` | none | `{ markets: NadMarket[] }` (MON-quoted tokens only) |
-| GET | `/v1/me` | none | `{ id, address, name, clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signerGranted }`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
-| GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan |
+| GET | `/v1/me` | none | `{ id, address, name, clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent } }`. `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
+| GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan. A new policy is issued whenever the cap **changes** (up or down), and the frontend must `addSigners()` again. `/v1/me.signer` tells you when that's needed |
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
 | POST | `/v1/enrollment/perpl` | `{ challengeId, signature }` | `204` |

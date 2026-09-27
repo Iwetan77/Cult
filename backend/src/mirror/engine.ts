@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { ethers } from 'ethers';
 import { hasSignerOverride } from '../accounts/signers.js';
+import { backendSignerStatus } from '../privy/policy.js';
 import { rpc } from '../chain/signer.js';
 import { NadWatcher, type NadTradeEvent } from '../nadfun/watcher.js';
 import { getExchangeInfo } from '../perpl/context.js';
@@ -223,7 +224,14 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       for (const m of clans.members(clanId)) {
         if (seen.has(m.userId)) continue; // one mirror per follower even across shared clans
         seen.add(m.userId);
-        if (!m.policy.enabled || !this.canTrade(m.userId, e.venue)) continue;
+        if (!m.policy.enabled) continue;
+        const why = await this.cannotTrade(m.userId, e.venue);
+        if (why) {
+          // Tell the member why they weren't mirrored instead of silently skipping them.
+          const skipped = mirrors.insertPending({ tradeId: trade.id, clanId, userId: m.userId, skipUntil });
+          this.emit('mirror', mirrors.transition(skipped.id, 'pending', 'cancelled', { error: why })!);
+          continue;
+        }
         const mirror = mirrors.insertPending({ tradeId: trade.id, clanId, userId: m.userId, skipUntil });
         if (stale) {
           this.emit('mirror', mirrors.transition(mirror.id, 'pending', 'cancelled', { error: `leader trade detected ${e.detectedLateBySeconds}s late (backend was catching up); not mirrored at a stale price` })!);
@@ -236,15 +244,23 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     return trade;
   }
 
-  // Perpl needs an enrolled key and account; Nad.fun needs a wallet signer the
-  // backend may use (the Privy grant, or a registered test key). An injected
-  // venue (tests) decides for itself.
-  private canTrade(userId: string, v: Venue) {
+  // Why this member can't be mirrored on this venue right now (null = they can).
+  // Perpl: an enrolled key and account. Nad.fun: a signer the backend may use,
+  // i.e. the backend's Privy signer attached to their wallet under their
+  // current policy (or a registered test key). An injected venue (tests)
+  // decides for itself.
+  private async cannotTrade(userId: string, v: Venue): Promise<string | null> {
     const m = members.get(userId);
-    if (!m) return false;
-    if (this.deps.venue) return true;
-    if (v === 'perpl') return !!members.credentials(userId) && !!m.perplAccountId;
-    return !!m.privyWalletId || hasSignerOverride(userId);
+    if (!m) return 'unknown member';
+    if (this.deps.venue) return null;
+    if (v === 'perpl') return members.credentials(userId) && m.perplAccountId ? null : 'Perpl setup not finished';
+    if (hasSignerOverride(userId)) return null;
+    if (!m.privyWalletId) return 'no Privy wallet on file';
+    const st = await backendSignerStatus(userId).catch(() => null);
+    if (!st) return null; // Privy unreachable: let Privy itself decide at signing time
+    if (!st.attached) return 'backend signer not added to the wallet (finish clan setup)';
+    if (!st.policyCurrent) return 'backend signer is on an outdated policy (re-approve your caps)';
+    return null;
   }
 
   async closeTrade(trade: LeaderTrade) {
