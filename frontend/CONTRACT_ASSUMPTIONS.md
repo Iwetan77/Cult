@@ -1,6 +1,6 @@
 # Frontend-only assumptions
 
-Status (2026-09-27): I read the canonical `origin/backend:CONTRACTS.md` at `fba3925`. The frontend uses its corrected dollar display, Nad.fun, Privy signer, funding, positions, chart, and public share shapes. This file records only UI-side choices and remaining gaps. Dollar values render with `$`; `AUSD` appears only within funding UI.
+Status (2026-09-27): I read the canonical `origin/main:CONTRACTS.md` at `847027b` (product decision 7). The frontend uses its corrected dollar display, Nad.fun, Privy signer, funding, positions, chart, and public share shapes. This file records only UI-side choices and remaining gaps. Dollar values render with `$`; `AUSD` appears only within funding UI.
 
 - Direct AUSD deposit means sending AUSD on the configured Monad chain to the member's own embedded-wallet address, then continuing the member-signed Perpl setup. The backend has no separate direct-deposit endpoint. The UI shows backend Perpl margin separately from wallet dollars, falling back to `collateralBalance` only when balances are unavailable.
 - The backend `/v1/me.balances` is authoritative for wallet dollars, Perpl margin, MON value, gas reserve, and whether Nad.fun buys spend wallet dollars or MON. A testnet RPC MON read remains a fallback when balances are unavailable. The backend enforces funds and gas limits; its current reserve is 0.25 MON, and the UI reads `gasReserveMon`.
@@ -15,3 +15,7 @@ Status (2026-09-27): I read the canonical `origin/backend:CONTRACTS.md` at `fba3
 - Clan chat bodies render as plain text. A chat marker link only carries `markerId`, not `marketId`; when the marker is not on the current chart, the frontend checks the clan markets one at a time and reports if it is no longer open.
 - A 429 response uses the CORS-exposed `Retry-After` seconds in its message; the frontend never retries order or chat submissions automatically. A 429 on the SSE stream stops its reconnect loop, while chart polling remains a fallback.
 - The public share UI shows `clanName` only when `includeClan` is true. The backend's public endpoint must continue omitting the clan ID, invite code, and member list regardless of UI choice.
+- Cult is the UI term; JSON names such as `clanId` and `clans` remain unchanged. The frontend calls canonical `/v1/cults` routes. Invite input normalizes six letters to `ABC-DEF`, while existing legacy invite codes may still be displayed as returned.
+- The country prompt preselects only a two-letter `x-vercel-ip-country` hint through a same-origin route; the member confirms or skips it. Settings can change the country later. The backend remains authoritative for ISO validity and room membership.
+- The navigation uses `/v1/me.rooms` for Global and country chat. Cult chat uses the same room-message API but relies on the Cult chart SSE stream; other rooms open their own authenticated room SSE connection.
+- Discover only lists public Cults and still requires signed join consent and Privy signer attachment. Ranking screens show own-trade results, list copied counts separately, and pin the member's row even when unranked.
