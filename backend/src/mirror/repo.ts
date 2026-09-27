@@ -10,13 +10,38 @@ export interface LeaderTrade {
   market: string; // perpl market id | nadfun token (lowercase)
   side: TradeSide;
   positionId: number | null; // perpl
-  size: string; // raw
+  size: string; // raw, the leader's size now
+  openSize: string | null; // raw, what they opened with (null on rows from before v3)
   entryPrice: number | null; // AUSD per unit
   leverage: number; // hundredths
   marginFraction: number;
   openTx: string | null;
   openedAt: number;
   closedAt: number | null;
+}
+
+export type AdjustmentKind = 'add' | 'reduce';
+export type AdjustmentStatus = 'pending' | 'skipped' | 'submitting' | 'done' | 'failed' | 'cancelled';
+
+// A mirror following its leader's add or partial exit.
+export interface Adjustment {
+  id: string;
+  mirrorId: string;
+  tradeId: string;
+  clanId: string;
+  userId: string;
+  kind: AdjustmentKind;
+  ratio: number; // leader's size after / before
+  status: AdjustmentStatus;
+  skipUntil: number;
+  sizeDelta: string | null;
+  notionalUsd: number | null;
+  rq: number | null;
+  oid: number | null;
+  tx: string | null;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export type MirrorStatus = 'pending' | 'skipped' | 'submitting' | 'open' | 'closed' | 'failed' | 'cancelled';
@@ -52,6 +77,7 @@ const TRADE_COLS: Record<keyof LeaderTrade, string> = {
   side: 'side',
   positionId: 'position_id',
   size: 'size',
+  openSize: 'open_size',
   entryPrice: 'entry_price',
   leverage: 'leverage',
   marginFraction: 'margin_fraction',
@@ -82,6 +108,26 @@ const MIRROR_COLS: Record<keyof Mirror, string> = {
   updatedAt: 'updated_at',
 };
 
+const ADJ_COLS: Record<keyof Adjustment, string> = {
+  id: 'id',
+  mirrorId: 'mirror_id',
+  tradeId: 'trade_id',
+  clanId: 'clan_id',
+  userId: 'user_id',
+  kind: 'kind',
+  ratio: 'ratio',
+  status: 'status',
+  skipUntil: 'skip_until',
+  sizeDelta: 'size_delta',
+  notionalUsd: 'notional_usd',
+  rq: 'rq',
+  oid: 'oid',
+  tx: 'tx',
+  error: 'error',
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+};
+
 function fromRow<T>(cols: Record<string, string>, row: Record<string, unknown> | undefined): T | null {
   if (!row) return null;
   const out: Record<string, unknown> = {};
@@ -91,15 +137,16 @@ function fromRow<T>(cols: Record<string, string>, row: Record<string, unknown> |
 
 const tradeFrom = (r: unknown) => fromRow<LeaderTrade>(TRADE_COLS, r as Record<string, unknown>);
 const mirrorFrom = (r: unknown) => fromRow<Mirror>(MIRROR_COLS, r as Record<string, unknown>);
+const adjFrom = (r: unknown) => fromRow<Adjustment>(ADJ_COLS, r as Record<string, unknown>);
 
 export const trades = {
-  insert(t: Omit<LeaderTrade, 'closedAt'>): LeaderTrade {
-    t = { ...t, market: t.market.toLowerCase() };
-    const keys = Object.keys(t) as (keyof LeaderTrade)[];
+  insert(t: Omit<LeaderTrade, 'closedAt' | 'openSize'>): LeaderTrade {
+    const row: Omit<LeaderTrade, 'closedAt'> = { ...t, market: t.market.toLowerCase(), openSize: t.size };
+    const keys = Object.keys(row) as (keyof typeof row)[];
     getDb()
       .prepare(`INSERT INTO leader_trades (${keys.map((k) => TRADE_COLS[k]).join(',')}) VALUES (${keys.map(() => '?').join(',')})`)
-      .run(...keys.map((k) => t[k as keyof typeof t] as string | number | null));
-    return this.get(t.id)!;
+      .run(...keys.map((k) => row[k] as string | number | null));
+    return this.get(row.id)!;
   },
   get(id: string) {
     return tradeFrom(getDb().prepare('SELECT * FROM leader_trades WHERE id = ?').get(id));
@@ -124,7 +171,19 @@ export const trades = {
   markClosed(id: string) {
     getDb().prepare('UPDATE leader_trades SET closed_at = ? WHERE id = ? AND closed_at IS NULL').run(Date.now(), id);
   },
+  // The leader added or partly exited: their size now, and their new average entry.
+  resize(id: string, size: string, entryPrice: number | null) {
+    getDb().prepare('UPDATE leader_trades SET size = ?, entry_price = ? WHERE id = ?').run(size, entryPrice, id);
+  },
 };
+
+// How big the leader's trade is now against what they opened with. A mirror
+// sized after a change (still in its skip window when it happened) is sized
+// by this too, so it lands where the leader is now, not where they started.
+export function sizeFactor(t: LeaderTrade): number {
+  if (!t.openSize || t.openSize === '0') return 1;
+  return Number((BigInt(t.size) * 1_000_000n) / BigInt(t.openSize)) / 1_000_000;
+}
 
 type MirrorPatch = Partial<Omit<Mirror, 'id' | 'tradeId' | 'clanId' | 'userId' | 'status' | 'createdAt' | 'updatedAt'>>;
 
@@ -171,6 +230,50 @@ export const mirrors = {
   // Compare-and-set on status. Returns null if the mirror wasn't in `from`.
   transition(id: string, from: MirrorStatus, to: MirrorStatus, patch: MirrorPatch = {}): Mirror | null {
     const res = getDb().prepare('UPDATE mirrors SET status = ?, updated_at = ? WHERE id = ? AND status = ?').run(to, Date.now(), id, from);
+    if (res.changes !== 1) return null;
+    this.patch(id, patch);
+    return this.get(id);
+  },
+};
+
+type AdjustmentPatch = Partial<Pick<Adjustment, 'skipUntil' | 'sizeDelta' | 'notionalUsd' | 'rq' | 'oid' | 'tx' | 'error'>>;
+
+export const adjustments = {
+  insert(a: Pick<Adjustment, 'mirrorId' | 'tradeId' | 'clanId' | 'userId' | 'kind' | 'ratio' | 'skipUntil'>): Adjustment {
+    const id = randomUUID();
+    const now = Date.now();
+    getDb()
+      .prepare(
+        `INSERT INTO mirror_adjustments (id, mirror_id, trade_id, clan_id, user_id, kind, ratio, status, skip_until, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+      )
+      .run(id, a.mirrorId, a.tradeId, a.clanId, a.userId, a.kind, a.ratio, a.skipUntil, now, now);
+    return this.get(id)!;
+  },
+  get(id: string) {
+    return adjFrom(getDb().prepare('SELECT * FROM mirror_adjustments WHERE id = ?').get(id));
+  },
+  forMirror(mirrorId: string): Adjustment[] {
+    return getDb().prepare('SELECT * FROM mirror_adjustments WHERE mirror_id = ? ORDER BY created_at').all(mirrorId).map((r) => adjFrom(r)!);
+  },
+  forTrade(tradeId: string, statuses: AdjustmentStatus[]): Adjustment[] {
+    return getDb()
+      .prepare(`SELECT * FROM mirror_adjustments WHERE trade_id = ? AND status IN (${statuses.map(() => '?').join(',')}) ORDER BY created_at`)
+      .all(tradeId, ...statuses)
+      .map((r) => adjFrom(r)!);
+  },
+  byStatus(status: AdjustmentStatus): Adjustment[] {
+    return getDb().prepare('SELECT * FROM mirror_adjustments WHERE status = ? ORDER BY created_at').all(status).map((r) => adjFrom(r)!);
+  },
+  patch(id: string, patch: AdjustmentPatch) {
+    const keys = Object.keys(patch) as (keyof AdjustmentPatch)[];
+    if (keys.length === 0) return;
+    getDb()
+      .prepare(`UPDATE mirror_adjustments SET ${keys.map((k) => `${ADJ_COLS[k]} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
+      .run(...keys.map((k) => (patch[k] ?? null) as string | number | null), Date.now(), id);
+  },
+  transition(id: string, from: AdjustmentStatus, to: AdjustmentStatus, patch: AdjustmentPatch = {}): Adjustment | null {
+    const res = getDb().prepare('UPDATE mirror_adjustments SET status = ?, updated_at = ? WHERE id = ? AND status = ?').run(to, Date.now(), id, from);
     if (res.changes !== 1) return null;
     this.patch(id, patch);
     return this.get(id);
