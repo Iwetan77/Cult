@@ -1,31 +1,42 @@
 # Cult indexer
 
-Envio [HyperIndex](https://docs.envio.dev) indexer that turns Perpl's on-chain
-trading events on Monad testnet into **verified, per-address** win rate, realized
-PnL and trade history. This is the "verified track record" backend for Cult clans —
-it reads the chain directly because Perpl's own history endpoints are per-account
-and authenticated, so there's no cross-user public feed to build on.
+Envio [HyperIndex](https://docs.envio.dev) indexer that turns on-chain trading
+events on Monad testnet into **verified, per-address** win rate, realized PnL and
+trade history across both Cult venues. This is the "verified track record" backend
+for Cult clans — it reads the chain directly because neither Perpl's nor Nad.fun's
+own history is a convenient cross-user public feed.
+
+Venues:
+
+- **Perpl** — perps. `accountId`-keyed position events joined back to the wallet
+  via `AccountCreated`. PnL in AUSD.
+- **Nad.fun** — Monad-native memes (spot, bonding curve -> DEX). The router's
+  `Buy`/`Sell` events carry the trader's wallet directly. PnL in MON.
 
 ## What it computes
 
-For every wallet that has traded on Perpl:
+For every wallet:
 
-- **Win rate** — profitable closed trades / total closed trades. A "trade" is a
-  position round trip (opened, then fully closed / liquidated / deleveraged /
-  unwound / inverted). A trade is a win when its realized PnL is positive.
-- **Realized PnL** — all-time, in USD. Sum of the contract's own reported realized
-  PnL (`deltaPnlCNS + fundingCNS`) across every close-type position event. Raw CNS
-  (USD * 1e6) is stored alongside the USD decimal so nothing loses precision.
-- **Trade history** — a real, timestamped list. `PositionEvent` is the granular
-  event-by-event history (open / increase / decrease / close / liquidation /
-  deleverage / inversion / unwind), and `Trade` is the rolled-up round trips.
+- **Win rate** — profitable closed trades / total closed trades, combined across
+  both venues. A "trade" is a round trip (a Perpl position opened then fully
+  closed, or a Nad.fun token bought back to zero). A win means realized PnL > 0.
+- **Realized PnL** — all-time, per venue, in that venue's unit:
+  - Perpl: sum of the contract's reported `deltaPnlCNS + fundingCNS` over
+    close-type position events (raw CNS = AUSD * 1e6).
+  - Nad.fun: average-cost per (wallet, token) in MON (raw MON wei = MON * 1e18).
+- **Trade history** — real, timestamped lists. `PositionEvent` (Perpl) and
+  `NadFunEvent` (Nad.fun) are the granular event-by-event history; `Trade` and
+  `NadFunTrade` are the rolled-up round trips.
+
+Units are never added together. MON stays MON, AUSD stays AUSD; the backend owns
+the MON->AUSD display conversion. See `API.md`.
 
 ## Prerequisites
 
 - Node 20+ (HyperIndex needs import-attributes; Node 18 is too old)
 - Docker (for the local Postgres + Hasura stack `envio dev`/`start` spins up)
 - An [Envio API token](https://envio.dev/app/api-tokens) for HyperSync
-- pnpm (or npm — the scripts below use pnpm, swap freely)
+- pnpm (or npm — the scripts below use npm)
 
 ## Setup (cold)
 
@@ -52,83 +63,65 @@ npm run test         # run the test suite (see test/)
 ```
 
 Once `dev` is up, the auto-generated GraphQL API (Hasura) is available locally at
-`http://localhost:8080/v1/graphql`. The entity data is in Postgres
-(`postgres://postgres:testing@localhost:5433/...`).
+`http://localhost:8080/v1/graphql`. The entity data is in Postgres.
 
 ## Config
 
 `config.yaml`:
 
-- `chains[].id: 10143` — Monad testnet. HyperSync is the primary data source; the
-  public testnet RPC is listed as `fallback`.
-- `start_block: 62953` — Perpl testnet exchange deploy block.
-- `contracts.Exchange.abi_file_path` — trimmed Perpl Exchange ABI (events only).
-- Events indexed: `AccountCreated` plus the full `Position*` lifecycle
-  (`Opened`/`Increased`/`Decreased`/`Closed`/`Inverted`/`Liquidated`/
-  `Deleveraged`/`Unwound`, including `V2` variants).
+- `chains[].id: 10143` — Monad testnet. HyperSync is primary; the public testnet
+  RPC is `fallback`.
+- Two contracts on that chain:
+  - `Exchange` `0x1964C32f0bE608E7D29302AFF5E61268E72080cc`, start block `62953`.
+  - `NadFunRouter` `0x75588668999cA0557b78046b8a5E86b47b9234ec`, start block
+    `30418626`.
+- Perpl events: `AccountCreated` + the full `Position*` lifecycle (incl. `V2`s).
+- Nad.fun events: router `Buy` and `Sell` (the router emits on both the curve and
+  DEX paths; `graduated` tells them apart).
 
-Mainnet is the same ABI at `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` (chain
-143, deploy block `54773010`) — add a second chain entry to switch.
+ABIs live in `abis/` (Perpl's trimmed from `dex-sdk`; Nad.fun's from
+`Naddotfun/nadfun-v2-intergration`).
 
 ## Data model
 
-See `schema.graphql`. The important part is how the indexer joins account ids back
-to wallets and reconstructs round trips:
+See `schema.graphql`. Key points:
 
-- `AccountCreated(address, id)` maps each on-chain account id to its owner wallet
-  (`PerplAccount`).
-- Every position event references `accountId`, not the wallet. Handlers look that
-  id up in `PerplAccount` and attribute the event to the owning address.
-- `PerplPosition` (`@internal`) tracks the open position per `(perpId, accountId)`
-  and accumulates realized PnL across the position's life. When the size returns to
-  zero (or a terminal event fires), the accumulated PnL is written as a `Trade` and
-  the trader's stats are updated.
+- `PerplAccount` maps Perpl account id -> owner wallet.
+- `PerplPosition` / `NadFunPosition` (`@internal`) track open round trips and
+  accumulate realized PnL until size/balance returns to zero, then emit `Trade` /
+  `NadFunTrade` and update `Trader`.
+- `Trader` is the cross-venue aggregate: `tradeCount` / `winRate` count both
+  venues; `realizedPnlCNS`/`realizedPnlUsd` are Perpl AUSD and
+  `realizedPnlMonWei`/`realizedPnlMon` are Nad.fun MON.
 
-### Realized PnL definition
-
-`deltaPnlCNS` (price PnL) + `fundingCNS` (funding PnL) per close-type event, both
-int256 in CNS (USD * 1e6), summed over the position's life. This is exactly what the
-contract reports as realized at close/decrease/liquidate/deleverage/invert time.
-
-Known gap to reconcile during validation: funding that is *settled on position
-increase* (`PositionIncreased.premiumPnlSettledCNS`) is not yet counted. It's a
-second-order term (funding only) and is flagged in `CONTRACTS.md` for the GATE
-cross-check.
+Nad.fun cost basis (average cost, MON): on `Buy` `qty += amountOut`, `cost +=
+amountIn`; on `Sell` `realized += amountOut - cost * amountIn / qty`, then
+`cost -= cost * amountIn / qty`, `qty -= amountIn`. A sell of tokens with no
+tracked position (they arrived by transfer) is treated as zero-cost-basis.
 
 ## Read API
 
-The indexer exposes GraphQL (Envio's generated API). Example — a member's verified
-stats and history for wallet `0xabc…`:
+GraphQL, generated by Envio. Full contract + example responses in [`API.md`](API.md).
 
 ```graphql
 query MemberStats($addr: String!) {
   Trader(id: $addr) {
     tradeCount
-    winningTrades
-    losingTrades
     winRate
-    realizedPnlUsd
-    realizedPnlCNS
-    trades(order_by: { closedAt: desc }) {
-      symbol
-      side
-      size
-      entryPrice
-      exitPrice
-      realizedPnlUsd
-      isWin
-      closedAt
-    }
+    realizedPnlUsd      # Perpl AUSD
+    realizedPnlMon      # Nad.fun MON
+    trades { symbol side realizedPnlUsd isWin closedAt }
+    nadFunTrades { token costMon proceedsMon realizedPnlMon isWin closedAt }
   }
 }
 ```
 
-See `CONTRACTS.md` for the full contract and example responses.
+## Validation (gates)
 
-## Validation (GATE)
-
-The gate is: pick one real testnet address that has actually traded on Perpl and
-prove the indexer's win rate / PnL matches Perpl's own position history. That needs
-a funded testnet account, which is blocked until backend's Phase 1 end-to-end test
-lands (testnet AUSD has no public mint). See `CONTRACTS.md` for the open dependency
-and the exact reconciliation steps once it's unblocked.
+- **Nad.fun gate — passed.** `scripts/validate_nadfun.py` reproduces 1 closed
+  trade, 0 wins, −0.000396 MON for wallet `0xBdd51F3CBCC4890635c75453c93f8aB4C3e0A98A`
+  on token `0x5e2E014020f31A410cC6Cd44dEfb646b02467777`, matching Nad.fun's own
+  swap history.
+- **Perpl gate — deferred** (no funded testnet account yet). `scripts/validate.py`
+  is ready to diff against Perpl's `position-history`/`account-history` once
+  backend's Phase 1 E2E lands.

@@ -55,3 +55,32 @@ export function lnsToSize(lns: bigint, sizeDecimals: number): BigDecimal {
 export function sideLabel(positionType: unknown): string {
   return Number(positionType) === 1 ? "SHORT" : "LONG";
 }
+
+// --- Nad.fun -------------------------------------------------------------
+
+// MON is the native asset (18 decimals). Nad.fun amounts are in MON wei.
+const MON_DIVISOR = new BigDecimal("1000000000000000000");
+
+// raw MON wei (signed) -> MON BigDecimal
+export function monWeiToMon(wei: bigint): BigDecimal {
+  return new BigDecimal(wei.toString()).div(MON_DIVISOR);
+}
+
+// Ensures a `Trader` row exists with sane defaults. Shared by both venue
+// handlers so the aggregate (tradeCount/winRate) counts both venues.
+export async function ensureTrader(context: any, owner: string) {
+  const t = await context.Trader.get(owner);
+  if (!t) {
+    context.Trader.set({
+      id: owner,
+      tradeCount: 0,
+      winningTrades: 0,
+      losingTrades: 0,
+      winRate: 0,
+      realizedPnlCNS: 0n,
+      realizedPnlUsd: new BigDecimal("0"),
+      realizedPnlMonWei: 0n,
+      realizedPnlMon: new BigDecimal("0"),
+    });
+  }
+}
