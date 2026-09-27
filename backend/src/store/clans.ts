@@ -33,6 +33,7 @@ export function newInviteCode(): string {
 }
 // What people type: any case, with or without the dash or spaces.
 export function normalizeInviteCode(input: string): string {
+  if (!/^[A-Za-z\s-]+$/.test(input)) return input.trim(); // legacy codes carry digits/underscores
   const letters = input.toUpperCase().replace(/[^A-Z]/g, '');
   return letters.length === 6 ? `${letters.slice(0, 3)}-${letters.slice(3)}` : input.trim();
 }
