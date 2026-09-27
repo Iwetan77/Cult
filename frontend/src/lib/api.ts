@@ -1,4 +1,4 @@
-import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TpslSuggestion, TpslValues } from './contracts';
+import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues } from './contracts';
 
 const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
@@ -81,3 +81,4 @@ export const setAutoFollowOff = (token: string, cultId: string) => api<Clan>(`/v
 export const pinRoomMessage = (token: string, room: string, messageId: string | null) => api<{ pinned: ChatPage['pinned'] }>(`/v1/chat/${encodeURIComponent(room)}/pin`, token, { method: 'POST', body: json({ messageId }) });
 export const getHome = (token: string) => api<Home>('/v1/home', token);
 export const getProfile = (token: string, idOrWallet: string) => api<Profile>(`/v1/members/${encodeURIComponent(idOrWallet)}`, token);
+export const getTrade = (token: string, tradeId: string) => api<TradeView>(`/v1/trades/${encodeURIComponent(tradeId)}`, token);

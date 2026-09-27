@@ -105,12 +105,21 @@ export type PublicShare = {
 };
 export type Home = {
   topTrades: { rank: number; memberId: string; name: string; venue: string; market: string; symbol: string; side: string;
-    returnPct: number; pnlUsd: number | null; closedAt: number; tradersIn: number; markerId: string | null }[];
+    returnPct: number; pnlUsd: number | null; closedAt: number; tradersIn: number; markerId: string | null;
+    tradeId: string | null; cultId: string | null; openTx: string }[];
   sevenDay: { trades: number; profitUsd: number; positionsOpened: number };
   asOf: string;
 };
 export type ClosedTrade = { venue: Venue; market: string; symbol: string; side: string; returnPct: number | null;
-  pnlUsd: number | null; isWin: boolean; openedAt: number | null; closedAt: number; openTx: string; copied: boolean };
+  pnlUsd: number | null; entryPrice: number | null; exitPrice: number | null; isWin: boolean;
+  openedAt: number | null; closedAt: number; openTx: string; tradeId: string | null; copied: boolean };
+export type TradeView = {
+  tradeId: string; markerId: string; member: { id: string; name: string; address: string };
+  venue: Venue; market: string; symbol: string; side: string; leverage: number;
+  openedAt: number; openTx: string | null; status: 'open' | 'closed'; closedAt: number | null;
+  result: { returnPct: number | null; pnlUsd: number | null; entryPrice: number | null; exitPrice: number | null; isWin: boolean } | null;
+  tradersIn: number; youCopied: boolean; cultId: string | null;
+};
 export type Profile = { id: string; name: string; address: string; country: { code: string; name: string | null } | null;
   memberSince: number; isMe: boolean; record: Member['stats'];
   openTrades: { tradeId: string; markerId: string; venue: string; market: string; symbol: string; side: string; leverage: number; openedAt: number }[];
