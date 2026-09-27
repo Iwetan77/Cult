@@ -1,3 +1,4 @@
+import { numEnv } from '../config/env.js';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { ethers } from 'ethers';
@@ -807,9 +808,9 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
 
 const MAX_RETRIES = 2;
-const LOOK_AGAIN_MS = Number(process.env.MIRROR_RECONCILE_RECHECK_MS ?? 15_000);
+const LOOK_AGAIN_MS = numEnv('MIRROR_RECONCILE_RECHECK_MS', 15_000);
 const LOOK_AGAIN_MAX = 40; // ~10 minutes of rechecks for a tx still in flight
-const RETRY_BACKOFF_MS = Number(process.env.MIRROR_RETRY_BACKOFF_MS ?? 3000);
+const RETRY_BACKOFF_MS = numEnv('MIRROR_RETRY_BACKOFF_MS', 3000);
 
 // A mirror refused by the rules (too small, disabled, left the clan). Not transient.
 class NotSized extends Error {}

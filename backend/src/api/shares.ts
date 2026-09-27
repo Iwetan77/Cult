@@ -1,3 +1,4 @@
+import { strEnv } from '../config/env.js';
 import { randomBytes } from 'node:crypto';
 import { mirrors, trades } from '../mirror/repo.js';
 import { clans } from '../store/clans.js';
@@ -83,7 +84,7 @@ export async function createShare(userId: string, markerId: string, includeClan:
   getDb()
     .prepare('INSERT INTO shares (id, user_id, marker_id, include_clan, clan_name, snapshot, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(id, userId, markerId, includeClan ? 1 : 0, includeClan ? clan.name : null, JSON.stringify(snapshot), Date.now());
-  const base = (process.env.PUBLIC_APP_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+  const base = strEnv('PUBLIC_APP_URL', 'http://localhost:3000').replace(/\/$/, '');
   return { id, url: `${base}/share/${id}` };
 }
 

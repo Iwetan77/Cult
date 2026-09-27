@@ -1,3 +1,4 @@
+import { numEnv } from '../config/env.js';
 // Per-caller request limits, in memory (one backend process). Sliding window:
 // each key keeps the timestamps of its recent hits.
 
@@ -7,11 +8,11 @@ export interface Limit {
 }
 
 // Everything a signed-in member does, per member.
-export const MEMBER_LIMIT: Limit = { max: Number(process.env.RATE_MEMBER_PER_MIN ?? 240), windowMs: 60_000 };
+export const MEMBER_LIMIT: Limit = { max: numEnv('RATE_MEMBER_PER_MIN', 240), windowMs: 60_000 };
 // Anything that sends an order or a transaction, per member, on top of the above.
-export const TRADE_LIMIT: Limit = { max: Number(process.env.RATE_TRADE_PER_MIN ?? 20), windowMs: 60_000 };
+export const TRADE_LIMIT: Limit = { max: numEnv('RATE_TRADE_PER_MIN', 20), windowMs: 60_000 };
 // Public routes, per IP.
-export const PUBLIC_LIMIT: Limit = { max: Number(process.env.RATE_PUBLIC_PER_MIN ?? 120), windowMs: 60_000 };
+export const PUBLIC_LIMIT: Limit = { max: numEnv('RATE_PUBLIC_PER_MIN', 120), windowMs: 60_000 };
 
 const hits = new Map<string, number[]>();
 

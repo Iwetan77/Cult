@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ethers } from 'ethers';
-import { env } from '../config/env.js';
+import { env, numEnv } from '../config/env.js';
 import { erc20Abi, exchangeAbi, getOnChainAccount } from '../chain/exchange.js';
 import { rpc } from '../chain/signer.js';
 import { getExchangeInfo } from '../perpl/context.js';
@@ -47,7 +47,7 @@ export async function prepareUsdcFunding(wallet: string, usdcIn: bigint, deposit
   const { exchange, collateralToken, minAccountOpen, minDeposit } = await getExchangeInfo();
   let q;
   try {
-    q = await quoteSwap(wallet, USDC_MAINNET, collateralToken, usdcIn, Number(process.env.FUNDING_SLIPPAGE_BPS ?? 30));
+    q = await quoteSwap(wallet, USDC_MAINNET, collateralToken, usdcIn, numEnv('FUNDING_SLIPPAGE_BPS', 30));
   } catch (e) {
     if (e instanceof SwapUnavailable) throw new FundingUnavailable(`No USDC route right now (${e.message}). Deposit AUSD directly.`);
     throw e;
