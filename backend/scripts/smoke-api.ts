@@ -137,6 +137,9 @@ const pme = await call('my profile', 'GET', '/v1/members/me', auth(alice, 'alice
 if (!pme.isMe || typeof pme.record?.streak !== 'number' || !('avgWinPct' in pme.record)) throw new Error('profile shape');
 await call("someone's profile by wallet", 'GET', `/v1/members/${bob.address}`, auth(alice, 'alice'));
 await call('unknown member', 'GET', '/v1/members/nobody', auth(alice, 'alice'));
+const tv = await call('view a trade', 'GET', '/v1/trades/smoke-perpl', auth(bob, 'bob'));
+if (tv.status !== 'open' || tv.symbol !== 'BTC-PERP' || tv.markerId !== 'trade:smoke-perpl') throw new Error('trade view shape');
+await call('view an unknown trade', 'GET', '/v1/trades/nope', auth(bob, 'bob'));
 // Global and country rooms.
 await call('not a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'EU' });
 const ctry = await call('pick a country', 'POST', '/v1/me/country', auth(alice, 'alice'), { country: 'ng' });

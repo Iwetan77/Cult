@@ -15,7 +15,9 @@ export async function tokenSymbol(address: string): Promise<string> {
   return tokens.get(k)!;
 }
 
+// Perpl markets read like the chart shows them: BTC-PERP.
 export async function marketSymbol(venue: 'perpl' | 'nadfun', market: string): Promise<string> {
   if (venue === 'nadfun') return tokenSymbol(market);
-  return (await getMarket(Number(market)).catch(() => null))?.symbol ?? `market ${market}`;
+  const m = await getMarket(Number(market)).catch(() => null);
+  return m ? `${m.symbol}-PERP` : `market ${market}`;
 }

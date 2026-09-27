@@ -47,6 +47,8 @@ export interface ClosedTrade {
   side: string; // long | short | buy
   returnPct: number | null; // perpl: price move in the trade's direction; nad.fun: proceeds / cost - 1
   pnlUsd: number | null; // nad.fun converted at the MON price used
+  entryPrice: number | null; // perpl only ($ per unit, size-weighted over adds)
+  exitPrice: number | null; // perpl only
   isWin: boolean;
   openedAt: number | null;
   closedAt: number;
@@ -103,6 +105,8 @@ export function closedTrades(row: TraderRow, monPx: number | null, sentByUs: Set
       side: short ? 'short' : 'long',
       returnPct: entry && exit != null ? ((exit - entry) / entry) * 100 * (short ? -1 : 1) : null,
       pnlUsd: Number(t.realizedPnlUsd),
+      entryPrice: entry,
+      exitPrice: exit,
       isWin: t.isWin,
       openedAt: num(t.openedAt),
       closedAt: Number(t.closedAt),
@@ -119,6 +123,8 @@ export function closedTrades(row: TraderRow, monPx: number | null, sentByUs: Set
       side: 'buy',
       returnPct: cost && proceeds != null ? (proceeds / cost - 1) * 100 : null,
       pnlUsd: monPx != null ? Number(t.realizedPnlMon) * monPx : null,
+      entryPrice: null,
+      exitPrice: null,
       isWin: t.isWin,
       openedAt: num(t.openedAt),
       closedAt: Number(t.closedAt),
