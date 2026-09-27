@@ -6,7 +6,7 @@ import { MirrorEngine } from './mirror/engine.js';
 import { getDb } from './store/db.js';
 
 getDb();
-const engine = new MirrorEngine({ optOutSeconds: env.mirrorOptOutSeconds }, sessionFor);
+const engine = new MirrorEngine({ optOutSeconds: env.mirrorOptOutSeconds }, { sessionFor });
 await engine.start();
 
 const server = serve({ fetch: createApp(engine).fetch, port: env.port }, (info) => {

@@ -94,13 +94,13 @@ async function fillFromReceipt(txHash: string, side: 'buy' | 'sell', trader: str
 }
 
 // Buys `monIn` worth of `tokenAddr`, tokens delivered to the signer itself.
-export async function buy(signer: WalletSigner, tokenAddr: string, monIn: bigint, slippageBps = 300): Promise<NadFill> {
+export async function buy(signer: WalletSigner, tokenAddr: string, monIn: bigint, slippageBps = 300, onHash?: (h: string) => void): Promise<NadFill> {
   const expected = await quoteBuy(tokenAddr, monIn);
   if (expected === 0n) throw new Error(`nad.fun quotes 0 tokens for ${ethers.formatEther(monIn)} MON`);
   const data = routerAbi.encodeFunctionData('buyWithNative', [
     { amountOutMin: withSlippage(expected, slippageBps), token: tokenAddr, to: signer.address, deadline: deadline() },
   ]);
-  const txHash = await signer.sendTransaction({ to: NADFUN.router, data, value: monIn });
+  const txHash = await signer.sendTransaction({ to: NADFUN.router, data, value: monIn }, { onHash });
   return fillFromReceipt(txHash, 'buy', signer.address);
 }
 
@@ -110,8 +110,10 @@ export async function sell(
   tokenAddr: string,
   tokensIn?: bigint,
   slippageBps = 300,
+  onHash?: (h: string) => void,
 ): Promise<NadFill & { approveTx: string | null }> {
-  const amount = tokensIn ?? (await tokenBalance(tokenAddr, signer.address));
+  const held = await tokenBalance(tokenAddr, signer.address);
+  const amount = tokensIn != null && tokensIn < held ? tokensIn : held;
   if (amount === 0n) throw new Error('nothing to sell');
   let approveTx: string | null = null;
   const allowance: bigint = await token(tokenAddr).getFunction('allowance')(signer.address, NADFUN.router);
@@ -122,6 +124,6 @@ export async function sell(
   const data = routerAbi.encodeFunctionData('sellToNative', [
     { amountIn: amount, amountOutMin: withSlippage(expected, slippageBps), token: tokenAddr, to: signer.address, deadline: deadline() },
   ]);
-  const txHash = await signer.sendTransaction({ to: NADFUN.router, data });
+  const txHash = await signer.sendTransaction({ to: NADFUN.router, data }, { onHash });
   return { ...(await fillFromReceipt(txHash, 'sell', signer.address)), approveTx };
 }

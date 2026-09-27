@@ -1,32 +1,33 @@
 import { env } from '../config/env.js';
-import { getContext, getMarket, getTicker, scale } from '../perpl/context.js';
-import { PositionSide, type Market as PerplMarket, type Position } from '../perpl/types.js';
+import { NADFUN } from '../nadfun/constants.js';
+import { getContext, getMarket, scale } from '../perpl/context.js';
+import type { Market as PerplMarket } from '../perpl/types.js';
 import { mirrors, trades, type LeaderTrade } from '../mirror/repo.js';
 import { getDb } from '../store/db.js';
 import { clans, type Clan } from '../store/clans.js';
 import { members } from '../store/members.js';
-import { restFor } from '../accounts/lifecycle.js';
+import { venue, venueOf, type Holding, type TradeSide, type Venue } from '../venues/index.js';
 
 // Shapes follow frontend/src/lib/contracts.ts (ChartSnapshot, ChartMarker, ...)
-// so the frontend can consume this without adapting. Published in CONTRACTS.md.
+// and are published in CONTRACTS.md. Every money figure is AUSD.
 
 export type MarkerOrigin = 'leader' | 'auto_mirror' | 'manual_stack';
 
 export interface ChartMarker {
-  id: string;
-  tradeId: string; // leader trade this marker belongs to; stack target for manual_stack
+  id: string; // "trade:<id>" | "mirror:<id>" | "stack:<id>"
+  tradeId: string;
   memberId: string;
   memberName: string;
   marketId: string;
-  venue: 'perpl';
+  venue: Venue;
   origin: MarkerOrigin;
-  side: 'long' | 'short';
+  side: TradeSide;
   entryTime: number; // ms
-  entryPrice: number | null; // null while a mirror is still pending
-  markPrice: number;
-  size: number | null;
-  pnlUsd: number | null;
-  valueUsd: number | null;
+  entryPrice: number | null; // AUSD per unit; null while a mirror is pending
+  markPrice: number; // AUSD per unit
+  size: number | null; // base units (perpl) / tokens (nadfun)
+  pnlUsd: number | null; // AUSD
+  valueUsd: number | null; // AUSD (perpl: notional at mark; nadfun: what selling returns now)
   leverage: number | null;
   isMine: boolean;
   mirrorStatus?: 'pending' | 'submitted' | 'filled';
@@ -35,33 +36,24 @@ export interface ChartMarker {
 }
 
 export interface ApiMarket {
-  venue: 'perpl';
-  id: string;
+  venue: Venue;
+  id: string; // perpl market id | nadfun token address
   symbol: string;
   baseSymbol: string;
-  quoteSymbol: string;
+  quoteSymbol: 'AUSD';
   maxLeverage: number;
-  makerFeeBps: number;
-  takerFeeBps: number;
+  makerFeeBps: number | null;
+  takerFeeBps: number | null;
+  tokenAddress?: string;
+  imageUri?: string;
 }
 
 export interface Candle {
-  time: number; // seconds, lightweight-charts UTCTimestamp
+  time: number; // unix seconds
   open: number;
   high: number;
   low: number;
   close: number;
-}
-
-export interface ChartMember {
-  id: string;
-  name: string;
-  address: string;
-  // Filled by the indexer (verified from chain). Backend never guesses these.
-  winRate: null;
-  realizedPnlUsd: null;
-  tradeCount: number;
-  verified: false;
 }
 
 export interface ChartSnapshot {
@@ -70,7 +62,7 @@ export interface ChartSnapshot {
   selectedMarket: ApiMarket;
   candles: Candle[];
   markers: ChartMarker[];
-  members: ChartMember[];
+  members: { id: string; name: string; address: string; winRate: null; realizedPnlUsd: null; tradeCount: number; verified: false }[];
   asOf: string;
   autoMirrorOptOutWindowSeconds: number;
 }
@@ -83,14 +75,26 @@ export function toApiMarket(m: PerplMarket): ApiMarket {
     id: String(m.id),
     symbol: `${m.symbol}-PERP`,
     baseSymbol: m.symbol,
-    quoteSymbol: 'USD',
+    quoteSymbol: 'AUSD',
     maxLeverage: Math.floor((10_000 / m.config.initial_margin) * 100) / 100,
     makerFeeBps: m.config.maker_fee / 100,
     takerFeeBps: m.config.taker_fee / 100,
   };
 }
 
-export async function candles(market: PerplMarket, resolutionSec = 300, count = 300): Promise<Candle[]> {
+const nadMeta = new Map<string, { symbol: string; imageUri?: string }>();
+export async function nadMarket(token: string): Promise<ApiMarket> {
+  const t = token.toLowerCase();
+  if (!nadMeta.has(t)) {
+    const r = await fetch(`${NADFUN.apiUrl}/token/${token}`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+    const info = (r as { token_info?: { symbol: string; image_uri?: string } } | null)?.token_info;
+    nadMeta.set(t, { symbol: info?.symbol ?? 'TOKEN', imageUri: info?.image_uri });
+  }
+  const meta = nadMeta.get(t)!;
+  return { venue: 'nadfun', id: t, symbol: meta.symbol, baseSymbol: meta.symbol, quoteSymbol: 'AUSD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null, tokenAddress: t, imageUri: meta.imageUri };
+}
+
+export async function perplCandles(market: PerplMarket, resolutionSec = 300, count = 300): Promise<Candle[]> {
   const to = Date.now();
   const from = to - resolutionSec * 1000 * count;
   const res = await fetch(`${env.perplApiUrl}/v1/market-data/${market.id}/candles/${resolutionSec}/${from}-${to}`);
@@ -105,61 +109,90 @@ export async function candles(market: PerplMarket, resolutionSec = 300, count = 
   }));
 }
 
+const NAD_RES: Record<number, string> = { 60: '1', 300: '5', 900: '15', 1800: '30', 3600: '60', 14400: '240', 86400: '1D' };
+
+// Nad.fun's chart API priced in USD directly (chart_type=price_usd), shown as AUSD.
+export async function nadCandles(token: string, resolutionSec = 300, count = 300): Promise<Candle[]> {
+  const to = Math.floor(Date.now() / 1000);
+  const res = NAD_RES[resolutionSec] ?? '5';
+  const url = `${NADFUN.apiUrl}/trade/chart/${token}?resolution=${res}&from=${to - resolutionSec * count}&to=${to}&countback=${count}&chart_type=price_usd`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`nad.fun chart ${r.status}`);
+  const b = (await r.json()) as { t: number[]; o: string[]; h: string[]; l: string[]; c: string[] };
+  return (b.t ?? []).map((t, i) => ({ time: t, open: Number(b.o[i]), high: Number(b.h[i]), low: Number(b.l[i]), close: Number(b.c[i]) }));
+}
+
 interface StackRow {
   id: string;
   user_id: string;
   target_trade: string;
-  market_id: number;
-  side: 'long' | 'short';
-  size: number | null;
+  market: string;
+  side: TradeSide;
+  size: string | null;
+  notional_usd: number | null;
   leverage: number;
   open_tx: string | null;
   created_at: number;
 }
 
-export async function buildChart(clan: Clan, viewerId: string, marketId?: number, resolutionSec = 300): Promise<ChartSnapshot> {
+export async function buildChart(clan: Clan, viewerId: string, marketId?: string, resolutionSec = 300): Promise<ChartSnapshot> {
   const ctx = await getContext();
-  const openMarkets = ctx.markets.filter((m) => m.config.is_open);
-  const selected = marketId ? await getMarket(marketId) : openMarkets[0]!;
   const roster = clans.members(clan.id);
   const userIds = roster.map((r) => r.userId);
-  const { d: ticker } = await getTicker();
-  const mark = scale.unprice(ticker[String(selected.id)]?.mrk ?? 0, selected);
+  const openTrades = trades.openForUsers(userIds);
 
-  // Live position per member on the selected market, read from Perpl.
-  const livePos = new Map<string, Position>();
+  // Market list: every open Perpl market, plus any Nad.fun token the clan is in right now.
+  const perplMarkets = ctx.markets.filter((m) => m.config.is_open).map(toApiMarket);
+  const nadTokens = [...new Set(openTrades.filter((t) => t.venue === 'nadfun').map((t) => t.market))];
+  const nadMarkets = await Promise.all(nadTokens.map(nadMarket));
+  const markets = [...perplMarkets, ...nadMarkets];
+
+  const v: Venue = marketId ? venueOf(marketId) : 'perpl';
+  const selected: ApiMarket =
+    v === 'nadfun' ? await nadMarket(marketId!) : marketId ? toApiMarket(await getMarket(Number(marketId))) : perplMarkets[0]!;
+  const adapter = venue(v);
+  const mark = await adapter.markPriceAusd(selected.id).catch(() => 0);
+
+  const here = openTrades.filter((t) => t.venue === v && t.market === selected.id.toLowerCase());
+  const stackRows = getDb()
+    .prepare(`SELECT * FROM stacks WHERE clan_id = ? AND venue = ? AND market = ? AND status = 'open' ORDER BY created_at`)
+    .all(clan.id, v, selected.id.toLowerCase()) as unknown as StackRow[];
+
+  // Live holding per involved member on this market, read from the venue.
+  const involved = new Set<string>([...here.map((t) => t.userId), ...stackRows.map((s) => s.user_id)]);
+  for (const t of here) for (const m of mirrors.forTrade(t.id)) involved.add(m.userId);
+  const live = new Map<string, Holding>();
   await Promise.all(
-    userIds.map(async (uid) => {
-      if (!members.credentials(uid)) return;
-      try {
-        const p = (await restFor(uid).positions()).d.find((x) => x.mkt === selected.id);
-        if (p) livePos.set(uid, p);
-      } catch {
-        /* member without a Perpl account yet */
-      }
+    [...involved].map(async (uid) => {
+      const h = await adapter.holdings(uid, [selected.id]).catch(() => []);
+      if (h[0]) live.set(uid, h[0]);
     }),
   );
 
   const name = (uid: string) => shortName(members.get(uid)?.wallet ?? uid);
-  const slice = (uid: string, sizeScaled: number | null) => {
-    const p = livePos.get(uid);
-    if (!p || sizeScaled == null) return { entryPrice: null, size: null, pnlUsd: null, valueUsd: null };
-    const size = scale.unsize(Math.min(sizeScaled, p.s), selected);
-    const entry = scale.unprice(p.ep, selected);
-    const dir = p.sd === PositionSide.Long ? 1 : -1;
-    return { entryPrice: entry, size, pnlUsd: dir * (mark - entry) * size, valueUsd: size * mark };
+  // Value one member's slice of their holding. `sizeRaw` is how much of it this
+  // marker accounts for; `costAusd` is what that slice cost, when we know it.
+  const slice = (uid: string, sizeRaw: string | null, entryPrice: number | null) => {
+    const h = live.get(uid);
+    if (!h || sizeRaw == null || BigInt(h.sizeRaw.split('.')[0] || '0') === 0n) return { entryPrice, size: null, pnlUsd: null, valueUsd: null };
+    const share = Math.min(1, Number(sizeRaw) / Number(h.sizeRaw));
+    const size = h.size * share;
+    const valueUsd = h.valueAusd * share;
+    const entry = entryPrice ?? h.entryPriceAusd;
+    const pnlUsd =
+      v === 'perpl' ? (h.pnlAusd ?? 0) * share : entry != null ? valueUsd - entry * size : null;
+    return { entryPrice: entry, size, pnlUsd, valueUsd };
   };
 
   const markers: ChartMarker[] = [];
-  const openTrades = trades.openForUsers(userIds).filter((t: LeaderTrade) => t.marketId === selected.id);
-  for (const t of openTrades) {
+  for (const t of here) {
     markers.push({
       id: `trade:${t.id}`,
       tradeId: t.id,
       memberId: t.userId,
       memberName: name(t.userId),
-      marketId: String(t.marketId),
-      venue: 'perpl',
+      marketId: t.market,
+      venue: v,
       origin: 'leader',
       side: t.side,
       entryTime: t.openedAt,
@@ -167,18 +200,19 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: number
       leverage: t.leverage / 100,
       isMine: t.userId === viewerId,
       txHash: t.openTx,
-      ...slice(t.userId, t.size),
+      ...slice(t.userId, t.size, t.entryPrice),
     });
     for (const m of mirrors.forTrade(t.id)) {
       if (m.clanId !== clan.id || !['pending', 'submitting', 'open'].includes(m.status)) continue;
       const pending = m.status === 'pending';
+      const mEntry = m.notionalUsd && m.size ? m.notionalUsd / (v === 'nadfun' ? Number(m.size) / 1e18 : (live.get(m.userId)?.size ?? 0) || 1) : null;
       markers.push({
         id: `mirror:${m.id}`,
         tradeId: t.id,
         memberId: m.userId,
         memberName: name(m.userId),
-        marketId: String(t.marketId),
-        venue: 'perpl',
+        marketId: t.market,
+        venue: v,
         origin: 'auto_mirror',
         side: t.side,
         entryTime: m.createdAt,
@@ -188,23 +222,22 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: number
         mirrorStatus: pending ? 'pending' : m.status === 'submitting' ? 'submitted' : 'filled',
         ...(pending ? { skipUntil: new Date(m.skipUntil).toISOString() } : {}),
         txHash: m.openTx,
-        ...(pending ? { entryPrice: null, size: null, pnlUsd: null, valueUsd: null } : slice(m.userId, m.size)),
+        ...(pending || m.status === 'submitting'
+          ? { entryPrice: null, size: null, pnlUsd: null, valueUsd: null }
+          : slice(m.userId, m.size, v === 'nadfun' ? mEntry : null)),
       });
     }
   }
-
-  const stackRows = getDb()
-    .prepare(`SELECT * FROM stacks WHERE clan_id = ? AND market_id = ? AND status = 'open' ORDER BY created_at`)
-    .all(clan.id, selected.id) as unknown as StackRow[];
   for (const s of stackRows) {
-    if (!livePos.has(s.user_id)) continue; // closed outside the app
+    if (!live.has(s.user_id)) continue; // exited outside the app
+    const entry = v === 'nadfun' && s.size && s.notional_usd ? s.notional_usd / (Number(s.size) / 1e18) : null;
     markers.push({
       id: `stack:${s.id}`,
       tradeId: s.target_trade,
       memberId: s.user_id,
       memberName: name(s.user_id),
-      marketId: String(s.market_id),
-      venue: 'perpl',
+      marketId: s.market,
+      venue: v,
       origin: 'manual_stack',
       side: s.side,
       entryTime: s.created_at,
@@ -212,30 +245,29 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: number
       leverage: s.leverage / 100,
       isMine: s.user_id === viewerId,
       txHash: s.open_tx,
-      ...slice(s.user_id, s.size),
+      ...slice(s.user_id, s.size, entry),
     });
   }
 
   const me = clans.membership(clan.id, viewerId);
   return {
     clan: { id: clan.id, name: clan.name, inviteCode: clan.inviteCode, memberCount: roster.length, myPolicy: me?.policy ?? null },
-    markets: openMarkets.map(toApiMarket),
-    selectedMarket: toApiMarket(selected),
-    candles: await candles(selected, resolutionSec),
+    markets,
+    selectedMarket: selected,
+    candles: await (v === 'nadfun' ? nadCandles(selected.id, resolutionSec) : perplCandles(await getMarket(Number(selected.id)), resolutionSec)).catch(() => []),
     markers,
-    members: roster.map((r) => {
-      const m = members.get(r.userId);
-      return {
-        id: r.userId,
-        name: name(r.userId),
-        address: m?.wallet ?? '',
-        winRate: null,
-        realizedPnlUsd: null,
-        tradeCount: 0,
-        verified: false,
-      };
-    }),
+    members: roster.map((r) => ({
+      id: r.userId,
+      name: name(r.userId),
+      address: members.get(r.userId)?.wallet ?? '',
+      winRate: null,
+      realizedPnlUsd: null,
+      tradeCount: 0,
+      verified: false,
+    })),
     asOf: new Date().toISOString(),
     autoMirrorOptOutWindowSeconds: env.mirrorOptOutSeconds,
   };
 }
+
+export type { LeaderTrade };

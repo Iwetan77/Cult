@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import { PrivyClient } from '@privy-io/node';
 import { env, required } from '../config/env.js';
-import { rpc, type Eip712TypedData, type TxRequest, type WalletSigner } from '../chain/signer.js';
+import { broadcastSigned, rpc, type Eip712TypedData, type SendOptions, type TxRequest, type WalletSigner } from '../chain/signer.js';
 
 // What the backend may ever do with a member's Privy wallet, enforced by
 // Privy's policy engine, not by our code. The backend is an *additional
@@ -210,12 +210,8 @@ export class PrivyPolicySigner implements WalletSigner {
     return res.signed_transaction;
   }
 
-  async sendTransaction(t: TxRequest): Promise<string> {
-    const signed = await this.signTransactionOnly(t);
-    const sent = await rpc().broadcastTransaction(signed);
-    const rcpt = await sent.wait();
-    if (!rcpt || rcpt.status !== 1) throw new Error(`tx reverted: ${sent.hash}`);
-    return sent.hash;
+  async sendTransaction(t: TxRequest, opts: SendOptions = {}): Promise<string> {
+    return broadcastSigned(await this.signTransactionOnly(t), opts);
   }
 
   // By design: the backend never signs typed data for a member. Perpl key
@@ -223,17 +219,6 @@ export class PrivyPolicySigner implements WalletSigner {
   async signTypedData(_td: Eip712TypedData): Promise<string> {
     throw new Error('backend signer does not sign typed data; the member signs enrollment in the client');
   }
-}
-
-// MON/AUSD from Perpl's own MON perp mark price, so the Nad.fun cap follows
-// the member's AUSD cap without adding a price oracle to the stack.
-export async function monPriceAusd(): Promise<number> {
-  const { getMarketBySymbol, getTicker, scale } = await import('../perpl/context.js');
-  const m = await getMarketBySymbol('MON');
-  const { d } = await getTicker();
-  const px = scale.unprice(d[String(m.id)]?.mrk ?? 0, m);
-  if (!(px > 0)) throw new Error('no MON mark price from Perpl');
-  return px;
 }
 
 // The grant the frontend passes to Privy's addSigners() for a member. One
@@ -245,6 +230,7 @@ export async function memberSignerGrant(userId: string, wallet: string, maxUsdPe
   const { NADFUN } = await import('../nadfun/constants.js');
   const { exchange, collateralToken, collateralDecimals } = await getExchangeInfo();
   const capRaw = BigInt(Math.ceil(maxUsdPerTrade)) * 10n ** BigInt(collateralDecimals);
+  const { monPriceAusd } = await import('../prices.js');
   const monPx = await monPriceAusd();
   const maxBuyWei = ethers.parseEther((maxUsdPerTrade / monPx).toFixed(18));
 

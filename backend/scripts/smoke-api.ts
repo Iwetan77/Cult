@@ -10,7 +10,7 @@ const { sessionFor } = await import('../src/accounts/lifecycle.js');
 const { createApp } = await import('../src/api/server.js');
 const { MirrorEngine } = await import('../src/mirror/engine.js');
 
-const app = createApp(new MirrorEngine({ optOutSeconds: 20 }, sessionFor));
+const app = createApp(new MirrorEngine({ optOutSeconds: 20 }, { sessionFor, nadWatcher: null }));
 const alice = ethers.Wallet.createRandom();
 const bob = ethers.Wallet.createRandom();
 const auth = (w: ethers.HDNodeWallet, id: string) => ({ Authorization: `Dev did:privy:${id} ${w.address}` });
@@ -40,8 +40,17 @@ const chart = await call('chart', 'GET', `/v1/clans/${clan.id}/chart?marketId=${
 console.log('candles:', chart.candles.length, 'first', chart.candles[0], 'markers', chart.markers.length);
 await call('chart (outsider)', 'GET', `/v1/clans/${clan.id}/chart`, auth(ethers.Wallet.createRandom(), 'eve'));
 await call('perpl setup', 'GET', '/v1/perpl/setup', auth(bob, 'bob'));
+const nad = await call('nadfun markets', 'GET', '/v1/nadfun/markets?order=latest_trade');
+const tok = nad.markets[0]?.id;
+if (tok) {
+  const nchart = await call('chart (nadfun token)', 'GET', `/v1/clans/${clan.id}/chart?marketId=${tok}&resolution=60`, auth(bob, 'bob'));
+  console.log('nadfun candles:', nchart.candles.length, 'first', JSON.stringify(nchart.candles[0]), 'selected', JSON.stringify(nchart.selectedMarket));
+}
+await call('positions (both venues)', 'GET', '/v1/positions', auth(bob, 'bob'));
+await call('open nadfun with perpl side', 'POST', '/v1/positions/open', auth(bob, 'bob'), { marketId: tok, side: 'long', marginUsd: 1 });
 await call('skip unknown mirror', 'POST', `/v1/clans/${clan.id}/mirrors/nope/skip`, auth(bob, 'bob'));
 await call('indexer accounts (no key)', 'GET', '/v1/indexer/accounts');
 await call('indexer accounts', 'GET', '/v1/indexer/accounts', { 'X-Indexer-Key': 'smoke-indexer-key' });
 await call('indexer orders', 'GET', '/v1/indexer/orders?since=0', { 'X-Indexer-Key': 'smoke-indexer-key' });
+await call('indexer nadfun txs', 'GET', '/v1/indexer/txs?since=0', { 'X-Indexer-Key': 'smoke-indexer-key' });
 process.exit(0);
