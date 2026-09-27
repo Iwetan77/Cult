@@ -29,7 +29,7 @@ import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
 import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, postSystem, roomsFor, setPin, type ChatMessage } from './chat.js';
 import { countryName } from './countries.js';
-import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError } from './leaderboards.js';
+import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError, parsePeriod } from './leaderboards.js';
 import { home, profile, ProfileError } from './profiles.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
@@ -317,11 +317,11 @@ export function createApp(engine: MirrorEngine) {
 
   // ---- leaderboards: global, a country, public cults ------------------------
   const boardLimit = (c: Context<Vars>) => Math.min(Math.max(Number(c.req.query('limit') ?? 100) || 100, 1), 500);
-  authed.get('/leaderboards/global', async (c) => c.json(await globalBoard(c.get('userId'), boardLimit(c))));
+  authed.get('/leaderboards/global', async (c) => c.json(await globalBoard(c.get('userId'), boardLimit(c), parsePeriod(c.req.query('period')))));
   authed.get('/leaderboards/country/:code?', async (c) => {
     const code = c.req.param('code') ?? members.get(c.get('userId'))?.country;
     if (!code) throw bad(409, 'pick your country first (POST /v1/me/country)');
-    return c.json(await countryBoard(code, c.get('userId'), boardLimit(c)));
+    return c.json(await countryBoard(code, c.get('userId'), boardLimit(c), parsePeriod(c.req.query('period'))));
   });
   authed.get('/leaderboards/cults', async (c) => c.json(await cultsBoard(c.get('userId'), Math.min(boardLimit(c), 100))));
 
@@ -587,7 +587,7 @@ export function createApp(engine: MirrorEngine) {
   cultRoutes.get('/:clanId/leaderboard', async (c) => {
     const clan = clans.get(c.req.param('clanId'));
     if (!clan || (clan.visibility !== 'public' && !clans.membership(clan.id, c.get('userId')))) throw bad(404, 'cult not found');
-    return c.json(await cultBoard(clan, c.get('userId'), boardLimit(c)));
+    return c.json(await cultBoard(clan, c.get('userId'), boardLimit(c), parsePeriod(c.req.query('period'))));
   });
 
   // The owner makes their cult public (listed, joinable without the code) or private again.

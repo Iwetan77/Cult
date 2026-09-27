@@ -76,6 +76,7 @@ const seeded = trades.insert({ id: 'smoke-trade', venue: 'nadfun', userId: 'did:
 await call('share someone else\'s marker', 'POST', '/v1/shares', auth(bob, 'bob'), { markerId: `trade:${seeded.id}`, includeClan: false });
 const sh1 = await call('share own marker, no clan', 'POST', '/v1/shares', auth(alice, 'alice'), { markerId: `trade:${seeded.id}`, includeClan: false });
 const pub1 = await call('public share (no clan)', 'GET', `/v1/shares/${sh1.id}`);
+if (!pub1.traderRecord || pub1.traderRecord.verified !== false) throw new Error('share card is missing the (unverified) trader record');
 const sh2 = await call('share own marker, with clan', 'POST', '/v1/shares', auth(alice, 'alice'), { markerId: `trade:${seeded.id}`, includeClan: true });
 const pub2 = await call('public share (with clan)', 'GET', `/v1/shares/${sh2.id}`);
 const leaks = ['clanId', 'inviteCode', 'members', 'clan'].filter((k) => k in pub1 || k in pub2);
