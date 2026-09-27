@@ -477,6 +477,7 @@ type Adjustment = {
 
 type ChatRoom = {                    // ids: "global" | "country:NG" | "cult:<id>"
   id: string; kind: 'global' | 'country' | 'cult'; name: string;
+  icon: string;                       // "🌍" | the country's flag emoji | the cult's first letter; don't derive it from id
   memberCount: number;
   lastMessage: ChatMessage | null;    // the 'your groups' list line + time
 };
@@ -486,8 +487,10 @@ type ChatMessage = {
   room: string;              // "global" | "country:NG" | "cult:<id>"
   kind: 'text' | 'system';   // system = a notice ("joined the cult", "opened BTC-PERP long 5x"): render as a pill; markerId links the trade
   clanId: string | null;     // set for cult rooms
-  memberId: string; memberName: string;
+  memberId: string; memberName: string;     // memberName = their username (short wallet until they pick one)
+  memberAvatarUrl: string | null;           // path on the API, prefix with the API base URL
   body: string;              // plain text, up to 1000 chars. Render as text, never as HTML
+  text: string;              // what to display: body, or for a system notice "<name> <body>" ("iwetan joined the cult")
   replyTo: string | null;    // a message id in the same room
   markerId: string | null;   // optional ChartMarker.id the message is about
   createdAt: string;         // ISO
@@ -543,6 +546,29 @@ type Home = {                // GET /v1/home
                openTx: string }[];           // the week's best own trades across Cult
   sevenDay: { trades: number; profitUsd: number; positionsOpened: number };   // yours
   asOf: string;
+};
+
+// Names and photos everywhere: every `name` / `memberName` / `traderName` is the
+// member's username (or their short wallet until they pick one), and every
+// `avatarUrl` is a path like "/v1/avatars/<id>?v=<ts>" on the API: prefix it
+// with NEXT_PUBLIC_CULT_API_BASE_URL. null = no photo: show initials.
+
+type MarketListing = {       // GET /v1/markets, GET /v1/markets/:id
+  venue: 'perpl' | 'nadfun'; id: string;    // perpl market id | token address
+  symbol: string;            // "BTC-PERP" | "$MOE"
+  name: string; priceUsd: number | null;
+  change24hPct: number | null; volume24hUsd: number | null;   // perps only for now
+  imageUri: string | null;   // memes
+  maxLeverage: number;       // memes: 1
+};
+
+type DepositInfo = {         // GET /v1/wallet/deposit
+  address: string;           // show it big with a copy button + QR; no contract addresses anywhere
+  network: { name: string; chainId: number };
+  tokens: { symbol: 'MON' | 'USDC' | 'AUSD'; name: string; what: string; balance: number; balanceUsd: number | null }[];
+                             // testnet: MON + AUSD; mainnet adds USDC
+  tradingAccountUsd: number | null;   // dollars in the Perpl account
+  totalUsd: number | null;
 };
 
 type Leaderboard = {
@@ -637,11 +663,19 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/health` | none | `{ ok: true }` |
 | GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'USD', monPriceAusd /* $ per MON */, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
 | GET | `/v1/nadfun/markets?order=latest_trade\|market_cap\|creation_time` | none | `{ markets: NadMarket[] }` (MON-quoted tokens only) |
-| GET | `/v1/me` | none | `{ id, address, name, country: { code, name } | null, rooms: ChatRoom[], clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent } }`. `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
+| GET | `/v1/me` | none | `{ id, address, name, username, needsUsername, avatarUrl, country: { code, name } | null, rooms: ChatRoom[], clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent } }`. `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
 | GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan. A new policy is issued whenever the cap **changes** (up or down), and the frontend must `addSigners()` again. `/v1/me.signer` tells you when that's needed |
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
 | POST | `/v1/enrollment/perpl` | `{ challengeId, signature }` | `204` |
+| GET | `/v1/usernames/:name` | none | `{ available: boolean, reason? }`. 3-20 letters, digits or `_`, starting with a letter; unique ignoring case; a few names reserved |
+| POST | `/v1/me/username` | `{ username }` | `{ username, name }`. `/v1/me.needsUsername` is true until they pick one: ask **first, at sign-in**. `409` taken, `400` invalid |
+| POST | `/v1/me/avatar` | `{ image: "data:image/png;base64,…" }` | `{ avatarUrl }`. PNG, JPEG or WebP up to 512 KB. Resize in the browser first (256×256 is plenty) |
+| DELETE | `/v1/me/avatar` | none | `204` |
+| GET | `/v1/avatars/:userId` | none (public) | The image, cached for good (the URL's `?v=` changes with each upload) |
+| GET | `/v1/markets?q=&venue=&limit=` | none (public) | `{ markets: MarketListing[] }`. Perps and memes in one list. `q` searches symbol, name, or a token address |
+| GET | `/v1/markets/:id?resolution=` | none (public) | `{ market: MarketListing, candles, resolution }`. The market page: chart + price. Trade with `POST /v1/positions/open` |
+| GET | `/v1/wallet/deposit` | none | `DepositInfo` |
 | POST | `/v1/me/country` | `{ country: "NG" }` | `{ country: { code, name }, rooms: ChatRoom[] }`. ISO 3166 alpha-2. Adds you to that country's chat and leaderboard. Change it any time. `400` if it isn't a country |
 | POST | `/v1/cults` | `{ name, visibility?: 'private' \| 'public', policy? }` | `201 Clan`. Just a name is enough: private, Auto-follow off |
 | POST | `/v1/cults/join` | `{ inviteCode }` or `{ cultId }` | `Clan`. **One tap, no signature**, Auto-follow off. `cultId` only for public cults. `409` if you're already in. (`{ challengeId, signature }` still completes a join with Auto-follow on) |
