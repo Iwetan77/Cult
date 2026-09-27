@@ -1,4 +1,4 @@
-import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, FundingResult, Holding, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TpslSuggestion, TpslValues } from './contracts';
+import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TpslSuggestion, TpslValues } from './contracts';
 
 const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
@@ -39,9 +39,9 @@ export const getNadMarkets = (token: string) => api<{ markets: NadMarket[] }>('/
 export const getHoldings = (token: string) => api<{ positions: Holding[] }>('/v1/positions', token);
 export const openPosition = (token: string, marketId: string, side: 'long' | 'short' | 'buy', marginUsd: number, leverage?: number) => api<Fill>('/v1/positions/open', token, { method: 'POST', body: json({ marketId, side, marginUsd, ...(leverage ? { leverage } : {}) }) });
 export const closePosition = (token: string, marketId: string) => api<Fill>('/v1/positions/close', token, { method: 'POST', body: json({ marketId }) });
-export const createClan = (token: string, name: string, policy: MirrorPolicy, visibility: 'private' | 'public') => api<Clan>('/v1/cults', token, { method: 'POST', body: json({ name, policy, visibility }) });
+export const createClan = (token: string, name: string, visibility: 'private' | 'public') => api<Clan>('/v1/cults', token, { method: 'POST', body: json({ name, visibility }) });
 export const getJoinChallenge = (token: string, target: { inviteCode: string } | { cultId: string }, policy: MirrorPolicy) => api<SignedChallenge>('/v1/cults/join/challenge', token, { method: 'POST', body: json({ ...target, policy }) });
-export const joinClan = (token: string, challengeId: string, signature: string) => api<Clan>('/v1/cults/join', token, { method: 'POST', body: json({ challengeId, signature }) });
+export const joinClan = (token: string, target: { inviteCode: string } | { cultId: string }) => api<Clan>('/v1/cults/join', token, { method: 'POST', body: json(target) });
 export const getPolicyChallenge = (token: string, clanId: string, policy: MirrorPolicy) => api<SignedChallenge>(`/v1/cults/${encodeURIComponent(clanId)}/policy/challenge`, token, { method: 'POST', body: json({ policy }) });
 export const updateClanPolicy = (token: string, clanId: string, challengeId: string, signature: string) => api<Clan>(`/v1/cults/${encodeURIComponent(clanId)}/policy`, token, { method: 'POST', body: json({ challengeId, signature }) });
 export const leaveClan = (token: string, clanId: string) => api<void>(`/v1/cults/${encodeURIComponent(clanId)}/leave`, token, { method: 'POST' });
@@ -76,3 +76,8 @@ export const getRoomEventUrl = (room: string) => {
 };
 export const getLeaderboard = (token: string, scope: 'global' | 'country' | 'cult', cultId?: string) => api<Leaderboard>(scope === 'global' ? '/v1/leaderboards/global' : scope === 'country' ? '/v1/leaderboards/country' : `/v1/cults/${encodeURIComponent(cultId ?? '')}/leaderboard`, token);
 export const getCultStandings = (token: string) => api<{ entries: CultStanding[]; asOf: string }>('/v1/leaderboards/cults', token);
+
+export const setAutoFollowOff = (token: string, cultId: string) => api<Clan>(`/v1/cults/${encodeURIComponent(cultId)}/auto-follow`, token, { method: 'POST', body: json({ enabled: false }) });
+export const pinRoomMessage = (token: string, room: string, messageId: string | null) => api<{ pinned: ChatPage['pinned'] }>(`/v1/chat/${encodeURIComponent(room)}/pin`, token, { method: 'POST', body: json({ messageId }) });
+export const getHome = (token: string) => api<Home>('/v1/home', token);
+export const getProfile = (token: string, idOrWallet: string) => api<Profile>(`/v1/members/${encodeURIComponent(idOrWallet)}`, token);

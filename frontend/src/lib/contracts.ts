@@ -9,27 +9,27 @@ export type Market = {
 };
 export type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number };
 export type Candle = { time: number; open: number; high: number; low: number; close: number };
-export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; memberCount: number; myPolicy: MirrorPolicy | null };
+export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; memberCount: number; myPolicy: MirrorPolicy | null; autoFollow: boolean };
 export type Member = {
   id: string; name: string; address: string; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
   stats: {
     verified: boolean; tradeCount: number; winRate: number | null;
     realizedPnlPerplUsd: number; realizedPnlMon: number; realizedPnlUsd: number | null;
-    monPriceUsed: number | null; lastTradeAt: number | null;
+    monPriceUsed: number | null; lastTradeAt: number | null; streak: number; avgWinPct: number | null;
     copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
   };
 };
-export type ChatRoom = { id: string; kind: 'global' | 'country' | 'cult'; name: string };
+export type ChatRoom = { id: string; kind: 'global' | 'country' | 'cult'; name: string; memberCount: number; lastMessage: ChatMessage | null };
 export type DiscoverCult = { id: string; name: string; visibility: 'public'; memberCount: number; createdAt: string; joined: boolean };
 export type LeaderboardEntry = { rank: number; memberId: string; name: string; address: string; country: string | null; realizedPnlUsd: number; winRate: number | null; tradeCount: number; copiedTradeCount: number };
 export type Leaderboard = { scope: string; name: string; metric: 'realizedPnlUsd'; period: 'all'; entries: LeaderboardEntry[]; me: (Omit<LeaderboardEntry, 'rank'> & { rank: number | null }) | null; rankedCount: number; memberCount: number; asOf: string };
 export type CultStanding = { rank: number; cultId: string; name: string; memberCount: number; realizedPnlUsd: number; winRate: number | null; tradeCount: number; joined: boolean };
 export type ChatMessage = {
-  id: string; room: string; clanId: string | null; memberId: string; memberName: string; body: string;
+  id: string; room: string; kind: 'text' | 'system'; clanId: string | null; memberId: string; memberName: string; body: string;
   replyTo: string | null; markerId: string | null; createdAt: string;
 };
-export type ChatPage = { messages: ChatMessage[]; hasMore: boolean };
+export type ChatPage = { messages: ChatMessage[]; hasMore: boolean; pinned: { id: string; memberName: string; body: string } | null };
 export type TpslSuggestion = {
   id: string; markerId: string; tradeId: string; fromMemberId: string; fromName: string;
   takeProfitPrice: number | null; stopLossPrice: number | null; createdAt: string;
@@ -52,7 +52,7 @@ export type ChartSnapshot = {
 };
 export type BackendConfig = {
   chainId: number; venues: Venue[]; displayUnit: 'USD'; monPriceAusd: number | null;
-  autoMirrorOptOutWindowSeconds: number; mirrorPolicyBounds: unknown; markets: Market[];
+  autoMirrorOptOutWindowSeconds: number; autoFollowDefaults: { balancePercentCap: number; maxUsdPerTrade: number }; mirrorPolicyBounds: unknown; markets: Market[];
 };
 export type Me = {
   id: string; address: `0x${string}`; name: string; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
@@ -103,3 +103,15 @@ export type PublicShare = {
   entryPrice: number | null; markPrice: number | null; closedAt: string | null;
   sharedAt: string; includeClan: boolean; clanName?: string;
 };
+export type Home = {
+  topTrades: { rank: number; memberId: string; name: string; venue: string; market: string; symbol: string; side: string;
+    returnPct: number; pnlUsd: number | null; closedAt: number; tradersIn: number; markerId: string | null }[];
+  sevenDay: { trades: number; profitUsd: number; positionsOpened: number };
+  asOf: string;
+};
+export type ClosedTrade = { venue: Venue; market: string; symbol: string; side: string; returnPct: number | null;
+  pnlUsd: number | null; isWin: boolean; openedAt: number | null; closedAt: number; openTx: string; copied: boolean };
+export type Profile = { id: string; name: string; address: string; country: { code: string; name: string | null } | null;
+  memberSince: number; isMe: boolean; record: Member['stats'];
+  openTrades: { tradeId: string; markerId: string; venue: string; market: string; symbol: string; side: string; leverage: number; openedAt: number }[];
+  closedTrades: ClosedTrade[]; cults: { id: string; name: string; visibility: string }[] };
