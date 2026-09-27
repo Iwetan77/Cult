@@ -27,6 +27,7 @@ import { UpstreamError } from '../http.js';
 import { balancesFor } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
+import { ChatError, listMessages, MAX_MESSAGE_CHARS, postMessage, type ChatMessage } from './chat.js';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
@@ -61,6 +62,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof AuthError) return c.json({ message: err.message }, 401);
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
+    if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -463,6 +465,21 @@ export function createApp(engine: MirrorEngine) {
     return c.json(addSuggestion(clan.id, tradeId, markerId, c.get('userId'), body.takeProfit ?? null, body.stopLoss ?? null), 201);
   });
 
+  // Clan group chat. Members only; new messages also arrive as SSE `message`.
+  authed.get('/clans/:clanId/messages', (c) => {
+    const clan = clanFor(c);
+    const limit = c.req.query('limit');
+    return c.json(listMessages(clan.id, { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
+  });
+
+  authed.post('/clans/:clanId/messages', async (c) => {
+    const clan = clanFor(c);
+    const body = z
+      .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
+      .parse(await c.req.json());
+    return c.json(postMessage(clan.id, c.get('userId'), body), 201);
+  });
+
   authed.post('/shares', async (c) => {
     const body = z.object({ markerId: z.string(), includeClan: z.boolean() }).parse(await c.req.json());
     return c.json(await createShare(c.get('userId'), body.markerId, body.includeClan), 201);
@@ -485,7 +502,9 @@ export function createApp(engine: MirrorEngine) {
       engine.on('mirror', onMirror);
       engine.on('adjustment', onAdjust);
       const onSuggestion = (clanId: string, sug: TpSlSuggestion) => clanId === clan.id && send('suggestion', sug);
+      const onMessage = (clanId: string, msg: ChatMessage) => clanId === clan.id && send('message', msg);
       clanBus.on('suggestion', onSuggestion);
+      clanBus.on('message', onMessage);
       const ping = setInterval(() => void stream.writeSSE({ event: 'ping', data: String(Date.now()) }), 15_000);
       await new Promise<void>((resolve) => stream.onAbort(resolve));
       clearInterval(ping);
@@ -495,6 +514,7 @@ export function createApp(engine: MirrorEngine) {
       engine.off('mirror', onMirror);
       engine.off('adjustment', onAdjust);
       clanBus.off('suggestion', onSuggestion);
+      clanBus.off('message', onMessage);
     });
   });
 
