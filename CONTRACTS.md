@@ -274,14 +274,27 @@ zero-cost-basis and flag them.
 ```ts
 type MirrorPolicy = {
   enabled: boolean;          // false = member is in the clan but never auto-mirrored
-  balancePercentCap: number; // (0, 100]  max % of free Perpl balance ONE mirror may use as margin
-  maxUsdPerTrade: number;    // [1, 1e6]  max notional (size x mark, USD) of ONE mirrored position
+  balancePercentCap: number; // (0, 100]  max % of the free balance on that venue ONE mirror may use
+                             //           (perpl: free AUSD margin; nadfun: MON minus a 0.05 MON gas reserve)
+  maxUsdPerTrade: number;    // [1, 1e6]  max size of ONE mirror in AUSD
+                             //           (perpl: notional = size x mark; nadfun: MON spent, valued in AUSD)
 };
+// "Usd" in field names means AUSD (1 AUSD = $1). Kept for compatibility with the
+// frontend's existing types.
+
+type Venue = 'perpl' | 'nadfun';
+type TradeSide = 'long' | 'short' | 'buy';   // nadfun is always 'buy' (spot)
 
 type Market = {
-  venue: 'perpl'; id: string /* Perpl market id */; symbol: string /* "BTC-PERP" */;
-  baseSymbol: string; quoteSymbol: 'USD'; maxLeverage: number; makerFeeBps: number; takerFeeBps: number;
+  venue: Venue;
+  id: string;            // perpl: market id ("16"); nadfun: token address (lowercase 0x…)
+  symbol: string;        // "BTC-PERP" | token symbol
+  baseSymbol: string; quoteSymbol: 'AUSD';
+  maxLeverage: number;   // nadfun: 1
+  makerFeeBps: number | null; takerFeeBps: number | null;   // nadfun: null
+  tokenAddress?: string; imageUri?: string;                 // nadfun only
 };
+// A marketId is either kind. Tell them apart with /^0x[0-9a-fA-F]{40}$/ (nadfun).
 
 type Clan = { id: string; name: string; inviteCode: string; memberCount: number; myPolicy: MirrorPolicy | null };
 
@@ -289,12 +302,14 @@ type ChartMarker = {
   id: string;            // "trade:<id>" | "mirror:<id>" | "stack:<id>"
   tradeId: string;       // the leader trade this marker hangs off (stack target for manual_stack)
   memberId: string; memberName: string;
-  marketId: string; venue: 'perpl';
+  marketId: string; venue: Venue;
   origin: 'leader' | 'auto_mirror' | 'manual_stack';
-  side: 'long' | 'short';
+  side: TradeSide;
   entryTime: number;     // ms
-  entryPrice: number | null; markPrice: number;
-  size: number | null; pnlUsd: number | null; valueUsd: number | null; leverage: number | null;
+  entryPrice: number | null; markPrice: number;   // AUSD per unit (per token for nadfun)
+  size: number | null;   // base units (perpl) / tokens (nadfun)
+  pnlUsd: number | null; valueUsd: number | null; // AUSD. nadfun value = what selling that amount returns now
+  leverage: number | null;                        // nadfun: 1
   isMine: boolean;
   mirrorStatus?: 'pending' | 'submitted' | 'filled';   // auto_mirror only
   skipUntil?: string;    // ISO, only while pending. Backend enforces it; the UI clock is a guide
@@ -310,10 +325,26 @@ type ChartSnapshot = {
 };
 
 type WalletAction = { to: string; data: string; value?: string; chainId: number; label: string };
+
+type Holding = {         // GET /v1/positions
+  venue: Venue; market: string; symbol: string; side: TradeSide;
+  sizeRaw: string; size: number;
+  entryPriceAusd: number | null; markPriceAusd: number; valueAusd: number; pnlAusd: number | null; leverage: number;
+};
+
+type Fill = {            // POST /v1/positions/open|close
+  venue: Venue; market: string; side: TradeSide; sizeRaw: string; size: number;
+  priceAusd: number; notionalAusd: number; orderId?: number; requestId?: number; txHash?: string | null;
+};
+
+type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number };  // GET /v1/nadfun/markets
 ```
 
-Price PnL on markers is `(mark - entry) x size` against Perpl's live mark. It
-excludes the closing fee and unsettled funding. `winRate` and `realizedPnlUsd` are
+**Perpl marker PnL** is `(mark - entry) x size` against Perpl's live mark, excluding the
+closing fee and unsettled funding. **Nad.fun marker value** is what selling that
+amount on the router would return right now, converted at Perpl's MON mark. It
+therefore already includes curve fees and price impact, so a fresh buy shows about
+−4% immediately. `winRate` and `realizedPnlUsd` are
 always `null` from the backend. Verified track record comes from the indexer.
 
 ### Endpoints
@@ -321,7 +352,8 @@ always `null` from the backend. Verified track record comes from the indexer.
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
 | GET | `/v1/health` | none | `{ ok: true }` |
-| GET | `/v1/config` | none | `{ chainId, venue, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] }` |
+| GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'AUSD', monPriceAusd, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
+| GET | `/v1/nadfun/markets?order=latest_trade\|market_cap\|creation_time` | none | `{ markets: NadMarket[] }` (MON-quoted tokens only) |
 | GET | `/v1/me` | none | `{ id, address, name, clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, usdcBalance: null }` |
 | GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan |
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
@@ -330,13 +362,13 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/clans` | `{ name, policy: MirrorPolicy }` | `201 Clan` |
 | POST | `/v1/clans/join/challenge` | `{ inviteCode, policy: MirrorPolicy }` | `{ challengeId, message }` |
 | POST | `/v1/clans/join` | `{ challengeId, signature }` | `Clan` |
-| GET | `/v1/clans/:clanId/chart?marketId=&resolution=` | none | `ChartSnapshot` |
+| GET | `/v1/clans/:clanId/chart?marketId=&resolution=` | none | `ChartSnapshot`. `marketId` is a Perpl id or a Nad.fun token. `resolution` is in seconds (60, 300, 900, 1800, 3600, 14400, 86400). `markets` = all Perpl markets plus the Nad.fun tokens the clan currently holds |
 | GET | `/v1/clans/:clanId/events` | none | SSE stream (below) |
 | POST | `/v1/clans/:clanId/mirrors/:mirrorId/skip` | none | `204`. `409` if not pending or the window has passed |
-| POST | `/v1/clans/:clanId/stack` | `{ markerId, notionalUsd, leverage? }` | `StackResult` |
-| GET | `/v1/positions` | none | `{ positions: PositionView[] }` |
-| POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage }` | `{ orderId, requestId, filledSize, fillPrice, txHash }` |
-| POST | `/v1/positions/close` | `{ marketId }` | same as open |
+| POST | `/v1/clans/:clanId/stack` | `{ markerId, notionalUsd, leverage? }` | `StackResult`. Same for both venues; `leverage` is ignored on Nad.fun |
+| GET | `/v1/positions` | none | `{ positions: Holding[] }` (both venues) |
+| POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage? }` | `Fill`. Perpl: side `long`/`short`, notional = margin x leverage. Nad.fun: side `buy`, spends `marginUsd` worth of MON, signed by the backend signer |
+| POST | `/v1/positions/close` | `{ marketId, sizeRaw? }` | `Fill`. Nad.fun sells the whole balance unless `sizeRaw` (token wei) is given |
 
 Notes:
 
@@ -371,7 +403,7 @@ Notes:
 - **`stack` is the manual path.** `markerId` is any `ChartMarker.id` (or a bare trade
   id). It opens `notionalUsd` of the same side on the caller's own account and is
   never auto-mirrored. It doesn't auto-close when the target closes. `StackResult`
-  is `{ id, status: 'open' | 'failed', marketId, side, size, notionalUsd, leverage, orderId?, txHash?, error? }`.
+  is `{ id, venue, status: 'open' | 'failed', market, side, size, notionalAusd, leverage, orderId?, txHash?, error? }`.
   Status `502` means Perpl refused the order, and `error` says why.
 - **`frontend/src/lib/api.ts` assumed a quote-then-confirm stack flow with a wallet
   transaction.** That doesn't apply on Perpl, where orders go through the API key.
@@ -459,9 +491,15 @@ All routes need `X-Indexer-Key`.
 |--------|------|---------|
 | GET | `/v1/indexer/accounts` | `{ accounts: [{ userId, wallet, perplAccountId, clanIds: string[] }] }` |
 | GET | `/v1/indexer/orders?since=<ms>` | `{ orders: [{ perplAccountId, requestId, kind: 'mirror_open' \| 'mirror_close' \| 'stack_open', refId, clanId, tradeId, createdAt }] }` |
-| GET | `/v1/indexer/trades?since=<ms>` | `{ trades: [{ tradeId, userId, perplAccountId, marketId, side, positionId, openTx, openedAt, closedAt }] }` |
+| GET | `/v1/indexer/txs?since=<ms>` | `{ txs: [{ venue: 'nadfun', txHash, wallet, kind: 'mirror_open' \| 'mirror_close' \| 'stack_open', refId, clanId, tradeId, createdAt }] }` |
+| GET | `/v1/indexer/trades?since=<ms>` | `{ trades: [{ tradeId, venue, userId, perplAccountId, market, side, positionId, openTx, openedAt, closedAt }] }` (`market` = Perpl id or token) |
 
-**How to correlate.** Perpl's `OrderRequest(perpId, accountId, orderDescId, orderId, …)`
+**Nad.fun:** a router `Buy`/`Sell` whose tx hash is in `/txs` was sent by the engine
+(an auto-mirror or a manual stack). Any other router trade by a clan member's wallet
+is their own. `/accounts` now lists every member wallet, including those with no
+Perpl account.
+
+**How to correlate (Perpl).** Perpl's `OrderRequest(perpId, accountId, orderDescId, orderId, …)`
 event carries `orderDescId`, which is our `requestId`:
 
 - A fill whose `(accountId, orderDescId)` appears in `/orders` came from the auto-mirror
