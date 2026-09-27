@@ -18,7 +18,7 @@ import { venue, venueOf } from '../venues/index.js';
 import { invalidatePerplReads } from '../venues/perpl.js';
 import { AuthError, identify } from '../privy/auth.js';
 import { backendSignerStatus, forgetSignerStatus, memberSignerGrant } from '../privy/policy.js';
-import { clans, MirrorPolicySchema, type MirrorPolicy } from '../store/clans.js';
+import { clans, MirrorPolicySchema, type MirrorPolicy, AUTO_FOLLOW_DEFAULTS } from '../store/clans.js';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
@@ -27,7 +27,7 @@ import { UpstreamError } from '../http.js';
 import { balancesFor } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
-import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, roomsFor, type ChatMessage } from './chat.js';
+import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, postSystem, roomsFor, setPin, type ChatMessage } from './chat.js';
 import { countryName } from './countries.js';
 import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError } from './leaderboards.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
@@ -120,6 +120,7 @@ export function createApp(engine: MirrorEngine) {
       displayUnit: 'USD', // show $ everywhere; the word AUSD only appears on the funding screen
       monPriceAusd: await monPriceAusd().catch(() => null),
       autoMirrorOptOutWindowSeconds: env.mirrorOptOutSeconds,
+      autoFollowDefaults: AUTO_FOLLOW_DEFAULTS, // what the Auto-follow switch suggests
       mirrorPolicyBounds: { balancePercentCap: { min: 0, minExclusive: true, max: 100 }, maxUsdPerTrade: { min: 1, max: 1_000_000 } },
       markets: ctx.markets.filter((m) => m.config.is_open).map(toApiMarket),
     });
@@ -249,7 +250,9 @@ export function createApp(engine: MirrorEngine) {
   authed.use('*', async (c, next) => {
     const id = await identify(c.req.header('Authorization'));
     if (!id.wallet) throw bad(409, 'no Privy embedded wallet on this user yet');
+    const isNew = !members.get(id.userId);
     members.upsert(id.userId, id.wallet, id.walletId);
+    if (isNew) postSystem('global', id.userId, 'joined Cult');
     c.set('userId', id.userId);
     c.set('wallet', id.wallet.toLowerCase());
     limited(c, `member:${id.userId}`, MEMBER_LIMIT);
@@ -272,6 +275,7 @@ export function createApp(engine: MirrorEngine) {
       isOwner: clan.createdBy === userId,
       memberCount: clans.members(clan.id).length,
       myPolicy: clans.membership(clan.id, userId)?.policy ?? null,
+      autoFollow: clans.membership(clan.id, userId)?.policy.enabled ?? false,
     };
   };
 
@@ -299,7 +303,9 @@ export function createApp(engine: MirrorEngine) {
     const code = body.country.toUpperCase();
     const name = countryName(code);
     if (!name) throw bad(400, `${body.country} isn't a country code (ISO 3166, e.g. NG, GB, US)`);
+    const before = members.get(c.get('userId'))?.country;
     members.setCountry(c.get('userId'), code);
+    if (before !== code) postSystem(`country:${code}`, c.get('userId'), 'joined');
     return c.json({ country: { code, name }, rooms: roomsFor(c.get('userId')) });
   });
 
@@ -327,6 +333,13 @@ export function createApp(engine: MirrorEngine) {
       .parse(await c.req.json());
     return c.json(postMessage(room, c.get('userId'), body), 201);
   });
+  // The cult owner pins a message ({ messageId }) or clears it ({ messageId: null }).
+  authed.post('/chat/:room/pin', async (c) => {
+    const { room } = openRoom(c.req.param('room'), c.get('userId'));
+    const body = z.object({ messageId: z.string().max(64).nullable() }).parse(await c.req.json());
+    return c.json({ pinned: setPin(room, c.get('userId'), body.messageId) });
+  });
+
   // Live messages for one room (the cult stream carries its cult room too).
   authed.get('/chat/:room/events', (c) => {
     const { room } = openRoom(c.req.param('room'), c.get('userId'));
@@ -344,8 +357,12 @@ export function createApp(engine: MirrorEngine) {
   // backend can act on this wallet, only within the policy.
   authed.get('/privy/signer', async (c) => {
     const userId = c.get('userId');
-    const caps = clans.forUser(userId).map((cl) => clans.membership(cl.id, userId)!.policy.maxUsdPerTrade);
-    if (caps.length === 0) throw bad(409, 'join or create a cult first; the cap comes from your cult limits');
+    const caps = clans
+      .forUser(userId)
+      .map((cl) => clans.membership(cl.id, userId)!.policy)
+      .filter((p) => p.enabled)
+      .map((p) => p.maxUsdPerTrade);
+    if (caps.length === 0) throw bad(409, 'turn on Auto-follow in a cult first; the cap comes from your limits there');
     const grant = await memberSignerGrant(userId, c.get('wallet'), Math.max(...caps));
     forgetSignerStatus(userId); // the frontend is about to (re)attach it; re-check on next read
     return c.json(grant);
@@ -443,35 +460,55 @@ export function createApp(engine: MirrorEngine) {
 
   cultRoutes.post('/', async (c) => {
     const body = z
-      .object({ name: z.string().min(1).max(48), policy: MirrorPolicySchema, visibility: z.enum(['private', 'public']).default('private') })
+      .object({ name: z.string().trim().min(1).max(48), policy: MirrorPolicySchema.optional(), visibility: z.enum(['private', 'public']).default('private') })
       .parse(await c.req.json());
     const clan = clans.create(body.name, c.get('userId'), body.policy, body.visibility);
+    postSystem(cultRoom(clan.id), c.get('userId'), 'created the cult');
     await engine.watch(c.get('userId')).catch(() => undefined);
     return c.json(clanView(clan.id, c.get('userId')), 201);
   });
 
+  // Which cult a join is for: a code (any cult), or the id of a public one.
+  const joinable = (b: { inviteCode?: string; cultId?: string }, userId: string) => {
+    const clan = b.inviteCode ? clans.byInvite(b.inviteCode) : clans.get(b.cultId!);
+    if (!clan) throw bad(404, b.inviteCode ? 'no cult with that code' : 'cult not found');
+    if (!b.inviteCode && clan.visibility !== 'public') throw bad(404, 'cult not found'); // private: code only
+    if (clans.membership(clan.id, userId)) throw bad(409, "you're already in this cult");
+    return clan;
+  };
+  const target = z
+    .object({ inviteCode: z.string().optional(), cultId: z.string().optional() })
+    .refine((b) => !!b.inviteCode !== !!b.cultId, 'send an inviteCode, or the cultId of a public cult');
+
+  // Join with Auto-follow already on (signed limits), in one step.
   cultRoutes.post('/join/challenge', async (c) => {
-    const body = z
-      .object({ inviteCode: z.string().optional(), cultId: z.string().optional(), policy: MirrorPolicySchema })
-      .refine((b) => !!b.inviteCode !== !!b.cultId, 'send an inviteCode, or the cultId of a public cult')
-      .parse(await c.req.json());
-    const clan = body.inviteCode ? clans.byInvite(body.inviteCode) : clans.get(body.cultId!);
-    if (!clan) throw bad(404, body.inviteCode ? 'no cult with that code' : 'cult not found');
-    if (!body.inviteCode && clan.visibility !== 'public') throw bad(404, 'cult not found'); // private: code only
-    if (clans.membership(clan.id, c.get('userId'))) throw bad(409, "you're already in this cult");
+    const body = target.and(z.object({ policy: MirrorPolicySchema })).parse(await c.req.json());
+    const clan = joinable(body, c.get('userId'));
     const challengeId = randomUUID();
     const message = consentMessage(clan.name, clan.inviteCode, ethers.getAddress(c.get('wallet')), body.policy, challengeId);
     joinChallenges.set(challengeId, { userId: c.get('userId'), clanId: clan.id, policy: body.policy, message, expires: Date.now() + 10 * 60_000, kind: 'join' });
     return c.json({ challengeId, message });
   });
 
+  // Join: { inviteCode } or { cultId } joins the group with copying off (no
+  // signature: nothing touches funds). { challengeId, signature } completes a
+  // join-with-Auto-follow started at /join/challenge.
   cultRoutes.post('/join', async (c) => {
-    const body = z.object({ challengeId: z.string(), signature: z.string() }).parse(await c.req.json());
+    const raw = await c.req.json();
+    if (!('challengeId' in raw)) {
+      const clan = joinable(target.parse(raw), c.get('userId'));
+      clans.join(clan.id, c.get('userId'));
+      postSystem(cultRoom(clan.id), c.get('userId'), 'joined the cult');
+      await engine.watch(c.get('userId')).catch(() => undefined);
+      return c.json(clanView(clan.id, c.get('userId')));
+    }
+    const body = z.object({ challengeId: z.string(), signature: z.string() }).parse(raw);
     const ch = joinChallenges.get(body.challengeId);
     if (!ch || ch.kind !== 'join' || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'challenge missing or expired');
     const signer = ethers.verifyMessage(ch.message, body.signature);
     if (signer.toLowerCase() !== c.get('wallet')) throw bad(403, 'signature is not from your wallet');
     clans.join(ch.clanId, ch.userId, ch.policy);
+    postSystem(cultRoom(ch.clanId), ch.userId, ch.policy.enabled ? 'joined the cult with Auto-follow on' : 'joined the cult');
     getDb()
       .prepare('INSERT OR REPLACE INTO join_consents (clan_id, user_id, message, signature, signed_at) VALUES (?, ?, ?, ?, ?)')
       .run(ch.clanId, ch.userId, ch.message, body.signature, Date.now());
@@ -487,7 +524,9 @@ export function createApp(engine: MirrorEngine) {
     const clan = clanFor(c);
     const body = z.object({ policy: MirrorPolicySchema }).parse(await c.req.json());
     const challengeId = randomUUID();
-    const message = consentMessage(clan.name, clan.inviteCode, ethers.getAddress(c.get('wallet')), body.policy, challengeId).replace(/^Join the Cult/, 'Update my copy limits in the Cult');
+    const wasOn = clans.membership(clan.id, c.get('userId'))?.policy.enabled ?? false;
+    const lead = body.policy.enabled && !wasOn ? 'Turn on Auto-follow in the Cult' : 'Update my copy limits in the Cult';
+    const message = consentMessage(clan.name, clan.inviteCode, ethers.getAddress(c.get('wallet')), body.policy, challengeId).replace(/^Join the Cult/, lead);
     joinChallenges.set(challengeId, { userId: c.get('userId'), clanId: clan.id, policy: body.policy, message, expires: Date.now() + 10 * 60_000, kind: 'policy' });
     return c.json({ challengeId, message });
   });
@@ -498,12 +537,28 @@ export function createApp(engine: MirrorEngine) {
     const ch = joinChallenges.get(body.challengeId);
     if (!ch || ch.kind !== 'policy' || ch.clanId !== clan.id || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'challenge missing or expired');
     if (ethers.verifyMessage(ch.message, body.signature).toLowerCase() !== c.get('wallet')) throw bad(403, 'signature is not from your wallet');
+    const wasOn = clans.membership(clan.id, ch.userId)?.policy.enabled ?? false;
     clans.setPolicy(clan.id, ch.userId, ch.policy);
+    if (ch.policy.enabled && !wasOn) postSystem(cultRoom(clan.id), ch.userId, 'turned on Auto-follow');
     getDb()
       .prepare('INSERT OR REPLACE INTO join_consents (clan_id, user_id, message, signature, signed_at) VALUES (?, ?, ?, ?, ?)')
       .run(clan.id, ch.userId, ch.message, body.signature, Date.now());
     joinChallenges.delete(body.challengeId);
     return c.json(clanView(clan.id, ch.userId));
+  });
+
+  // Auto-follow off: stops copying new trades straight away, no signature (it
+  // only reduces what the backend may do). Copies already open still follow
+  // their leader's partial sells and exit. Turning it on is the signed
+  // /policy/challenge + /policy with enabled: true.
+  cultRoutes.post('/:clanId/auto-follow', async (c) => {
+    const clan = clanFor(c);
+    const body = z.object({ enabled: z.boolean() }).parse(await c.req.json());
+    if (body.enabled) throw bad(400, 'turning Auto-follow on needs your signed limits: POST /policy/challenge with enabled: true, then /policy');
+    const m = clans.membership(clan.id, c.get('userId'))!;
+    clans.setPolicy(clan.id, c.get('userId'), { ...m.policy, enabled: false });
+    engine.memberLeft(clan.id, c.get('userId')); // cancels anything still pending for them here
+    return c.json(clanView(clan.id, c.get('userId')));
   });
 
   // Public cults anyone can join. Private ones never show here.
@@ -546,6 +601,7 @@ export function createApp(engine: MirrorEngine) {
     const userId = c.get('userId');
     engine.memberLeft(clan.id, userId);
     clans.leave(clan.id, userId);
+    postSystem(cultRoom(clan.id), userId, 'left the cult');
     return c.body(null, 204);
   });
 

@@ -67,3 +67,21 @@ test('a burst is slowed down, across rooms', () => {
   assert.ok(tries.includes(429));
   assert.ok(tries.filter((t) => t === 'ok').length <= 8);
 });
+
+test('system notices, room activity and pins', () => {
+  const room = chat.cultRoom(cultA);
+  const sys = chat.postSystem(room, 'A', 'joined the cult');
+  assert.equal(sys.kind, 'system');
+  const r = chat.roomsFor('A').find((x) => x.id === room)!;
+  assert.equal(r.lastMessage?.id, sys.id, 'the room list shows the latest line');
+  assert.equal(r.memberCount, 1);
+  assert.equal(chat.roomsFor('A')[0]!.memberCount, 3, 'global counts everyone');
+  assert.match(chat.listMessages('global').pinned!.body, /Every trader on Cult starts here/);
+  assert.equal(chat.listMessages(room).pinned, null);
+  const msg = chat.postMessage(room, 'A', { body: 'rules: announce before you trade' });
+  assert.throws(() => chat.setPin(room, 'B', msg.id), /only the cult owner/);
+  assert.throws(() => chat.setPin('global', 'A', msg.id), /only cult rooms/);
+  assert.equal(chat.setPin(room, 'A', msg.id)!.body, 'rules: announce before you trade');
+  assert.equal(chat.listMessages(room).pinned!.id, msg.id);
+  assert.equal(chat.setPin(room, 'A', null), null);
+});
