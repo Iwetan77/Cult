@@ -117,6 +117,15 @@ export function createApp(engine: MirrorEngine) {
 
   app.get('/v1/health', (c) => c.json({ ok: true }));
 
+  // Is a username free? Public: the sign-up screen checks as you type, and it
+  // reveals nothing a profile page doesn't. (Setting it is signed-in only.)
+  app.get('/v1/usernames/:name', (c) => {
+    const name = c.req.param('name');
+    const problem = usernameProblem(name);
+    if (problem) return c.json({ available: false, reason: problem });
+    return c.json(members.byUsername(name) ? { available: false, reason: 'taken' } : { available: true });
+  });
+
   // Profile photos, public (they show next to names in chats and leaderboards).
   // URLs carry ?v=<last change>, so they can be cached for a long time.
   app.get('/v1/avatars/:userId', (c) => {
@@ -329,13 +338,6 @@ export function createApp(engine: MirrorEngine) {
   authed.get('/wallet/deposit', async (c) => c.json(await depositInfo(c.get('userId'))));
 
   // Username: asked once at first sign-in (/v1/me.needsUsername), changeable later.
-  authed.get('/usernames/:name', (c) => {
-    const name = c.req.param('name');
-    const problem = usernameProblem(name);
-    if (problem) return c.json({ available: false, reason: problem });
-    const taken = members.byUsername(name);
-    return c.json(taken && taken.userId !== c.get('userId') ? { available: false, reason: 'taken' } : { available: true });
-  });
   authed.post('/me/username', async (c) => {
     const { username } = z.object({ username: z.string().trim() }).parse(await c.req.json());
     const problem = usernameProblem(username);
