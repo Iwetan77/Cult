@@ -156,7 +156,7 @@ async function handleOpened(context: any, event: any, isV2: boolean) {
   const pricePNS = BigInt(event.params.pricePNS);
   const tx = event.transaction.hash;
   const block = BigInt(event.block.number);
-  const ts = BigInt(event.block.timestamp);
+  const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
   const acct = await context.PerplAccount.get(accountId);
   if (!acct) return;
@@ -208,7 +208,7 @@ async function handleIncreased(context: any, event: any) {
   const pricePNS = BigInt(event.params.pricePNS);
   const tx = event.transaction.hash;
   const block = BigInt(event.block.number);
-  const ts = BigInt(event.block.timestamp);
+  const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
   const pos = await getPosition(context, perpId, accountId);
   if (!pos) return;
@@ -247,7 +247,7 @@ indexer.onEvent(
     const fundingCNS = BigInt(event.params.fundingCNS);
     const tx = event.transaction.hash;
     const block = BigInt(event.block.number);
-    const ts = BigInt(event.block.timestamp);
+    const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
     const pos = await getPosition(context, perpId, accountId);
     if (!pos) return;
@@ -287,7 +287,7 @@ indexer.onEvent(
     const pricePNS = BigInt(event.params.pricePNS);
     const tx = event.transaction.hash;
     const block = BigInt(event.block.number);
-    const ts = BigInt(event.block.timestamp);
+    const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
     const pos = await getPosition(context, perpId, accountId);
     if (!pos) return;
@@ -322,7 +322,7 @@ indexer.onEvent(
     const pricePNS = BigInt(event.params.pricePNS);
     const tx = event.transaction.hash;
     const block = BigInt(event.block.number);
-    const ts = BigInt(event.block.timestamp);
+    const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
     const pos = await getPosition(context, perpId, accountId);
     if (!pos) return;
@@ -366,7 +366,7 @@ indexer.onEvent(
     const pricePNS = BigInt(event.params.liqPricePNS);
     const tx = event.transaction.hash;
     const block = BigInt(event.block.number);
-    const ts = BigInt(event.block.timestamp);
+    const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
     const pos = await getPosition(context, perpId, accountId);
     if (!pos) return;
@@ -402,7 +402,7 @@ async function handleDeleveraged(context: any, event: any) {
   const pricePNS = BigInt(event.params.deleveragePricePNS);
   const tx = event.transaction.hash;
   const block = BigInt(event.block.number);
-  const ts = BigInt(event.block.timestamp);
+  const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
   const pos = await getPosition(context, perpId, accountId);
   if (!pos) return;
@@ -445,7 +445,7 @@ async function handleUnwound(context: any, event: any) {
   const fmvCNS = BigInt(event.params.positionFmvCNS);
   const tx = event.transaction.hash;
   const block = BigInt(event.block.number);
-  const ts = BigInt(event.block.timestamp);
+  const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
   const pos = await getPosition(context, perpId, accountId);
   if (!pos) return;

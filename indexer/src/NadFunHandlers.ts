@@ -74,6 +74,10 @@ async function closeRoundTrip(
     venue: "NAD_FUN",
     trader_id: pos.wallet,
     token: pos.token,
+    // null = the member's own trade. A mirror/stack trade is labelled by joining
+    // openTx against the backend's GET /v1/indexer/txs (venue=nadfun, kind=
+    // mirror_open|mirror_close|stack_open). Not set here — the backend owns the tag.
+    origin: null,
     qtyRaw: pos.peakQtyRaw,
     costMon: monWeiToMon(pos.totalCostMonWei),
     proceedsMon: monWeiToMon(pos.totalProceedsMonWei),
@@ -119,7 +123,7 @@ indexer.onEvent(
     const amountOut = BigInt(event.params.amountOut); // tokens
     const tx = event.transaction.hash;
     const block = BigInt(event.block.number);
-    const ts = BigInt(event.block.timestamp);
+    const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
     await ensureTrader(context, buyer);
     recordEvent(context, tx, block, event.logIndex, ts, buyer, token, "BUY", amountIn, amountOut, event.params.graduated);
@@ -166,7 +170,7 @@ indexer.onEvent(
     const amountOut = BigInt(event.params.amountOut); // MON wei
     const tx = event.transaction.hash;
     const block = BigInt(event.block.number);
-    const ts = BigInt(event.block.timestamp);
+    const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
     await ensureTrader(context, seller);
     recordEvent(context, tx, block, event.logIndex, ts, seller, token, "SELL", amountIn, amountOut, event.params.graduated);
