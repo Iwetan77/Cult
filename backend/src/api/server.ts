@@ -23,6 +23,8 @@ import { members } from '../store/members.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
 import { createShare, getShare, ShareError } from './shares.js';
+import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
+import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
@@ -55,6 +57,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof AuthError) return c.json({ message: err.message }, 401);
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
+    if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     console.error('[api]', err);
     return c.json({ message: 'internal error' }, 500);
@@ -290,6 +293,18 @@ export function createApp(engine: MirrorEngine) {
     return c.json(fill);
   });
 
+  // TP/SL on your own Perpl position, as real Perpl trigger orders. A number
+  // sets that leg, null removes it, omitted keeps it. Prices in $.
+  authed.post('/positions/tpsl', async (c) => {
+    const leg = z.number().positive().nullable().optional();
+    const body = z.object({ marketId: z.coerce.string(), takeProfit: leg, stopLoss: leg }).parse(await c.req.json());
+    if (venueOf(body.marketId) !== 'perpl') throw bad(400, 'TP/SL is Perpl only; Nad.fun is spot');
+    const userId = c.get('userId');
+    const m = members.get(userId)!;
+    if (!m.perplAccountId) throw bad(409, 'no Perpl account');
+    return c.json(await setTpSl(await sessionFor(userId), m.perplAccountId, Number(body.marketId), { takeProfit: body.takeProfit, stopLoss: body.stopLoss }));
+  });
+
   authed.post('/positions/close', async (c) => {
     const body = z.object({ marketId: z.coerce.string(), sizeRaw: z.string().regex(/^\d+$/).optional() }).parse(await c.req.json());
     const userId = c.get('userId');
@@ -374,6 +389,21 @@ export function createApp(engine: MirrorEngine) {
     return c.json(result, result.status === 'open' ? 200 : 502);
   });
 
+  // Drag-to-suggest: propose a TP/SL on a clan-mate's Perpl marker. Stored and
+  // pushed live; only the owner can apply it (via POST /v1/positions/tpsl).
+  authed.post('/clans/:clanId/markers/:markerId/suggest-tpsl', async (c) => {
+    const clan = clanFor(c);
+    const leg = z.number().positive().nullable().optional();
+    const body = z.object({ takeProfit: leg, stopLoss: leg }).parse(await c.req.json());
+    if (body.takeProfit == null && body.stopLoss == null) throw bad(400, 'suggest a take-profit, a stop-loss, or both');
+    const markerId = c.req.param('markerId');
+    const tradeId = resolveTradeId(markerId);
+    const trade = trades.get(tradeId);
+    if (!trade || trade.closedAt || !clans.membership(clan.id, trade.userId)) throw bad(404, 'marker not found');
+    if (trade.venue !== 'perpl') throw bad(400, 'TP/SL is Perpl only');
+    return c.json(addSuggestion(clan.id, tradeId, markerId, c.get('userId'), body.takeProfit ?? null, body.stopLoss ?? null), 201);
+  });
+
   authed.post('/shares', async (c) => {
     const body = z.object({ markerId: z.string(), includeClan: z.boolean() }).parse(await c.req.json());
     return c.json(await createShare(c.get('userId'), body.markerId, body.includeClan), 201);
@@ -391,12 +421,15 @@ export function createApp(engine: MirrorEngine) {
       engine.on('trade', onTrade);
       engine.on('tradeClosed', onClosed);
       engine.on('mirror', onMirror);
+      const onSuggestion = (clanId: string, sug: TpSlSuggestion) => clanId === clan.id && send('suggestion', sug);
+      clanBus.on('suggestion', onSuggestion);
       const ping = setInterval(() => void stream.writeSSE({ event: 'ping', data: String(Date.now()) }), 15_000);
       await new Promise<void>((resolve) => stream.onAbort(resolve));
       clearInterval(ping);
       engine.off('trade', onTrade);
       engine.off('tradeClosed', onClosed);
       engine.off('mirror', onMirror);
+      clanBus.off('suggestion', onSuggestion);
     });
   });
 

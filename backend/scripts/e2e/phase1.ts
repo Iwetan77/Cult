@@ -6,6 +6,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { onboardMember, restFor, sessionFor, stopAllSessions } from '../../src/accounts/lifecycle.js';
 import { getExchangeInfo, getMarketBySymbol } from '../../src/perpl/context.js';
 import { closePosition, openPosition, sizeForMargin, viewPositions } from '../../src/trading/positions.js';
+import { setTpSl } from '../../src/trading/tpsl.js';
+import { perplTpSl } from '../../src/venues/perpl.js';
 import { freshFundedWallet, preflight } from './fund.js';
 
 const SYMBOL = process.env.E2E_MARKET ?? 'BTC';
@@ -49,6 +51,19 @@ try {
   console.log('live position', views[0]);
   evidence.livePosition = views[0];
 
+  // TP/SL as real Perpl trigger orders, read back from Perpl's open orders.
+  const markNow = views[0].markPrice;
+  const want = { takeProfit: Math.round(markNow * 1.05), stopLoss: Math.round(markNow * 0.95) };
+  await setTpSl(session, ob.accountId, market.id, want);
+  let got = await perplTpSl(userId, market.id);
+  for (let i = 0; i < 8 && (got?.takeProfit == null || got?.stopLoss == null); i++) {
+    await sleep(1500);
+    got = await perplTpSl(userId, market.id);
+  }
+  console.log('tp/sl set', want, 'read back from Perpl', got);
+  evidence.tpsl = { want, got };
+  if (got?.takeProfit !== want.takeProfit || got?.stopLoss !== want.stopLoss) throw new Error(`GATE FAILED: TP/SL read back ${JSON.stringify(got)} != ${JSON.stringify(want)}`);
+
   await sleep(3000);
   const close = await closePosition(session, ob.accountId, market.id);
   console.log('close order', { rq: close.rq, oid: close.oid, st: close.st, fs: close.fs, fp: close.fp, tx: close.at?.txid });
@@ -71,6 +86,8 @@ try {
   if (!openFill) problems.push(`open oid ${open.oid} missing from /fills`);
   if (!closeFill) problems.push(`close oid ${close.oid} missing from /fills`);
   if (stillOpen.length) problems.push(`position still open after close: ${JSON.stringify(stillOpen)}`);
+  const leftover = (await rest.openOrders()).d.filter((o) => o.mkt === market.id);
+  if (leftover.length) problems.push(`trigger orders left after close (should be cancelled via lp): ${leftover.map((o) => o.oid).join(',')}`);
   if (problems.length) throw new Error('GATE FAILED: ' + problems.join('; '));
 
   console.log('\nGATE OK. open fill tx', openFill!.at.txid, '| close fill tx', closeFill!.at.txid);

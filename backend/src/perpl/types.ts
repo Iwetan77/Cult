@@ -131,8 +131,17 @@ export interface OrderSpec {
   mnp?: number;
   fl: OrderFlags;
   lv: number; // hundredths: 500 = 5x
-  lb: number;
-  lp?: number;
+  lb: number; // must be 0 on trigger orders
+  tp?: number; // trigger price (scaled)
+  tpc?: TriggerCondition;
+  lp?: number; // linked position: trigger is cancelled when it closes
+}
+
+export enum TriggerCondition {
+  GTELast = 1,
+  LTELast = 2,
+  GTEMark = 3,
+  LTEMark = 4,
 }
 
 export interface Order {
@@ -153,6 +162,9 @@ export interface Order {
   fs: number;
   f: string;
   lv: number;
+  tp?: number;
+  tpc?: TriggerCondition;
+  lp?: number;
 }
 
 export interface Position {

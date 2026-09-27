@@ -7,6 +7,10 @@ import { getDb } from '../store/db.js';
 import { clans, type Clan } from '../store/clans.js';
 import { members } from '../store/members.js';
 import { venue, venueOf, type Holding, type TradeSide, type Venue } from '../venues/index.js';
+import { perplTpSl } from '../venues/perpl.js';
+import type { TpSl } from '../trading/tpsl.js';
+import { shortName } from './names.js';
+import { suggestionsFor, type TpSlSuggestion } from './suggestions.js';
 
 // Shapes follow frontend/src/lib/contracts.ts (ChartSnapshot, ChartMarker, ...)
 // and are published in CONTRACTS.md. Every money figure is in dollars (settled
@@ -34,6 +38,11 @@ export interface ChartMarker {
   mirrorStatus?: 'pending' | 'submitted' | 'filled';
   skipUntil?: string;
   txHash?: string | null;
+  // Perpl only: the owner's live TP/SL (Perpl trigger orders on that position).
+  takeProfitPrice?: number | null;
+  stopLossPrice?: number | null;
+  // Perpl only: clan-mates' latest TP/SL suggestions on this marker.
+  suggestions?: TpSlSuggestion[];
 }
 
 export interface ApiMarket {
@@ -68,7 +77,7 @@ export interface ChartSnapshot {
   autoMirrorOptOutWindowSeconds: number;
 }
 
-export const shortName = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+export { shortName };
 
 export function toApiMarket(m: PerplMarket): ApiMarket {
   return {
@@ -170,6 +179,17 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
     }),
   );
 
+  // Perpl: each involved member's real TP/SL, read from their Perpl open orders.
+  const tpsl = new Map<string, TpSl>();
+  if (v === 'perpl') {
+    await Promise.all(
+      [...involved].map(async (uid) => {
+        const t = await perplTpSl(uid, Number(selected.id)).catch(() => null);
+        if (t) tpsl.set(uid, t);
+      }),
+    );
+  }
+
   const name = (uid: string) => shortName(members.get(uid)?.wallet ?? uid);
   // Value one member's slice of their holding. `sizeRaw` is how much of it this
   // marker accounts for; `costAusd` is what that slice cost, when we know it.
@@ -248,6 +268,16 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
       txHash: s.open_tx,
       ...slice(s.user_id, s.size, entry),
     });
+  }
+
+  if (v === 'perpl') {
+    const sugg = suggestionsFor(clan.id, markers.map((m) => m.id));
+    for (const m of markers) {
+      const t = tpsl.get(m.memberId);
+      m.takeProfitPrice = t?.takeProfit ?? null;
+      m.stopLossPrice = t?.stopLoss ?? null;
+      m.suggestions = sugg.get(m.id) ?? [];
+    }
   }
 
   const me = clans.membership(clan.id, viewerId);
