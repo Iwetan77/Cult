@@ -126,6 +126,9 @@ and add a `priceResiduePNSQ16` field; they are indexed alongside their V1 names.
   to 0) or a terminal event (liquidated / deleveraged-to-zero / unwound / inverted).
 - **Win rate** = profitable closed trades / total closed trades; a trade is a win when
   its cumulative realized PnL > 0.
+- **"Recent" PnL** is derived at query time, not stored: filter `Trade` on
+  `closedAt >= now - window`. `Trader.realizedPnlUsd` is all-time; any window is a
+  sum over the matching `trades`.
 - **Known gap (reconcile at GATE)**: funding settled on position *increase*
   (`PositionIncreased.premiumPnlSettledCNS`) is not yet counted. Second-order (funding
   only). Also not yet indexed: raw `MakerOrderFilled`/`TakerOrderFilled` fills (the
