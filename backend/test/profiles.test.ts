@@ -84,3 +84,10 @@ test('home: best own trades of the week, who was in, and my 7 days', async () =>
   assert.equal(h.sevenDay.profitUsd, 15);
   assert.equal(h.sevenDay.positionsOpened, 1);
 });
+
+test('recent windows: 7 and 30 days of own trades', async () => {
+  const p = await P.profile(W(1), 'u1');
+  assert.deepEqual(p.record.recent.d7, { tradeCount: 3, winRate: 2 / 3, realizedPnlUsd: 15 });
+  const q = await P.profile(W(2), 'u2');
+  assert.equal(q.record.recent.d7.tradeCount, 0, "u2's own trade is 30 days old; the week's one was a copy");
+});

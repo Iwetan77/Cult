@@ -29,7 +29,14 @@ export interface MemberStats {
   lastTradeAt: number | null; // own
   streak: number; // own wins in a row, counting back from the latest own close
   avgWinPct: number | null; // mean return % of own winning trades
+  recent: { d7: RecentWindow; d30: RecentWindow }; // own trades closed in the last 7 / 30 days
   copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null }; // mirrors + stacks
+}
+
+export interface RecentWindow {
+  tradeCount: number;
+  winRate: number | null;
+  realizedPnlUsd: number | null; // null if any Nad.fun trade in it has no MON price
 }
 
 // One closed round trip, either venue, normalised for profiles and the home feed.
@@ -63,6 +70,7 @@ const UNVERIFIED: MemberStats = {
   lastTradeAt: null,
   streak: 0,
   avgWinPct: null,
+  recent: { d7: { tradeCount: 0, winRate: null, realizedPnlUsd: null }, d30: { tradeCount: 0, winRate: null, realizedPnlUsd: null } },
   copied: { tradeCount: 0, winRate: null, realizedPnlUsd: null },
 };
 
@@ -144,6 +152,16 @@ export function toStats(row: TraderRow | undefined, monPx: number | null, sentBy
     streak++;
   }
   const winPcts = mine.filter((t) => t.isWin && t.returnPct != null).map((t) => t.returnPct!);
+  const window = (days: number): RecentWindow => {
+    const since = Date.now() - days * 86_400_000;
+    const w = mine.filter((t) => t.closedAt >= since);
+    const wins = w.filter((t) => t.isWin).length;
+    return {
+      tradeCount: w.length,
+      winRate: w.length ? wins / w.length : null,
+      realizedPnlUsd: w.some((t) => t.pnlUsd == null) ? null : w.reduce((a, t) => a + t.pnlUsd!, 0),
+    };
+  };
   return {
     verified: true,
     tradeCount: own.n,
@@ -155,6 +173,7 @@ export function toStats(row: TraderRow | undefined, monPx: number | null, sentBy
     lastTradeAt: own.last,
     streak,
     avgWinPct: winPcts.length ? winPcts.reduce((a, b) => a + b, 0) / winPcts.length : null,
+    recent: { d7: window(7), d30: window(30) },
     copied: { tradeCount: copied.n, winRate: copied.n > 0 ? copied.wins / copied.n : null, realizedPnlUsd: inUsd(copied) },
   };
 }

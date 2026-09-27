@@ -80,3 +80,12 @@ test('cult board and the public cults board', async () => {
   assert.equal(all.entries[0]!.joined, true);
   assert.equal(all.entries[0]!.winRate, 2 / 3);
 });
+
+test('period filter: 7d ranks only trades closed this week', async () => {
+  const week = await lb.globalBoard('u1', 100, '7d');
+  assert.equal(week.period, '7d');
+  assert.equal(week.entries.length, 0, 'every fixture trade closed long ago');
+  assert.equal(week.me?.rank, null);
+  assert.equal(lb.parsePeriod(undefined), 'all');
+  assert.throws(() => lb.parsePeriod('90d'), /all, 30d or 7d/);
+});
