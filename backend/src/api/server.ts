@@ -13,6 +13,7 @@ import { mirrors, trades } from '../mirror/repo.js';
 import { stackOnTrade } from '../mirror/stack.js';
 import { getContext, getMarket } from '../perpl/context.js';
 import { AuthError, identify } from '../privy/auth.js';
+import { memberSignerGrant } from '../privy/policy.js';
 import { clans, MirrorPolicySchema, type MirrorPolicy } from '../store/clans.js';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
@@ -173,6 +174,15 @@ export function createApp(engine: MirrorEngine) {
       // USDC funding isn't wired yet (see CONTRACTS.md blockers); null, not a guess.
       usdcBalance: null,
     });
+  });
+
+  // What the frontend passes to Privy's useSigners().addSigners() so the
+  // backend can act on this wallet, only within the policy.
+  authed.get('/privy/signer', async (c) => {
+    const userId = c.get('userId');
+    const caps = clans.forUser(userId).map((cl) => clans.membership(cl.id, userId)!.policy.maxUsdPerTrade);
+    if (caps.length === 0) throw bad(409, 'join or create a clan first; the cap comes from your clan policy');
+    return c.json(await memberSignerGrant(userId, Math.max(...caps)));
   });
 
   // Perpl account setup, driven by the member's own wallet in the browser.

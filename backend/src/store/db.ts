@@ -25,6 +25,8 @@ function migrate(d: DatabaseSync) {
       api_key_secret   TEXT,                      -- sealed Ed25519 secret, see store/crypto.ts
       api_key_pubkey   TEXT,
       forwarding       INTEGER NOT NULL DEFAULT 0,
+      privy_policy_id  TEXT,                      -- this member's backend-signer policy (src/privy/policy.ts)
+      privy_policy_cap INTEGER,                   -- the raw AUSD cap that policy was built with
       created_at       INTEGER NOT NULL
     );
 
