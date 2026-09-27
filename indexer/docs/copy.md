@@ -2,88 +2,153 @@
 
 Plain-tone copy for the frontend to lift. This is a trading app, not a pitch:
 no "revolutionary", no "empowering", no dressing up what the product does. Where a
-line carries a real financial consequence (auto-mirror, real collateral), it says
-so in the sentence itself, never in fine print.
+line carries a real financial consequence (copying trades with real money), it
+says so in the sentence itself, never in fine print.
 
-## Funding flow
+Money is always shown in dollars ($). The word "AUSD" appears only on the funding
+screen, where the member needs to know what they're sending.
 
-**What the user sees, start to finish**
+## Sign in
+
+**Landing**
+
+- Eyebrow: "CULTS / MONAD"
+- Headline: "Trade together. Own every move."
+- Body: "One chart for your cult's live positions across Perpl and Nad.fun. Your
+  wallet, your funds, your trades."
+- Primary button: "Continue with Google"
+- Secondary button: "Connect wallet"
+- Footer: "YOUR FUNDS STAY IN YOUR WALLET"
+
+**First run (skippable)**
+
+- "Where are you trading from?"
+- "You'll join your country's chat and leaderboard. Change it any time."
+- Buttons: "Continue" · "Skip"
+
+## Funding
+
+**What the member sees, start to finish**
 
 - "Add funds to start trading." (primary)
-- "Your clan trades with real money on Perpl. Everyone funds their own account —
-  nobody pools or holds anyone else's funds." (supporting)
+- "Everyone funds their own account. Nobody pools or holds anyone else's money."
+  (supporting)
 
-**Steps**
+**Two ways in**
 
-1. **Buy USDC** — "Get USDC. You can pay with a card if you don't already have it."
-2. **Convert** — "We swap your USDC into the stablecoin Perpl settles in. You don't
-   need to know which one — it happens automatically."
-3. **Open your trading account** — "This creates your on-chain trading account.
-   Your wallet signs it, not us."
+1. **Deposit AUSD**: "Send AUSD on Monad to your wallet address below. This is
+   the dollar token trades settle in."
+2. **Pay with USDC**: "We swap your USDC to AUSD at the best rate we can find. You
+   see the minimum you'll get before you sign."
 
-**Footnotes / honesty**
+**Trading account (perps)**
 
-- "Funding is always your own money in your own account. Cult never takes custody."
+- "Open your Perpl account. Your wallet signs this, not us."
 
-## The clan-join moment (auto-mirror consent)
+**Gas**
 
-This is the headline copy and the most important sentence in the app. Joining a clan
-means agreeing to auto-copy every active member's trades. That has to be stated
-up-front and in plain words.
+- "Keep a little MON for network fees. We never spend the last 0.25 MON."
 
-**Modal title**
+**Honesty line**
 
-- "Join this clan and mirror its trades"
+- "It's always your own money in your own account. Cult never takes custody and
+  can never withdraw."
+
+## Cults
+
+**Create**
+
+- Field: "Cult name"
+- Toggle: "Public — anyone can find and join"
+- Button: "Create cult"
+- After: "Your invite code is ABC-DEF. Share it with people you want to trade
+  alongside."
+
+**Join**
+
+- "Got an invite code?"
+- Placeholder: "ABC-DEF"
+- Button: "Join"
+- After joining: "You're in. Copying is off until you turn on Auto-follow."
+
+## Auto-follow (the consent moment)
+
+This is the most important copy in the app. Joining a cult is just joining the
+group chat; nothing touches your money. Auto-follow is where the member agrees
+to copy trades with real money, and it has to say so plainly.
+
+**Switch label**
+
+- "Auto-follow — copy this cult's trades into your wallet"
+
+**Sheet title**
+
+- "Copy this cult's trades"
 
 **Body**
 
-- "When you join, you agree to auto-mirror: every time an active member opens a
-  position, your account opens a proportional one too — and closes when they close.
-  You pick the cap once, here, and you're never asked per trade."
+- "When a member of this cult trades on Perpl or Nad.fun, the same trade opens in
+  your account, sized to your balance. When they add, sell part or exit, you
+  follow."
 
-**The cap (what they actually set)**
+**The limits (what they actually set)**
 
-- "Mirror cap — the most of your own margin any one mirror can use."
-- Placeholder: "e.g. 5%"
+- "Most per trade" — placeholder "$100"
+- "Most of your balance per trade" — placeholder "10%"
 
-**Skip option**
+**Skip**
 
-- "You can skip any individual trade before it fires."
+- "You get 20 seconds to skip any copy before it fires. Partial sells and exits
+  follow straight away, since they only take risk off."
 
 **Confirm button**
 
-- "Join and start mirroring" — not "Join", not "Accept terms".
+- "Turn on Auto-follow", not "Accept terms".
 
-**One honest line that never gets hidden**
+**One honest line that's never hidden**
 
-- "Joining means auto-copying trades. Your wins and losses are yours — from your
-  account, on the chain."
+- "Auto-follow copies trades with your money. Your wins and losses are yours, on
+  your account, on the chain."
+
+**Turning it off**
+
+- "Auto-follow is off. Copies already open still close when the trade they copied
+  closes."
 
 ## Empty states
 
-**No clans yet**
+**Home, no trades anywhere this week**
 
-- "No clans yet."
-- "Create a clan and invite people you actually want to trade alongside. Clans are
-  private — there's no public directory."
+- "Quiet week."
+- "The best trades across Cult show up here as they close."
 
-**Clan with no trades yet**
+**No cults yet**
+
+- "You're in Global and your country already."
+- "Create a cult for the people you actually trade with, or join one with a code."
+
+**Cult with no trades yet**
 
 - "No trades yet."
-- "Positions show up here on the shared chart the moment someone opens one."
+- "Positions show up on the cult chart the moment someone opens one."
 
 **Member with no verified history**
 
 - "No verified track record yet."
-- "Once this member closes a trade, their win rate and PnL show up here — read
-  straight from the chain, not typed in."
+- "Once this member closes a trade of their own, their win rate and PnL show up
+  here, read straight from the chain, not typed in. Copied trades don't count."
+
+**Leaderboard, unranked**
+
+- "Unranked"
+- "You need one verified closed trade of your own to get a rank."
 
 **Chart with no open positions**
 
 - "No open positions."
-- "Tap a market and open one, or wait for a clan-mate to make a move."
+- "Open one, or wait for a cult-mate to make a move."
 
 **Share card with no trade**
 
 - "Nothing to share yet."
-- "Close a winning trade first, then share the receipt."
+- "Close a trade first, then share the receipt."

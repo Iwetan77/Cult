@@ -27,6 +27,8 @@ contracts:
       - event: PositionDeleveragedV2
       - event: PositionUnwound
       - event: PositionUnwoundV2
+      - event: MakerOrderFilled
+      - event: MakerOrderFilledV2
   - name: NadFunRouter
     abi_file_path: ./abis/NadFunRouter.json
     handler: ./src/NadFunHandlers.ts
