@@ -1,14 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getAccessToken, useCreateWallet, useFundWallet, usePrivy, useSendTransaction, useSignMessage, useWallets } from '@privy-io/react-auth';
-import { monad } from 'viem/chains';
+import { getAccessToken, useCreateWallet, useFundWallet, usePrivy, useSendTransaction, useSignMessage, useSigners, useWallets } from '@privy-io/react-auth';
+import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
+import { monad, monadTestnet } from 'viem/chains';
 import { ArrowDownToLine, ArrowRight, Copy, ExternalLink, Link2, LogOut, Plus, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react';
-import { createClan, createShare, enrollPerpl, getChart, getConfig, getEnrollmentChallenge, getJoinChallenge, getMe, getPerplSetup, joinClan, skipAutoMirror, stackPerpl } from '@/lib/api';
-import type { BackendConfig, ChartMarker, ChartSnapshot, Me, MirrorPolicy, SetupStatus, Venue, WalletAction } from '@/lib/contracts';
-import { percent, shortAddress, signedUsd, usd } from '@/lib/format';
+import { createClan, createShare, enrollPerpl, getChart, getConfig, getEnrollmentChallenge, getHoldings, getNadMarkets, getJoinChallenge, getMe, getPerplSetup, getPrivySigner, joinClan, prepareUsdcFunding, confirmUsdcFunding, openPosition, closePosition, skipAutoMirror, stackPosition } from '@/lib/api';
+import type { BackendConfig, ChartMarker, ChartSnapshot, Holding, Me, MirrorPolicy, NadMarket, PrivySignerGrant, SetupStatus, Venue, WalletAction } from '@/lib/contracts';
+import { ausd, mon, percent, shortAddress, signedAusd } from '@/lib/format';
 import { SharedChart } from './SharedChart';
 
+const testnetAusd = '0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC';
 const defaultPolicy: MirrorPolicy = { enabled: true, balancePercentCap: 10, maxUsdPerTrade: 100 };
 const venueName = (venue: Venue) => venue === 'perpl' ? 'Perpl' : 'Nad.fun';
 const originName = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? 'Auto mirrored' : origin === 'manual_stack' ? 'Manual stack' : 'Clan position';
@@ -27,9 +29,19 @@ export function Dashboard() {
   const { createWallet } = useCreateWallet();
   const { signMessage } = useSignMessage();
   const { sendTransaction } = useSendTransaction();
+  const { addSigners } = useSigners();
   const { fundWallet } = useFundWallet();
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
+  const [grant, setGrant] = useState<PrivySignerGrant | null>(null);
+  const [signerReady, setSignerReady] = useState(false);
+  const [monBalance, setMonBalance] = useState<number | null>(null);
+  const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [nadMarkets, setNadMarkets] = useState<NadMarket[]>([]);
+  const [tradeSide, setTradeSide] = useState<'long' | 'short'>('long');
+  const [tradeAusd, setTradeAusd] = useState('50');
+  const [tradeLeverage, setTradeLeverage] = useState('2');
+  const [fundMode, setFundMode] = useState<'ausd' | 'usdc'>('ausd');
   const [createPolicy, setCreatePolicy] = useState<MirrorPolicy>(defaultPolicy);
   const wallet = wallets.find(item => item.walletClientType === 'privy');
   const [me, setMe] = useState<Me | null>(null);
@@ -86,7 +98,35 @@ export function Dashboard() {
     const interval = window.setInterval(refresh, 5000);
     return () => { active = false; window.clearInterval(interval); };
   }, [authenticated, clanId, marketId, loadChart]);
-  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => {
+    if (!authenticated || !clanId) return;
+    let active = true;
+    token().then(getPrivySigner).then(value => { if (active) setGrant(value); }).catch(err => { if (active) setError(errorText(err)); });
+    return () => { active = false; };
+  }, [authenticated, clanId]);
+  useEffect(() => {
+    if (!wallet || config?.chainId !== monadTestnet.id) return;
+    let active = true;
+    const client = createPublicClient({ chain: monadTestnet, transport: http() });
+    const refresh = () => client.getBalance({ address: wallet.address as `0x${string}` })
+      .then(value => { if (active) setMonBalance(Number(formatEther(value))); })
+      .catch(() => { if (active) setMonBalance(null); });
+    refresh();
+    const timer = window.setInterval(refresh, 30000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [wallet, config?.chainId]);  useEffect(() => {
+    if (!authenticated || !wallet) return;
+    let active = true;
+    const refresh = () => token().then(getHoldings).then(value => { if (active) setHoldings(value.positions); }).catch(err => { if (active) setError(errorText(err)); });
+    refresh();
+    const timer = window.setInterval(refresh, 10000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [authenticated, wallet]);  useEffect(() => {
+    if (!authenticated) return;
+    let active = true;
+    token().then(getNadMarkets).then(value => { if (active) setNadMarkets(value.markets); }).catch(() => {});
+    return () => { active = false; };
+  }, [authenticated]);  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get('invite');
     if (code) setInviteCode(code);
@@ -103,15 +143,25 @@ export function Dashboard() {
   const transact = async (action: WalletAction) => {
     if (!wallet) throw new Error('Connect your wallet first.');
     if (!config || action.chainId !== config.chainId) throw new Error('Wallet action chain does not match backend configuration.');
+    if (!isAddress(action.to) || !isHex(action.data)) throw new Error('Backend returned an invalid wallet action.');
     await wallet.switchChain(action.chainId);
     const result = await sendTransaction({ to: action.to, data: action.data, value: BigInt(action.value ?? '0x0') }, { address: wallet.address });
+    const chain = config.chainId === monad.id ? monad : monadTestnet;
+    const receipt = await createPublicClient({ chain, transport: http() }).waitForTransactionReceipt({ hash: result.hash });
+    if (receipt.status !== 'success') throw new Error(`${action.label} failed on-chain.`);
     return result.hash;
   };
-  const create = () => perform('create', async () => {
+  const grantSigner = async () => {
+    if (!wallet) throw new Error('Create your Privy wallet first.');
+    const value = await getPrivySigner(await token());
+    setGrant(value);
+    await addSigners({ address: wallet.address, signers: [{ signerId: value.signerId, policyIds: value.policyIds }] });
+    setSignerReady(true);
+  };  const create = () => perform('create', async () => {
     if (!name.trim()) throw new Error('Name your clan first.');
     validatePolicy(createPolicy);
     const result = await createClan(await token(), name.trim(), createPolicy);
-    await loadMe(); setClanId(result.id); setNotice('Clan created. Share your invite privately.');
+    await loadMe(); setClanId(result.id); setPanel('wallet'); await grantSigner(); setNotice('Clan created. Your wallet approved the capped trading signer.');
   });
   const join = () => perform('join', async () => {
     const code = inviteFromInput(inviteCode);
@@ -121,53 +171,88 @@ export function Dashboard() {
     const challenge = await getJoinChallenge(auth, code, policy);
     const signature = await sign(challenge.message);
     const joined = await joinClan(auth, challenge.challengeId, signature);
-    await loadMe(); setClanId(joined.id); setNotice('Joined. Your wallet and mirror limits are authorized.');
+    await loadMe(); setClanId(joined.id); setPanel('wallet'); await grantSigner(); setNotice('Joined. Your wallet approved the capped trading signer.');
     window.history.replaceState({}, '', '/');
   });
+  const buyUsdc = () => perform('buy-usdc', async () => {
+    if (!wallet || config?.chainId !== monad.id) throw new Error('Card USDC purchase is only available on Monad mainnet.');
+    await fundWallet({ address: wallet.address, options: { chain: monad, asset: 'USDC', amount: fundUsd, defaultFundingMethod: 'card' } });
+    setNotice('USDC purchase started. Pay with USDC after it arrives in your wallet.');
+  });
   const fund = () => perform('fund', async () => {
-    if (!wallet || !config) throw new Error('Wallet or network configuration is unavailable.');
-    if (config.chainId !== 143) throw new Error('USDC card funding is not available on the current testnet. A production funding route is still pending.');
     const amount = Number(fundUsd);
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid USDC amount.');
-    await fundWallet({ address: wallet.address, options: { chain: monad, asset: 'USDC', amount: fundUsd, defaultFundingMethod: 'card' } });
-    setNotice('USDC purchase started. Account funding will be available when the backend route is published.');
+    const auth = await token();
+    const plan = await prepareUsdcFunding(auth, fundUsd);
+    if (Date.parse(plan.expiresAt) <= Date.now()) throw new Error('Funding plan expired. Prepare it again.');
+    const hashes: string[] = [];
+    for (const action of plan.actions) hashes.push(await transact(action));
+    const result = await confirmUsdcFunding(auth, plan.id, hashes);
+    if (!result.done) throw new Error('Funding is not complete. Check your transaction status before retrying.');
+    setSetup(await getPerplSetup(auth));
+    setNotice('USDC converted and AUSD funding confirmed.');
   });
   const enroll = () => perform('enroll-perpl', async () => {
     if (!wallet || !config) throw new Error('Connect your trading wallet first.');
     const auth = await token();
-    const current = await getPerplSetup(auth);
-    setSetup(current);
-    if (current.step === 'needs_collateral') throw new Error('Perpl setup needs USDC funding. The backend funding route is not published yet.');
-    if (current.step === 'ready') { setNotice('Perpl trading is already authorized.'); return; }
-    if (current.actions.length) {
-      for (const action of current.actions) await transact(action);
-      const next = await getPerplSetup(auth); setSetup(next);
-      setNotice('Wallet action submitted. Continue setup once it confirms.');
-      return;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const current = await getPerplSetup(auth);
+      setSetup(current);
+      if (current.step === 'ready') { setNotice('Perpl setup is ready. Your wallet remains yours.'); return; }
+      if (current.step === 'needs_collateral') throw new Error('Deposit AUSD to your wallet, then continue Perpl setup. Keep MON for gas.');
+      if (current.step === 'needs_key') {
+        await wallet.switchChain(config.chainId);
+        const challenge = await getEnrollmentChallenge(auth);
+        if (Date.parse(challenge.expiresAt) <= Date.now()) throw new Error('Enrollment challenge expired. Try again.');
+        const provider = await wallet.getEthereumProvider();
+        const signature = await provider.request({ method: 'eth_signTypedData_v4', params: [wallet.address, JSON.stringify(challenge.typedData)] });
+        if (typeof signature !== 'string') throw new Error('Wallet did not return a signature.');
+        await enrollPerpl(auth, challenge.challengeId, signature);
+      } else {
+        if (!current.actions.length) throw new Error('No wallet action is available for this setup step yet.');
+        for (const action of current.actions) await transact(action);
+      }
+      const next = await getPerplSetup(auth);
+      setSetup(next);
+      if (next.step === current.step) { setNotice('Wallet action confirmed. Continue setup after the backend updates.'); return; }
     }
-    if (current.step !== 'needs_key') throw new Error('No wallet action is available for this setup step yet.');
-    await wallet.switchChain(config.chainId);
-    const challenge = await getEnrollmentChallenge(auth);
-    if (Date.parse(challenge.expiresAt) <= Date.now()) throw new Error('Enrollment challenge expired. Try again.');
-    const provider = await wallet.getEthereumProvider();
-    const signature = await provider.request({ method: 'eth_signTypedData_v4', params: [wallet.address, JSON.stringify(challenge.typedData)] });
-    if (typeof signature !== 'string') throw new Error('Wallet did not return a signature.');
-    await enrollPerpl(auth, challenge.challengeId, signature);
-    setSetup(await getPerplSetup(auth));
-    setNotice('Perpl trading key enrolled. Your wallet remains yours.');
+    throw new Error('Setup is still in progress. Continue after refreshing its status.');
   });  const skip = () => perform('skip', async () => {
     if (!clanId || !selected || selected.origin !== 'auto_mirror' || selected.mirrorStatus !== 'pending' || !selected.skipUntil || Date.parse(selected.skipUntil) <= Date.now()) throw new Error('The skip window has closed.');
     await skipAutoMirror(await token(), clanId, selected.id);
     await loadChart(clanId, marketId ?? undefined);
     setNotice('This automatic mirror was skipped.');
   });
-  const stack = () => perform('stack', async () => {
+  const requireNadFunds = (amountAusd: number) => {
+    if (monBalance == null || !config?.monPriceAusd || config.monPriceAusd <= 0) throw new Error('MON balance or price is unavailable. Wait for it before buying.');
+    if (monBalance < amountAusd / config.monPriceAusd + 0.05) throw new Error('Not enough MON for this buy plus the 0.05 MON gas reserve.');
+  };
+  const openTrade = () => perform('open', async () => {
+    if (!market || !clanId) throw new Error('Select a market first.');
+    const amount = Number(tradeAusd);
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid AUSD amount.');
+    if (market.venue === 'nadfun') { if (!signerReady) throw new Error('Approve the capped backend signer first.'); requireNadFunds(amount); }
+    if (market.venue === 'perpl' && setup?.step !== 'ready') throw new Error('Complete Perpl setup before opening a position.');
+    const leverage = market.venue === 'perpl' ? Number(tradeLeverage) : undefined;
+    if (leverage !== undefined && (!Number.isFinite(leverage) || leverage < 1 || leverage > market.maxLeverage)) throw new Error('Leverage is outside this market\'s limit.');
+    await openPosition(await token(), market.id, market.venue === 'nadfun' ? 'buy' : tradeSide, amount, leverage);
+    await loadChart(clanId, marketId ?? undefined);
+    setHoldings((await getHoldings(await token())).positions);
+    setNotice('Your own trade is open on the clan chart.');
+  });
+  const closeTrade = (holding: Holding) => perform('close', async () => {
+    await closePosition(await token(), holding.market);
+    if (clanId) await loadChart(clanId, marketId ?? undefined);
+    setHoldings((await getHoldings(await token())).positions);
+    setNotice('Position close submitted.');
+  });  const stack = () => perform('stack', async () => {
     if (!clanId || !selected) throw new Error('Select a clan position first.');
     if (selected.isMine) throw new Error('Choose a clan-mate position to stack.');
-    if (selected.venue !== 'perpl') throw new Error('Nad.fun stacking is pending its backend contract.');
     const amount = Number(stackUsd);
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid amount.');
-    const result = await stackPerpl(await token(), clanId, selected.id, amount);
+    if (selected.venue === 'nadfun') { if (!signerReady) throw new Error('Approve the capped backend signer first.'); requireNadFunds(amount); }
+    if (selected.venue === 'perpl' && setup?.step !== 'ready') throw new Error('Complete Perpl setup before stacking.');
+    const result = await stackPosition(await token(), clanId, selected.id, amount);
     if (result.status !== 'open') throw new Error(result.error ?? 'The stack could not be opened.');
     await loadChart(clanId, marketId ?? undefined);
     setNotice('Manual stack opened in your own account.');
@@ -190,8 +275,33 @@ if (!me && !error) return <main className="config-state"><div className="brand">
   return <div className="app-shell">
     <header className="topbar"><div className="brand">CULT<span className="brand-dot">.</span></div><div className="topbar-divider" /><span className="topbar-caption">PRIVATE TRADING CLANS</span><div className="topbar-right"><span className="network-pill"><i /> {config?.chainId === 10143 ? 'MONAD TESTNET' : 'MONAD'}</span><button className="wallet-pill" onClick={() => setPanel('wallet')}><Wallet size={15} /> {shortAddress(wallet.address)}</button><button className="icon-button" title="Sign out" onClick={logout}><LogOut size={16} /></button></div></header>
     <div className="workspace"><aside className="rail"><div className="rail-heading">YOUR CLANS <button className="icon-button compact" title="Create or join a clan" onClick={() => setClanId(null)}><Plus size={15} /></button></div><div className="clan-list">{me?.clans.map(item => <button key={item.id} className={`clan-item ${item.id === clanId ? 'active' : ''}`} onClick={() => { setClanId(item.id); setSnapshot(null); setSelectedId(null); }}><span className="clan-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span className="clan-name">{item.name}</span><span className="clan-count">{item.memberCount}</span></button>)}</div><div className="rail-footer"><span className="tiny-label">SIGNED IN AS</span><strong>{me?.name ?? shortAddress(wallet.address)}</strong><span>{shortAddress(wallet.address)}</span></div></aside>
-    {!clanId ? <main className="setup-main"><div className="setup-header"><p className="eyebrow">GET STARTED</p><h1>Find your circle.</h1><p>Clans are private. Create one or join with an invite.</p></div><div className="setup-grid"><section className="setup-section"><div className="section-number">01 / CREATE</div><h2>Start a clan</h2><label className="field-label" htmlFor="clan-name">CLAN NAME</label><input id="clan-name" value={name} onChange={event => setName(event.target.value)} maxLength={36} placeholder="Name your circle" /><div className="policy-heading"><ShieldCheck size={17} /><strong>Auto-mirror limits</strong></div><p className="field-note">Creating authorizes your wallet to mirror clan trades within these limits. You fund and hold your own positions.</p><label className="switch-row"><span>Auto mirror</span><input type="checkbox" checked={createPolicy.enabled} onChange={event => setCreatePolicy({ ...createPolicy, enabled: event.target.checked })} /></label><div className="policy-fields"><label><span className="field-label">UP TO % OF BALANCE</span><input type="number" min="1" max="100" value={createPolicy.balancePercentCap} disabled={!createPolicy.enabled} onChange={event => setCreatePolicy({ ...createPolicy, balancePercentCap: Number(event.target.value) })} /></label><label><span className="field-label">MAX USD PER TRADE</span><input type="number" min="1" value={createPolicy.maxUsdPerTrade} disabled={!createPolicy.enabled} onChange={event => setCreatePolicy({ ...createPolicy, maxUsdPerTrade: Number(event.target.value) })} /></label></div><button className="primary full" disabled={!!busy} onClick={create}>Create clan <ArrowRight size={16} /></button></section><section className="setup-section"><div className="section-number">02 / JOIN</div><h2>Use an invite</h2><label className="field-label" htmlFor="invite-code">INVITE CODE</label><input id="invite-code" value={inviteCode} onChange={event => setInviteCode(event.target.value)} placeholder="Paste code or link" /><div className="policy-heading"><ShieldCheck size={17} /><strong>Auto-mirror limits</strong></div><p className="field-note">Joining authorizes your wallet to mirror clan trades within these limits. You fund and hold your own positions.</p><label className="switch-row"><span>Auto mirror</span><input type="checkbox" checked={policy.enabled} onChange={event => setPolicy({ ...policy, enabled: event.target.checked })} /></label><div className="policy-fields"><label><span className="field-label">UP TO % OF BALANCE</span><input type="number" min="1" max="100" value={policy.balancePercentCap} disabled={!policy.enabled} onChange={event => setPolicy({ ...policy, balancePercentCap: Number(event.target.value) })} /></label><label><span className="field-label">MAX USD PER TRADE</span><input type="number" min="1" value={policy.maxUsdPerTrade} disabled={!policy.enabled} onChange={event => setPolicy({ ...policy, maxUsdPerTrade: Number(event.target.value) })} /></label></div><button className="primary full" disabled={!!busy} onClick={join}>Sign & join clan <ArrowRight size={16} /></button></section></div></main> : <main className="main"><div className="main-head"><div><div className="eyebrow">CLAN / {clan?.memberCount ?? 0} MEMBERS</div><h1>{clan?.name ?? 'Clan'}</h1></div><button className="outline" onClick={copyInvite}><Link2 size={15} /> Invite</button></div><div className="market-head"><div className="market-tabs">{snapshot?.markets.map(item => <button key={`${item.venue}:${item.id}`} className={item.id === market?.id && item.venue === market.venue ? 'active' : ''} onClick={() => { setMarketId(item.id); setSelectedId(null); }}><span>{item.symbol}</span><small>{venueName(item.venue)}</small></button>)}</div><button className="icon-button" title="Refresh chart" onClick={() => loadChart(clanId, marketId ?? undefined).catch(err => setError(errorText(err)))}><RefreshCw size={16} /></button></div><section className="chart-section"><div className="chart-title"><div><span className="market-symbol">{market?.symbol ?? 'MARKET'}</span><span className="venue-badge">{market ? venueName(market.venue) : 'LIVE'}</span></div><span className="chart-updated">{lastRefresh ? `UPDATED ${lastRefresh.toLocaleTimeString()}` : 'CONNECTING'}</span></div><SharedChart candles={snapshot?.candles ?? []} markers={visibleMarkers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: '' }} selectedId={selectedId} onSelect={item => { setSelectedId(item.id); setShareUrl(null); setPanel('positions'); }} /><div className="chart-legend"><span><i className="legend-triangle" /> Clan position</span><span><i className="legend-circle" /> Auto mirrored</span><span><i className="legend-square" /> Manual stack</span><span className="chart-legend-right">{visibleMarkers.length} LIVE MARKERS</span></div></section><div className="positions-strip"><div className="strip-heading"><h2>On this chart</h2><span>{visibleMarkers.length} positions</span></div><div className="position-list">{visibleMarkers.length ? visibleMarkers.map(item => <button key={item.id} className={`position-row ${item.id === selectedId ? 'selected' : ''}`} onClick={() => { setSelectedId(item.id); setPanel('positions'); }}><i className={`origin-icon ${item.origin}`} /><span className="position-person">{item.memberName}{item.isMine && <small>YOU</small>}</span><span className="position-meta">{originName(item.origin)} · {item.side.toUpperCase()}</span><strong className={(item.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{item.venue === 'perpl' ? item.pnlUsd == null ? 'Pending' : signedUsd(item.pnlUsd) : item.valueUsd == null ? 'Pending' : usd(item.valueUsd)}</strong></button>) : <p className="empty-line">No open clan positions on this market yet.</p>}</div></div></main>}
-    <aside className="detail"><div className="detail-tabs"><button className={panel === 'positions' ? 'active' : ''} onClick={() => setPanel('positions')}>Trade</button><button className={panel === 'members' ? 'active' : ''} onClick={() => setPanel('members')}>Members</button><button className={panel === 'wallet' ? 'active' : ''} onClick={() => setPanel('wallet')}>Wallet</button></div>{panel === 'positions' ? <div className="detail-body">{selected ? <><div className="detail-heading"><span className={`origin-tag ${selected.origin}`}>{originName(selected.origin)}</span><button className="icon-button compact" title="Close position details" onClick={() => setSelectedId(null)}><X size={15} /></button></div><h2>{selected.memberName} {selected.side === 'buy' ? 'holds' : selected.side}</h2><p className="detail-sub">{market?.symbol} on {venueName(selected.venue)}</p><div className="stat-pair"><span>ENTRY</span><strong>{selected.entryPrice == null ? 'Pending' : usd(selected.entryPrice, selected.entryPrice < 1 ? 6 : 2)}</strong></div><div className="stat-pair"><span>CURRENT</span><strong>{usd(selected.markPrice, selected.markPrice < 1 ? 6 : 2)}</strong></div>{selected.venue === 'perpl' && <><div className="stat-pair"><span>TAKE PROFIT</span><strong>{selected.takeProfitPrice == null ? '—' : usd(selected.takeProfitPrice)}</strong></div><div className="stat-pair"><span>STOP LOSS</span><strong>{selected.stopLossPrice == null ? '—' : usd(selected.stopLossPrice)}</strong></div></>}<div className="pnl-block"><span>{selected.venue === 'perpl' ? 'LIVE PNL' : 'CURRENT VALUE'}</span><strong className={(selected.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{selected.venue === 'perpl' ? selected.pnlUsd == null ? 'Pending' : signedUsd(selected.pnlUsd) : selected.valueUsd == null ? 'Pending' : usd(selected.valueUsd)}</strong></div>{!selected.isMine ? <><div className="trade-divider" /><h3>Stack this trade</h3><p className="field-note">A new position in your account. This is your choice, separate from automatic mirroring.</p><label className="field-label" htmlFor="stack-size">YOUR SIZE / USD</label><input id="stack-size" type="number" min="1" value={stackUsd} onChange={event => setStackUsd(event.target.value)} /><button className="primary full" disabled={!!busy || selected.venue === 'nadfun'} title={selected.venue === 'nadfun' ? 'Nad.fun stacking is pending its backend contract' : undefined} onClick={stack}>{selected.venue === 'perpl' ? 'Open my position' : 'Buy with my wallet'} <ArrowRight size={16} /></button></> : <>{selected.origin === 'auto_mirror' && selected.mirrorStatus === 'pending' && selected.skipUntil && Date.parse(selected.skipUntil) > now && <><div className="trade-divider" /><h3>Pending auto mirror</h3><p className="field-note">You can skip this trade for {Math.max(0, Math.ceil((Date.parse(selected.skipUntil) - now) / 1000))} more seconds.</p><button className="outline full" disabled={!!busy} onClick={skip}>Skip this mirror</button></>}<div className="trade-divider" /><h3>Share this result</h3><label className="switch-row"><span>Show clan name</span><input type="checkbox" checked={shareWithClan} onChange={event => setShareWithClan(event.target.checked)} /></label><button className="outline full" disabled={!!busy} onClick={share}><ExternalLink size={15} /> Create public card</button>{shareUrl && <a className="share-link" href={shareUrl} target="_blank" rel="noreferrer">Open public result <ExternalLink size={14} /></a>}</>}</> : <div className="detail-empty"><div className="empty-symbol">↗</div><h2>Select a position</h2><p>Tap a marker on the chart to inspect a clan trade or stack your own.</p></div>}</div> : panel === 'members' ? <div className="detail-body"><div className="detail-section-label">VERIFIED TRACK RECORD</div><h2>Clan members</h2><div className="member-list">{snapshot?.members.map(member => <div className="member-row" key={member.id}><div className="member-top"><span className="member-avatar">{member.name.slice(0, 1).toUpperCase()}</span><div><strong>{member.name}</strong><small>{shortAddress(member.address)}</small></div>{member.verified && <ShieldCheck size={15} className="verified" />}</div><div className="member-stats"><span>WIN RATE <strong>{percent(member.winRate)}</strong></span><span>REALIZED PNL <strong className={(member.realizedPnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{member.realizedPnlUsd == null ? '—' : signedUsd(member.realizedPnlUsd)}</strong></span></div><div className="member-trades">{member.tradeCount} verified trades · Perpl + Nad.fun</div></div>)}{!snapshot?.members.length && <p className="field-note">Member records will appear after the indexer syncs.</p>}</div></div> : <div className="detail-body"><div className="detail-section-label">YOUR OWN ACCOUNT</div><h2>Trading wallet</h2><p className="detail-sub">{shortAddress(wallet.address)} · Monad</p><div className="pnl-block"><span>USDC BALANCE</span><strong>{me?.usdcBalance == null ? '—' : usd(Number(me.usdcBalance))}</strong></div><div className="stat-pair"><span>PERPL SETUP</span><strong>{setup?.step.replaceAll('_', ' ') ?? 'Unavailable'}</strong></div><div className="trade-divider" /><h3>Fund your account</h3><p className="field-note">Add USDC with a card or wallet. You approve the funding transactions with your own wallet.</p><label className="field-label" htmlFor="fund-size">AMOUNT / USDC</label><input id="fund-size" type="number" min="1" value={fundUsd} onChange={event => setFundUsd(event.target.value)} /><button className="primary full" disabled={!!busy || !clanId || config?.chainId !== 143} onClick={fund}><ArrowDownToLine size={16} /> Fund account</button>{config?.chainId !== 143 && <p className="field-note">Card funding is unavailable on the current testnet. The production USDC route is pending.</p>}<div className="trade-divider" /><h3>Trading authorization</h3><p className="field-note">Sign once for each venue. These signatures enroll your wallet’s trading keys.</p><button className="outline full" disabled={!!busy} onClick={enroll}><ShieldCheck size={15} /> Enroll Perpl key</button><button className="outline full" disabled={!!busy} onClick={() => setNotice('Nad.fun key enrollment is pending its backend contract.')}><ShieldCheck size={15} /> Enroll Nad.fun key</button>{clan && <><div className="trade-divider" /><h3>Invite link</h3><button className="outline full" onClick={copyInvite}><Copy size={15} /> Copy private invite</button></>}</div>}</aside></div>
+    {!clanId ? <main className="setup-main"><div className="setup-header"><p className="eyebrow">GET STARTED</p><h1>Find your circle.</h1><p>Clans are private. Create one or join with an invite.</p></div><div className="setup-grid"><section className="setup-section"><div className="section-number">01 / CREATE</div><h2>Start a clan</h2><label className="field-label" htmlFor="clan-name">CLAN NAME</label><input id="clan-name" value={name} onChange={event => setName(event.target.value)} maxLength={36} placeholder="Name your circle" /><div className="policy-heading"><ShieldCheck size={17} /><strong>Auto-mirror limits</strong></div><p className="field-note">Creating authorizes your wallet to mirror clan trades within these limits. You fund and hold your own positions. {config && `You can skip each mirror for ${config.autoMirrorOptOutWindowSeconds} seconds.`}</p><label className="switch-row"><span>Auto mirror</span><input type="checkbox" checked={createPolicy.enabled} onChange={event => setCreatePolicy({ ...createPolicy, enabled: event.target.checked })} /></label><div className="policy-fields"><label><span className="field-label">UP TO % OF BALANCE</span><input type="number" min="1" max="100" value={createPolicy.balancePercentCap} disabled={!createPolicy.enabled} onChange={event => setCreatePolicy({ ...createPolicy, balancePercentCap: Number(event.target.value) })} /></label><label><span className="field-label">MAX AUSD PER TRADE</span><input type="number" min="1" value={createPolicy.maxUsdPerTrade} disabled={!createPolicy.enabled} onChange={event => setCreatePolicy({ ...createPolicy, maxUsdPerTrade: Number(event.target.value) })} /></label></div><button className="primary full" disabled={!!busy} onClick={create}>Create clan <ArrowRight size={16} /></button></section><section className="setup-section"><div className="section-number">02 / JOIN</div><h2>Use an invite</h2><label className="field-label" htmlFor="invite-code">INVITE CODE</label><input id="invite-code" value={inviteCode} onChange={event => setInviteCode(event.target.value)} placeholder="Paste code or link" /><div className="policy-heading"><ShieldCheck size={17} /><strong>Auto-mirror limits</strong></div><p className="field-note">Joining authorizes your wallet to mirror clan trades within these limits. You fund and hold your own positions. {config && `You can skip each mirror for ${config.autoMirrorOptOutWindowSeconds} seconds.`}</p><label className="switch-row"><span>Auto mirror</span><input type="checkbox" checked={policy.enabled} onChange={event => setPolicy({ ...policy, enabled: event.target.checked })} /></label><div className="policy-fields"><label><span className="field-label">UP TO % OF BALANCE</span><input type="number" min="1" max="100" value={policy.balancePercentCap} disabled={!policy.enabled} onChange={event => setPolicy({ ...policy, balancePercentCap: Number(event.target.value) })} /></label><label><span className="field-label">MAX AUSD PER TRADE</span><input type="number" min="1" value={policy.maxUsdPerTrade} disabled={!policy.enabled} onChange={event => setPolicy({ ...policy, maxUsdPerTrade: Number(event.target.value) })} /></label></div><button className="primary full" disabled={!!busy} onClick={join}>Sign & join clan <ArrowRight size={16} /></button></section></div></main> : <main className="main"><div className="main-head"><div><div className="eyebrow">CLAN / {clan?.memberCount ?? 0} MEMBERS</div><h1>{clan?.name ?? 'Clan'}</h1></div><button className="outline" onClick={copyInvite}><Link2 size={15} /> Invite</button></div><div className="market-head"><div className="market-tabs">{snapshot?.markets.map(item => <button key={`${item.venue}:${item.id}`} className={item.id === market?.id && item.venue === market.venue ? 'active' : ''} onClick={() => { setMarketId(item.id); setSelectedId(null); }}><span>{item.symbol}</span><small>{venueName(item.venue)}</small></button>)}</div><select className="nad-market-picker" aria-label="Nad.fun token" value={market?.venue === 'nadfun' ? market.id : ''} onChange={event => { if (event.target.value) { setMarketId(event.target.value); setSelectedId(null); } }}><option value="">Nad.fun token</option>{nadMarkets.map(item => <option key={item.id} value={item.id}>{item.symbol}</option>)}</select><button className="icon-button" title="Refresh chart" onClick={() => loadChart(clanId, marketId ?? undefined).catch(err => setError(errorText(err)))}><RefreshCw size={16} /></button></div><section className="chart-section"><div className="chart-title"><div><span className="market-symbol">{market?.symbol ?? 'MARKET'}</span><span className="venue-badge">{market ? venueName(market.venue) : 'LIVE'}</span></div><span className="chart-updated">{lastRefresh ? `UPDATED ${lastRefresh.toLocaleTimeString()}` : 'CONNECTING'}</span></div><SharedChart candles={snapshot?.candles ?? []} markers={visibleMarkers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: 'AUSD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null }} selectedId={selectedId} onSelect={item => { setSelectedId(item.id); setShareUrl(null); setPanel('positions'); }} /><div className="chart-legend"><span><i className="legend-triangle" /> Clan position</span><span><i className="legend-circle" /> Auto mirrored</span><span><i className="legend-square" /> Manual stack</span><span className="chart-legend-right">{visibleMarkers.length} LIVE MARKERS</span></div></section><div className="positions-strip"><div className="strip-heading"><h2>On this chart</h2><span>{visibleMarkers.length} positions</span></div><div className="position-list">{visibleMarkers.length ? visibleMarkers.map(item => <button key={item.id} className={`position-row ${item.id === selectedId ? 'selected' : ''}`} onClick={() => { setSelectedId(item.id); setPanel('positions'); }}><i className={`origin-icon ${item.origin}`} /><span className="position-person">{item.memberName}{item.isMine && <small>YOU</small>}</span><span className="position-meta">{originName(item.origin)} · {item.side.toUpperCase()}</span><strong className={(item.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{item.venue === 'perpl' ? item.pnlUsd == null ? 'Pending' : signedAusd(item.pnlUsd) : item.valueUsd == null ? 'Pending' : ausd(item.valueUsd)}</strong></button>) : <p className="empty-line">No open clan positions on this market yet.</p>}</div></div></main>}
+    <aside className="detail"><div className="detail-tabs"><button className={panel === 'positions' ? 'active' : ''} onClick={() => setPanel('positions')}>Trade</button><button className={panel === 'members' ? 'active' : ''} onClick={() => setPanel('members')}>Members</button><button className={panel === 'wallet' ? 'active' : ''} onClick={() => setPanel('wallet')}>Wallet</button></div>{panel === 'positions' ? <div className="detail-body">{selected ? <><div className="detail-heading"><span className={`origin-tag ${selected.origin}`}>{originName(selected.origin)}</span><button className="icon-button compact" title="Close position details" onClick={() => setSelectedId(null)}><X size={15} /></button></div><h2>{selected.memberName} {selected.side === 'buy' ? 'holds' : selected.side}</h2><p className="detail-sub">{market?.symbol} on {venueName(selected.venue)}</p><div className="stat-pair"><span>ENTRY</span><strong>{selected.entryPrice == null ? 'Pending' : ausd(selected.entryPrice, selected.entryPrice < 1 ? 6 : 2)}</strong></div><div className="stat-pair"><span>CURRENT</span><strong>{ausd(selected.markPrice, selected.markPrice < 1 ? 6 : 2)}</strong></div><div className="pnl-block"><span>{selected.venue === 'perpl' ? 'LIVE PNL' : 'CURRENT VALUE'}</span><strong className={(selected.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{selected.venue === 'perpl' ? selected.pnlUsd == null ? 'Pending' : signedAusd(selected.pnlUsd) : selected.valueUsd == null ? 'Pending' : ausd(selected.valueUsd)}</strong></div>{!selected.isMine ? <><div className="trade-divider" /><h3>Stack this trade</h3><p className="field-note">A new position in your account. This is your choice, separate from automatic mirroring.</p><label className="field-label" htmlFor="stack-size">YOUR SIZE / AUSD</label><input id="stack-size" type="number" min="1" value={stackUsd} onChange={event => setStackUsd(event.target.value)} /><button className="primary full" disabled={!!busy} onClick={stack}>{selected.venue === 'perpl' ? 'Open my position' : 'Buy in my account'} <ArrowRight size={16} /></button></> : <>{selected.origin === 'auto_mirror' && selected.mirrorStatus === 'pending' && selected.skipUntil && Date.parse(selected.skipUntil) > now && <><div className="trade-divider" /><h3>Pending auto mirror</h3><p className="field-note">You can skip this trade for {Math.max(0, Math.ceil((Date.parse(selected.skipUntil) - now) / 1000))} more seconds.</p><button className="outline full" disabled={!!busy} onClick={skip}>Skip this mirror</button></>}<div className="trade-divider" /><h3>Share this result</h3><label className="switch-row"><span>Show clan name</span><input type="checkbox" checked={shareWithClan} onChange={event => setShareWithClan(event.target.checked)} /></label><button className="outline full" disabled={!!busy} onClick={share}><ExternalLink size={15} /> Create public card</button>{shareUrl && <a className="share-link" href={shareUrl} target="_blank" rel="noreferrer">Open public result <ExternalLink size={14} /></a>}</>}</> : <div className="trade-ticket"><div className="detail-section-label">YOUR OWN TRADE</div><h2>{market?.symbol ?? 'Select a market'}</h2><p className="detail-sub">{market ? venueName(market.venue) : 'Your account'}</p>{market?.venue === 'perpl' && <div className="funding-modes"><button className={tradeSide === 'long' ? 'active' : ''} onClick={() => setTradeSide('long')}>Long</button><button className={tradeSide === 'short' ? 'active' : ''} onClick={() => setTradeSide('short')}>Short</button></div>}<label className="field-label" htmlFor="trade-amount">{market?.venue === 'nadfun' ? 'BUY SIZE / AUSD' : 'MARGIN / AUSD'}</label><input id="trade-amount" type="number" min="1" value={tradeAusd} onChange={event => setTradeAusd(event.target.value)} />{market?.venue === 'perpl' && <><label className="field-label" htmlFor="trade-leverage">LEVERAGE</label><input id="trade-leverage" type="number" min="1" max={market.maxLeverage} value={tradeLeverage} onChange={event => setTradeLeverage(event.target.value)} /></>}{market?.venue === 'nadfun' && <p className="field-note">Paid in MON from your wallet. {config?.monPriceAusd ? `1 MON = ${ausd(config.monPriceAusd)}` : 'MON price unavailable.'}</p>}<button className="primary full" disabled={!!busy || !market} onClick={openTrade}>{market?.venue === 'nadfun' ? 'Buy token' : 'Open position'} <ArrowRight size={16} /></button><div className="trade-divider" /><h3>Clan positions</h3><p className="field-note">Select a marker on the chart to inspect or stack it manually.</p></div>}</div> : panel === 'members' ? <div className="detail-body"><div className="detail-section-label">CLAN TRACK RECORD</div><h2>Clan members</h2><div className="member-list">{snapshot?.members.map(member => <div className="member-row" key={member.id}><div className="member-top"><span className="member-avatar">{member.name.slice(0, 1).toUpperCase()}</span><div><strong>{member.name}</strong><small>{shortAddress(member.address)}</small></div>{member.verified && <ShieldCheck size={15} className="verified" />}</div><div className="member-stats"><span>WIN RATE <strong>{percent(member.winRate)}</strong></span><span>REALIZED PNL <strong className={(member.realizedPnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{member.realizedPnlUsd == null ? '—' : signedAusd(member.realizedPnlUsd)}</strong></span></div><div className="member-trades">{member.tradeCount} {member.verified ? 'verified trades' : 'trades pending verification'} · Perpl + Nad.fun</div></div>)}{!snapshot?.members.length && <p className="field-note">Member records will appear after the indexer syncs.</p>}</div></div> : <div className="detail-body">
+      <div className="detail-section-label">YOUR OWN ACCOUNT</div>
+      <h2>Trading wallet</h2>
+      <p className="detail-sub">{shortAddress(wallet.address)} · Monad {config?.chainId === 10143 ? 'testnet' : ''}</p>
+      <div className="pnl-block"><span>PERPL COLLATERAL</span><strong>{setup ? ausd(Number(setup.collateralBalance) / 1_000_000) : '—'}</strong></div>
+      <div className="stat-pair"><span>MON / GAS + NAD.FUN</span><strong>{mon(monBalance)}</strong></div>
+      {monBalance != null && monBalance < 0.05 && <p className="wallet-warning">Low MON. Keep at least 0.05 MON for gas; Nad.fun buys need more.</p>}
+      <div className="stat-pair"><span>PERPL SETUP</span><strong>{setup?.step.replaceAll('_', ' ') ?? 'Unavailable'}</strong></div>
+      <div className="trade-divider" />
+      <h3>Backend trading signer</h3>
+      <p className="field-note">Your wallet approves a capped signer for clan mirrors and Nad.fun trades. It cannot withdraw or transfer your funds.</p>
+      {grant && <><div className="stat-pair"><span>PERPL DEPOSIT CAP</span><strong>{ausd(grant.capAusd)} per transaction</strong></div><div className="stat-pair"><span>NAD.FUN BUY CAP</span><strong>{mon(grant.maxBuyMon)} per buy</strong></div><p className="field-note">At {ausd(grant.monPriceAusd)} per MON when this policy was granted.</p></>}
+      <button className="outline full" disabled={!!busy || !clanId} onClick={() => perform('grant-signer', async () => { await grantSigner(); setNotice('Capped backend signer approved in your wallet.'); })}><ShieldCheck size={15} /> {signerReady ? 'Reconfirm signer' : 'Approve capped signer'}</button>
+      {!signerReady && <p className="wallet-warning">Required for Nad.fun auto-mirrors and manual stacks.</p>}
+      <div className="trade-divider" />
+      <h3>Fund your account</h3>
+      <div className="funding-modes"><button className={fundMode === 'ausd' ? 'active' : ''} onClick={() => setFundMode('ausd')}>Deposit AUSD</button><button className={fundMode === 'usdc' ? 'active' : ''} onClick={() => setFundMode('usdc')}>Pay with USDC</button></div>
+      {fundMode === 'ausd' ? <><p className="field-note">Send AUSD on Monad {config?.chainId === 10143 ? 'testnet' : 'mainnet'} to your own wallet. Then complete Perpl setup from this wallet.</p><div className="deposit-address">{wallet.address}</div>{config?.chainId === 10143 && <><span className="field-label">AUSD TOKEN CONTRACT</span><div className="deposit-address">{testnetAusd}</div></>}<button className="outline full" onClick={() => navigator.clipboard.writeText(wallet.address).then(() => setNotice('Wallet address copied.'))}><Copy size={15} /> Copy deposit address</button>{setup && <p className="field-note">Account opening needs {ausd(Number(setup.minAccountOpen) / 1_000_000)}. Keep MON for gas.</p>}</> : <><p className="wallet-warning">Not live: Kuru&apos;s mainnet AUSD/USDC book has no liquidity, and testnet has no AUSD market. Your wallet will not send anything unless the backend returns a valid plan.</p><label className="field-label" htmlFor="fund-size">AMOUNT / USDC</label><input id="fund-size" type="number" min="1" value={fundUsd} onChange={event => setFundUsd(event.target.value)} /><button className="outline full" disabled={!!busy || config?.chainId !== 143} onClick={buyUsdc}>Buy USDC by card</button><button className="primary full" disabled={!!busy || !clanId} onClick={fund}><ArrowDownToLine size={16} /> Pay with USDC</button></>}
+      <div className="trade-divider" />
+      <h3>Perpl authorization</h3>
+      <p className="field-note">Your wallet signs account creation, forwarding, and one trading-key enrollment. The backend cannot sign these steps for you.</p>
+      <button className="outline full" disabled={!!busy} onClick={enroll}><ShieldCheck size={15} /> {setup?.step === 'ready' ? 'Perpl ready' : 'Continue Perpl setup'}</button>
+      <div className="trade-divider" />
+      <h3>Your holdings</h3>
+      {holdings.length ? holdings.map(holding => <div className="holding-row" key={`${holding.venue}:${holding.market}`}><div><strong>{holding.symbol}</strong><small>{venueName(holding.venue)} · {holding.side.toUpperCase()} · {holding.size}</small></div><div><strong>{ausd(holding.valueAusd)}</strong><small>{holding.pnlAusd == null ? 'PnL pending' : signedAusd(holding.pnlAusd)}</small></div><button className="outline" disabled={!!busy} onClick={() => closeTrade(holding)}>Close</button></div>) : <p className="field-note">No live holdings in your account.</p>}      {clan && <><div className="trade-divider" /><h3>Invite link</h3><button className="outline full" onClick={copyInvite}><Copy size={15} /> Copy private invite</button></>}
+    </div>}</aside></div>
     {(error || notice) && <div className={`toast ${error ? 'error' : ''}`} role="status">{error ?? notice}<button className="icon-button compact" title="Dismiss" onClick={() => { setError(null); setNotice(null); }}><X size={14} /></button></div>}
     {busy && <div className="busy-bar"><span>{busy === 'stack' ? 'Authorizing your trade' : busy === 'fund' ? 'Preparing wallet funding' : busy === 'join' ? 'Signing clan authorization' : 'Working'}…</span></div>}
   </div>;

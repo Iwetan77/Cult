@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CandlestickSeries, ColorType, createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
 import type { Candle, ChartMarker, Market } from '@/lib/contracts';
-import { signedUsd, usd } from '@/lib/format';
+import { signedAusd, ausd } from '@/lib/format';
 
 type Props = { candles: Candle[]; markers: ChartMarker[]; market: Market; selectedId: string | null; onSelect: (marker: ChartMarker) => void };
 type Hit = { id: string; x: number; y: number; width: number; height: number };
@@ -98,20 +98,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
         ctx.setLineDash([4, 5]);
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width - 56, y); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 1;
-        if (marker.venue === 'perpl') {
-          for (const [price, label, lineColor] of [
-            [marker.takeProfitPrice, 'TP', '#68e7be'], [marker.stopLossPrice, 'SL', '#e4777d'],
-          ] as const) {
-            if (price == null) continue;
-            const guideY = series.priceToCoordinate(price);
-            if (guideY == null) continue;
-            ctx.strokeStyle = lineColor; ctx.globalAlpha = selected ? 0.65 : 0.22; ctx.setLineDash([3, 4]);
-            ctx.beginPath(); ctx.moveTo(0, guideY); ctx.lineTo(width - 56, guideY); ctx.stroke();
-            ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.fillStyle = lineColor;
-            if (selected) ctx.fillText(`${label} ${usd(price, price < 1 ? 5 : 2)}`, 12, guideY - 10);
-          }
-        }
-        const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedUsd(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : usd(marker.valueUsd)}`;
+        const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedAusd(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : ausd(marker.valueUsd)}`;
         const badgeWidth = Math.min(235, Math.max(80, width - x - 62), ctx.measureText(badge).width + 43);
         ctx.fillStyle = selected ? '#313945' : '#292e39';
         ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1;
@@ -138,7 +125,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect }: 
     <canvas ref={canvasRef} className="chart-overlay" aria-hidden="true" />
     <div className="chart-hit-layer">{hitRegions.map(hit => {
       const marker = markers.find(item => item.id === hit.id);
-      return marker && <button key={hit.id} className="chart-hit" type="button" style={{ left: hit.x, top: hit.y, width: hit.width, height: hit.height }} title={`${marker.memberName}: ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedUsd(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : usd(marker.valueUsd)}. Open trade details`} aria-label={`Open ${marker.memberName}'s ${market.symbol} trade details`} onClick={() => onSelect(marker)} />;
+      return marker && <button key={hit.id} className="chart-hit" type="button" style={{ left: hit.x, top: hit.y, width: hit.width, height: hit.height }} title={`${marker.memberName}: ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedAusd(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : ausd(marker.valueUsd)}. Open trade details`} aria-label={`Open ${marker.memberName}'s ${market.symbol} trade details`} onClick={() => onSelect(marker)} />;
     })}</div>    {!candles.length && <div className="chart-empty">Waiting for live market data</div>}
   </div>;
 }
