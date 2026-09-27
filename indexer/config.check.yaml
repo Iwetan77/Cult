@@ -1,0 +1,49 @@
+# Short, RPC-only check run of the Nad.fun half, for machines without an Envio
+# API token or Docker. Same handlers and schema as config.yaml; only the block
+# range and the data source differ. Covers the backend's Phase 4 run with a
+# partial sell and an add (backend commit 17f84cf): blocks 66073862-66074033.
+#   ENVIO_HASURA=false ENVIO_PG_PORT=5433 ... npx envio start --config config.check.yaml -r
+name: cult-indexer
+description: Check run (Nad.fun, fixed block range, RPC only).
+address_format: lowercase
+field_selection:
+  transaction_fields:
+    - hash
+contracts:
+  - name: Exchange
+    abi_file_path: ./abis/Exchange.json
+    handler: ./src/EventHandlers.ts
+    events:
+      - event: AccountCreated
+      - event: PositionOpened
+      - event: PositionOpenedV2
+      - event: PositionIncreased
+      - event: PositionIncreasedV2
+      - event: PositionDecreased
+      - event: PositionClosed
+      - event: PositionInverted
+      - event: PositionLiquidated
+      - event: PositionDeleveraged
+      - event: PositionDeleveragedV2
+      - event: PositionUnwound
+      - event: PositionUnwoundV2
+  - name: NadFunRouter
+    abi_file_path: ./abis/NadFunRouter.json
+    handler: ./src/NadFunHandlers.ts
+    events:
+      - event: Buy
+      - event: Sell
+chains:
+  - id: 10143
+    start_block: 66073800
+    end_block: 66074100
+    rpc:
+      - url: https://testnet-rpc.monad.xyz
+        for: sync
+        initial_block_interval: 100
+        interval_ceiling: 100
+    contracts:
+      - name: Exchange
+        address: "0x1964C32f0bE608E7D29302AFF5E61268E72080cc"
+      - name: NadFunRouter
+        address: "0x75588668999cA0557b78046b8a5E86b47b9234ec"
