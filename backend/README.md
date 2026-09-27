@@ -27,6 +27,10 @@ npm start                # http://localhost:8787, all routes under /v1
 | `MIRROR_OPT_OUT_SECONDS` | Skip window before a mirror fires (provisional: 20) |
 | `CORS_ORIGINS`, `PUBLIC_APP_URL` | Frontend origin(s), and the base for share links |
 | `NADFUN_PAY_WITH` | `ausd` (swap via Kuru Flow; default on mainnet) or `mon` (default on testnet) |
+| `RATE_MEMBER_PER_MIN`, `RATE_TRADE_PER_MIN`, `RATE_PUBLIC_PER_MIN` | Request limits: per member (240), per member on order/tx routes (20), per IP on public routes (120) |
+| `LOG_REQUESTS` | One log line per request (method, path, status, ms, member). `0` turns it off |
+| `NADFUN_WATCHER_PARALLEL` | Log windows read at once while the meme watcher catches up after downtime (6) |
+| `MIRROR_RECONCILE_RECHECK_MS` | After a restart, how often to re-check a send that's still in flight (15000) |
 | `FUNDER_PRIVATE_KEY` | **Test scripts only.** A throwaway testnet wallet that seeds fresh wallets |
 
 Never commit `.env`. It's git-ignored.

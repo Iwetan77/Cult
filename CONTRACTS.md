@@ -694,3 +694,10 @@ See `backend/.env.example`. Frontend and indexer only need to know:
 - `PORT` (default 8787), `CORS_ORIGINS` (comma-separated, default `http://localhost:3000`).
 - `INDEXER_API_KEY`: shared with the indexer out of band. Never commit it.
 - `MIRROR_OPT_OUT_SECONDS`: see decision 3. Read it from `/v1/config`.
+- **Rate limits:**
+  - Per member: 240 requests/min, and 20/min on routes that send orders or txs
+    (`positions/open|close|tpsl`, `stack`, `suggest-tpsl`, `funding/usdc/*`).
+  - Per IP: 120/min on public routes.
+  - Chat has its own 8 per 10s.
+  - Over a limit returns `429 { message }` with a `Retry-After` header in seconds
+    (exposed via CORS). Wait that long; don't retry in a loop.
