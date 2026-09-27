@@ -12,6 +12,7 @@ import { dollars, percent, shortAddress, signedDollars, signedMon } from '@/lib/
 import { SharedChart } from './SharedChart';
 import { ClanChat } from './ClanChat';
 import { DiscoverCults } from './DiscoverCults';
+import { CountryPicker } from './CountryPicker';
 
 const testnetAusd = '0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC';
 const defaultPolicy: MirrorPolicy = { enabled: true, balancePercentCap: 10, maxUsdPerTrade: 100 };
@@ -54,6 +55,7 @@ export function Dashboard() {
   const [createPolicy, setCreatePolicy] = useState<MirrorPolicy>(defaultPolicy);
   const [createVisibility, setCreateVisibility] = useState<'private' | 'public'>('private');
   const [view, setView] = useState<'cult' | 'discover'>('cult');
+  const [countrySkipped, setCountrySkipped] = useState(false);
   const wallet = wallets.find(item => item.walletClientType === 'privy');
   const [me, setMe] = useState<Me | null>(null);
   const [clanId, setClanId] = useState<string | null>(null);
@@ -527,6 +529,8 @@ export function Dashboard() {
   if (!wallet) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><h1>Wallet setup</h1><p>Create your Privy trading wallet to fund and trade from your own account.</p><button className="primary" onClick={() => createWallet().catch(err => setError(errorText(err)))}>Create trading wallet</button></main>;
 if (!me && !error) return <main className="config-state"><div className="brand">CULT<span className="brand-dot">.</span></div><p>Loading your cults…</p></main>;
 
+  if (me && !me.country && !countrySkipped) return <main className="country-gate"><div className="brand">CULT<span className="brand-dot">.</span></div><CountryPicker onSaved={loadMe} onSkip={() => setCountrySkipped(true)} /></main>;
+
   return <div className="app-shell">
     <header className="topbar"><div className="brand">CULT<span className="brand-dot">.</span></div><div className="topbar-divider" /><span className="topbar-caption">TRADING CULTS</span><div className="topbar-right"><span className="network-pill"><i /> {config?.chainId === 10143 ? 'MONAD TESTNET' : 'MONAD'}</span><button className="wallet-pill" onClick={() => setPanel('wallet')}><Wallet size={15} /> {shortAddress(wallet.address)}</button><button className="icon-button" title="Sign out" onClick={logout}><LogOut size={16} /></button></div></header>
     <div className="workspace"><aside className="rail"><div className="rail-heading">YOUR CULTS <button className="icon-button compact" title="Create or join a cult" onClick={() => { setClanId(null); setView('cult'); }}><Plus size={15} /></button></div><div className="clan-list">{me?.clans.map(item => <button key={item.id} className={`clan-item ${item.id === clanId ? 'active' : ''}`} onClick={() => { setClanId(item.id); setSnapshot(null); setSelectedId(null); setView('cult'); }}><span className="clan-avatar">{item.name.slice(0, 1).toUpperCase()}</span><span className="clan-name">{item.name}</span><span className="clan-count">{item.memberCount}</span></button>)}</div><nav className="rail-nav"><button className={view === 'discover' ? 'active' : ''} onClick={() => setView('discover')}>Discover</button></nav><div className="rail-footer"><span className="tiny-label">SIGNED IN AS</span><strong>{me?.name ?? shortAddress(wallet.address)}</strong><span>{shortAddress(wallet.address)}</span></div></aside>
@@ -557,6 +561,7 @@ if (!me && !error) return <main className="config-state"><div className="brand">
     </div> : <div className="detail-body">
       <div className="detail-section-label">YOUR OWN ACCOUNT</div>
       <h2>Trading wallet</h2>
+      <CountryPicker currentCode={me?.country?.code} onSaved={loadMe} />
       <p className="detail-sub">{shortAddress(wallet.address)} · Monad {config?.chainId === 10143 ? 'testnet' : ''}</p>
       <div className="pnl-block"><span>PERPL MARGIN</span><strong>{me?.balances ? dollars(me.balances.perplMarginUsd) : setup ? dollars(Number(setup.collateralBalance) / 1_000_000) : '—'}</strong></div>
       <div className="stat-pair"><span>WALLET DOLLARS</span><strong>{dollars(me?.balances?.walletUsd)}</strong></div><div className="stat-pair"><span>MON BALANCE VALUE</span><strong>{me?.balances ? dollars(me.balances.monUsd) : balanceMon != null && config?.monPriceAusd != null ? dollars(balanceMon * config.monPriceAusd) : '—'}</strong></div>
