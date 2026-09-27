@@ -481,8 +481,16 @@ now uses this Hasura `where` form, and the same fields were checked against the 
 indexer's `Trader` table in Postgres for the four reference Nad.fun wallets. Still
 open: a **hosted GraphQL URL**. Hasura needs Docker (not available in either agent's
 environment), so the URL has to come from Envio Cloud or `envio dev` on a machine with
-Docker (`http://localhost:8080/v1/graphql`). Until `INDEXER_GRAPHQL_URL` is set, members
-show `verified: false`.
+Docker (`http://localhost:8080/v1/graphql`). Until `INDEXER_GRAPHQL_URL` or
+`INDEXER_PG_URL` is set, members show `verified: false`.
+
+**Without Hasura or Docker (2026-09-27):** the indexer also runs as `envio start`
+with `ENVIO_HASURA=false`, writing straight to Postgres. The backend then reads the
+same `Trader` fields over SQL, via `INDEXER_PG_URL` (a read-only user). This was
+checked live: the indexer ran over the backend's partial-sell run and the backend
+served those wallets `verified: true` with the indexed PnL. Hosting it takes a
+Postgres, plus an Envio API token for HyperSync (a full-history RPC sync is too
+slow).
 If the indexer is unset or down, members come back `verified: false` with nulls;
 the chart still loads. The indexer keeps MON and AUSD apart. The backend's combined
 `realizedPnlUsd` converts MON at the current price, which it reports as

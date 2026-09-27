@@ -1,9 +1,15 @@
+import pg from 'pg';
 import { monPriceAusd } from '../prices.js';
 
-// Verified track record from the indexer (Envio HyperIndex, GraphQL/Hasura).
-// See indexer/API.md on the indexer branch. The indexer keeps Perpl PnL in
-// AUSD and Nad.fun PnL in MON and never adds them; the backend serves the
-// combined dollar figure and says which MON price it used.
+// Verified track record from the indexer (Envio HyperIndex). See indexer/API.md
+// on the indexer branch. Two ways to reach it:
+//   INDEXER_GRAPHQL_URL  its GraphQL (Hasura, e.g. Envio Cloud)
+//   INDEXER_PG_URL       its Postgres directly (self-hosted without Hasura or
+//                        Docker: envio start with ENVIO_HASURA=false). Use a
+//                        read-only user. INDEXER_PG_SCHEMA if not "public".
+// GraphQL wins if both are set. The indexer keeps Perpl PnL in AUSD and
+// Nad.fun PnL in MON and never adds them; the backend serves the combined
+// dollar figure and says which MON price it used.
 
 export interface MemberStats {
   verified: boolean; // the indexer has this wallet's on-chain history
@@ -42,6 +48,32 @@ interface TraderRow {
   lastTradeAt: number | string | null;
 }
 
+let pool: pg.Pool | undefined;
+function pgPool(url: string) {
+  pool ??= new pg.Pool({ connectionString: url, max: 3, statement_timeout: 5_000, connectionTimeoutMillis: 5_000 });
+  pool.on('error', (e) => console.warn('[indexer] postgres:', e.message));
+  return pool;
+}
+
+async function viaGraphql(url: string, ids: string[]): Promise<TraderRow[]> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (process.env.INDEXER_GRAPHQL_SECRET) headers['x-hasura-admin-secret'] = process.env.INDEXER_GRAPHQL_SECRET;
+  const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ query: QUERY, variables: { ids } }), signal: AbortSignal.timeout(5_000) });
+  const body = (await r.json()) as { data?: { Trader?: TraderRow[] }; errors?: { message: string }[] };
+  if (!r.ok || body.errors?.length || !body.data?.Trader) throw new Error(body.errors?.[0]?.message ?? `HTTP ${r.status}`);
+  return body.data.Trader;
+}
+
+// The same fields as the GraphQL query, from Envio's own table.
+async function viaPostgres(url: string, ids: string[]): Promise<TraderRow[]> {
+  const schema = (process.env.INDEXER_PG_SCHEMA || 'public').replace(/"/g, '');
+  const { rows } = await pgPool(url).query<TraderRow>(
+    `SELECT id, "tradeCount", "winRate", "realizedPnlUsd", "realizedPnlMon", "lastTradeAt" FROM "${schema}"."Trader" WHERE id = ANY($1)`,
+    [ids],
+  );
+  return rows;
+}
+
 const cache = new Map<string, { at: number; stats: MemberStats }>();
 const TTL_MS = 15_000;
 
@@ -66,7 +98,8 @@ export function toStats(row: TraderRow | undefined, monPx: number | null): Membe
 export async function statsFor(wallets: string[]): Promise<Map<string, MemberStats>> {
   const out = new Map<string, MemberStats>();
   const ids = [...new Set(wallets.map((w) => w.toLowerCase()))];
-  const url = process.env.INDEXER_GRAPHQL_URL;
+  const gqlUrl = process.env.INDEXER_GRAPHQL_URL;
+  const pgUrl = process.env.INDEXER_PG_URL;
   const fresh = ids.filter((id) => {
     const hit = cache.get(id);
     if (hit && Date.now() - hit.at < TTL_MS) {
@@ -75,18 +108,14 @@ export async function statsFor(wallets: string[]): Promise<Map<string, MemberSta
     }
     return true;
   });
-  if (!url || fresh.length === 0) {
+  if ((!gqlUrl && !pgUrl) || fresh.length === 0) {
     for (const id of fresh) out.set(id, UNVERIFIED);
     return out;
   }
   try {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (process.env.INDEXER_GRAPHQL_SECRET) headers['x-hasura-admin-secret'] = process.env.INDEXER_GRAPHQL_SECRET;
-    const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ query: QUERY, variables: { ids: fresh } }), signal: AbortSignal.timeout(5_000) });
-    const body = (await r.json()) as { data?: { Trader?: TraderRow[] }; errors?: { message: string }[] };
-    if (!r.ok || body.errors?.length || !body.data?.Trader) throw new Error(body.errors?.[0]?.message ?? `HTTP ${r.status}`);
+    const found = gqlUrl ? await viaGraphql(gqlUrl, fresh) : await viaPostgres(pgUrl!, fresh);
     const monPx = await monPriceAusd().catch(() => null);
-    const rows = new Map(body.data.Trader.map((t) => [t.id.toLowerCase(), t]));
+    const rows = new Map(found.map((t) => [t.id.toLowerCase(), t]));
     for (const id of fresh) {
       const stats = toStats(rows.get(id), monPx);
       cache.set(id, { at: Date.now(), stats });

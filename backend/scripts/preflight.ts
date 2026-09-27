@@ -126,9 +126,17 @@ await check('CORS / public URL', async () => {
   if (local) return ['WARN', `CORS_ORIGINS is only ${env.corsOrigins.join(',')}; add the deployed frontend's origin`];
   return process.env.PUBLIC_APP_URL ? ['OK', env.corsOrigins.join(',')] : ['WARN', 'PUBLIC_APP_URL unset (share links)'];
 });
-await check('indexer', async () => {
-  const missing = ['INDEXER_API_KEY', 'INDEXER_GRAPHQL_URL'].filter((k) => !process.env[k]);
-  return missing.length ? ['WARN', `${missing.join(', ')} unset; members show as unverified`] : 'OK';
+await check('indexer (verified track records)', async () => {
+  const src = process.env.INDEXER_GRAPHQL_URL ? 'GraphQL' : process.env.INDEXER_PG_URL ? 'Postgres' : null;
+  if (!src) return ['WARN', 'neither INDEXER_GRAPHQL_URL nor INDEXER_PG_URL set; members show as unverified'];
+  const { statsFor } = await import('../src/indexer/stats.js');
+  const probe = '0x0000000000000000000000000000000000000000';
+  const warn = console.warn;
+  let failed = '';
+  console.warn = (...a: unknown[]) => (failed = a.join(' '));
+  await statsFor([probe]).finally(() => (console.warn = warn));
+  if (failed) return ['FAIL', `${src}: ${failed}`];
+  return process.env.INDEXER_API_KEY ? ['OK', `reads Trader via ${src}`] : ['WARN', `reads Trader via ${src}; INDEXER_API_KEY unset, so /v1/indexer/* (mirror labels) is closed`];
 });
 await check('test-only secrets absent', async () =>
   process.env.FUNDER_PRIVATE_KEY ? ['WARN', 'FUNDER_PRIVATE_KEY is for test scripts; leave it off servers'] : 'OK',
