@@ -14,7 +14,15 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
+const SCHEMA_VERSION = 2;
+
 function migrate(d: DatabaseSync) {
+  const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
+  if (user_version < SCHEMA_VERSION) {
+    // v1 trade tables were perpl-only. Nothing but test data exists yet, so
+    // rebuild them rather than carry a column-by-column migration.
+    d.exec('DROP TABLE IF EXISTS mirrors; DROP TABLE IF EXISTS stacks; DROP TABLE IF EXISTS leader_trades; DROP TABLE IF EXISTS engine_orders;');
+  }
   d.exec(`
     CREATE TABLE IF NOT EXISTS members (
       user_id          TEXT PRIMARY KEY,          -- Privy DID
@@ -60,18 +68,21 @@ function migrate(d: DatabaseSync) {
       PRIMARY KEY (clan_id, user_id)
     );
 
-    -- A position a member opened themselves (not placed by our engine).
+    -- A trade a member opened themselves (not placed by our engine), on
+    -- either venue. perpl: market = market id, position_id/account_id set.
+    -- nadfun: market = token address (lowercase), size = tokens (wei).
     CREATE TABLE IF NOT EXISTS leader_trades (
       id              TEXT PRIMARY KEY,
+      venue           TEXT NOT NULL,          -- perpl | nadfun
       user_id         TEXT NOT NULL REFERENCES members(user_id),
-      account_id      INTEGER NOT NULL,
-      market_id       INTEGER NOT NULL,
-      side            TEXT NOT NULL,
-      position_id     INTEGER NOT NULL,
-      size            INTEGER NOT NULL,     -- scaled
-      entry_price     INTEGER NOT NULL,     -- scaled
-      leverage        INTEGER NOT NULL,     -- hundredths
-      margin_fraction REAL NOT NULL,        -- position collateral / (free balance + collateral) at open
+      account_id      INTEGER,                -- perpl account id
+      market          TEXT NOT NULL,
+      side            TEXT NOT NULL,          -- long | short | buy
+      position_id     INTEGER,                -- perpl position id
+      size            TEXT NOT NULL,          -- raw integer as string (perpl scaled size / token wei)
+      entry_price     REAL,                   -- AUSD per unit
+      leverage        INTEGER NOT NULL,       -- hundredths (nadfun: 100)
+      margin_fraction REAL NOT NULL,          -- share of the leader's free balance this trade used
       open_tx         TEXT,
       opened_at       INTEGER NOT NULL,
       closed_at       INTEGER,
@@ -85,11 +96,11 @@ function migrate(d: DatabaseSync) {
       user_id       TEXT NOT NULL REFERENCES members(user_id),
       status        TEXT NOT NULL,   -- pending|skipped|submitting|open|closed|failed|cancelled
       skip_until    INTEGER NOT NULL,
-      margin_usd    REAL,
-      notional_usd  REAL,
-      size          INTEGER,         -- scaled, as filled
-      cap_applied   TEXT,            -- which limit bound the size, if any
-      open_rq       INTEGER,
+      margin_usd    REAL,            -- AUSD
+      notional_usd  REAL,            -- AUSD
+      size          TEXT,            -- raw, as filled
+      cap_applied   TEXT,
+      open_rq       INTEGER,         -- perpl request id
       open_oid      INTEGER,
       open_tx       TEXT,
       close_rq      INTEGER,
@@ -105,12 +116,13 @@ function migrate(d: DatabaseSync) {
     -- apart from mirrors on purpose; it never triggers auto-mirror itself.
     CREATE TABLE IF NOT EXISTS stacks (
       id            TEXT PRIMARY KEY,
+      venue         TEXT NOT NULL,
       clan_id       TEXT NOT NULL REFERENCES clans(id),
       user_id       TEXT NOT NULL REFERENCES members(user_id),
       target_trade  TEXT NOT NULL REFERENCES leader_trades(id),
-      market_id     INTEGER NOT NULL,
+      market        TEXT NOT NULL,
       side          TEXT NOT NULL,
-      size          INTEGER,
+      size          TEXT,
       notional_usd  REAL,
       leverage      INTEGER NOT NULL,
       status        TEXT NOT NULL,   -- submitting|open|failed
@@ -121,8 +133,9 @@ function migrate(d: DatabaseSync) {
       created_at    INTEGER NOT NULL
     );
 
-    -- Every request id our engine sends, so positions it opens are never
-    -- mistaken for a member's own trade (which would mirror the mirror).
+    -- Everything our engine sends, so what it opens is never mistaken for a
+    -- member's own trade (which would mirror the mirror). Perpl orders are
+    -- keyed by (account, request id), Nad.fun txs by hash.
     CREATE TABLE IF NOT EXISTS engine_orders (
       account_id INTEGER NOT NULL,
       rq         INTEGER NOT NULL,
@@ -131,5 +144,19 @@ function migrate(d: DatabaseSync) {
       created_at INTEGER NOT NULL,
       PRIMARY KEY (account_id, rq)
     );
+    CREATE TABLE IF NOT EXISTS engine_txs (
+      tx_hash    TEXT PRIMARY KEY,    -- lowercase
+      wallet     TEXT NOT NULL,
+      kind       TEXT NOT NULL,
+      ref_id     TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    -- How far the Nad.fun router log watcher has read.
+    CREATE TABLE IF NOT EXISTS cursors (
+      name  TEXT PRIMARY KEY,
+      value INTEGER NOT NULL
+    );
   `);
+  d.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }

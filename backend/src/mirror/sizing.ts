@@ -33,6 +33,20 @@ export interface SizingResult {
   capsApplied: CapApplied[];
 }
 
+export type NotionalInput = Omit<SizingInput, 'markPrice' | 'sizeDecimals'>;
+export type NotionalResult = Omit<SizingResult, 'size' | 'sizeScaled'>;
+
+// Venue-agnostic half of the sizing: how much AUSD of notional this follower's
+// mirror should be. The venue adapter turns notional into its own units.
+export function mirrorNotional(i: NotionalInput, minNotional = 0): NotionalResult {
+  const r = sizeMirror({ ...i, markPrice: 1, sizeDecimals: 6 });
+  if (r.ok && r.notionalUsd < minNotional) {
+    return { ok: false, reason: `mirror notional ${r.notionalUsd.toFixed(2)} AUSD is under the ${minNotional} AUSD minimum`, leverage: r.leverage, marginUsd: r.marginUsd, notionalUsd: r.notionalUsd, capsApplied: r.capsApplied };
+  }
+  const { size: _s, sizeScaled: _ss, ...rest } = r;
+  return rest;
+}
+
 export function sizeMirror(i: SizingInput): SizingResult {
   const caps: CapApplied[] = [];
   const fail = (reason: string): SizingResult => ({

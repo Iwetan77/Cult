@@ -6,19 +6,22 @@ import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { completeEnrollment, setupStatus, startEnrollment } from '../accounts/client-flow.js';
-import { restFor, sessionFor } from '../accounts/lifecycle.js';
+import { sessionFor } from '../accounts/lifecycle.js';
 import { env } from '../config/env.js';
 import { MirrorError, type MirrorEngine } from '../mirror/engine.js';
 import { mirrors, trades } from '../mirror/repo.js';
 import { stackOnTrade } from '../mirror/stack.js';
 import { getContext, getMarket } from '../perpl/context.js';
+import { listMonMarkets } from '../nadfun/trading.js';
+import { monPriceAusd } from '../prices.js';
+import { venue, venueOf } from '../venues/index.js';
 import { AuthError, identify } from '../privy/auth.js';
 import { memberSignerGrant } from '../privy/policy.js';
 import { clans, MirrorPolicySchema, type MirrorPolicy } from '../store/clans.js';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
-import { closePosition, openPosition, sizeForMargin, viewPositions } from '../trading/positions.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
+import { heldMarkets } from './holdings.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
 
@@ -64,10 +67,36 @@ export function createApp(engine: MirrorEngine) {
     const ctx = await getContext();
     return c.json({
       chainId: env.chainId,
-      venue: 'perpl',
+      venues: ['perpl', 'nadfun'],
+      displayUnit: 'AUSD',
+      monPriceAusd: await monPriceAusd().catch(() => null),
       autoMirrorOptOutWindowSeconds: env.mirrorOptOutSeconds,
       mirrorPolicyBounds: { balancePercentCap: { min: 0, minExclusive: true, max: 100 }, maxUsdPerTrade: { min: 1, max: 1_000_000 } },
       markets: ctx.markets.filter((m) => m.config.is_open).map(toApiMarket),
+    });
+  });
+
+  // Nad.fun tokens Cult can trade (MON-quoted only), for the market picker.
+  app.get('/v1/nadfun/markets', async (c) => {
+    const order = z.enum(['latest_trade', 'market_cap', 'creation_time']).catch('latest_trade').parse(c.req.query('order'));
+    const monPx = await monPriceAusd();
+    const list = await listMonMarkets(order, 100);
+    return c.json({
+      markets: list.map((m) => ({
+        venue: 'nadfun',
+        id: m.token.toLowerCase(),
+        symbol: m.symbol,
+        baseSymbol: m.symbol,
+        quoteSymbol: 'AUSD',
+        name: m.name,
+        tokenAddress: m.token.toLowerCase(),
+        imageUri: m.imageUri ?? null,
+        graduated: m.graduated,
+        priceAusd: m.priceMon * monPx,
+        maxLeverage: 1,
+        makerFeeBps: null,
+        takerFeeBps: null,
+      })),
     });
   });
 
@@ -83,7 +112,7 @@ export function createApp(engine: MirrorEngine) {
       .prepare(
         `SELECT m.user_id, m.wallet, m.perpl_account_id, GROUP_CONCAT(cm.clan_id) AS clan_ids
          FROM members m LEFT JOIN clan_members cm ON cm.user_id = m.user_id
-         WHERE m.perpl_account_id IS NOT NULL GROUP BY m.user_id`,
+         GROUP BY m.user_id`,
       )
       .all() as { user_id: string; wallet: string; perpl_account_id: number; clan_ids: string | null }[];
     return c.json({
@@ -99,7 +128,7 @@ export function createApp(engine: MirrorEngine) {
                 COALESCE(mi.trade_id, st.target_trade) AS trade_id
          FROM engine_orders e
          LEFT JOIN mirrors mi ON e.kind LIKE 'mirror%' AND mi.id = e.ref_id
-         LEFT JOIN stacks st ON e.kind = 'stack_open' AND st.id = e.ref_id
+         LEFT JOIN stacks st ON e.kind LIKE 'stack%' AND st.id = e.ref_id
          WHERE e.created_at > ? ORDER BY e.created_at LIMIT 1000`,
       )
       .all(since) as { account_id: number; rq: number; kind: string; ref_id: string; created_at: number; clan_id: string; trade_id: string }[];
@@ -115,15 +144,34 @@ export function createApp(engine: MirrorEngine) {
       })),
     });
   });
+  // Nad.fun txs the engine sent (mirrors/stacks). Anything else by a member is their own trade.
+  indexer.get('/txs', (c) => {
+    const since = Number(c.req.query('since') ?? 0);
+    const rows = getDb()
+      .prepare(
+        `SELECT e.tx_hash, e.wallet, e.kind, e.ref_id, e.created_at,
+                COALESCE(mi.clan_id, st.clan_id) AS clan_id,
+                COALESCE(mi.trade_id, st.target_trade) AS trade_id
+         FROM engine_txs e
+         LEFT JOIN mirrors mi ON e.kind LIKE 'mirror%' AND mi.id = e.ref_id
+         LEFT JOIN stacks st ON e.kind LIKE 'stack%' AND st.id = e.ref_id
+         WHERE e.created_at > ? ORDER BY e.created_at LIMIT 1000`,
+      )
+      .all(since) as { tx_hash: string; wallet: string; kind: string; ref_id: string; created_at: number; clan_id: string; trade_id: string }[];
+    return c.json({
+      txs: rows.map((r) => ({ venue: 'nadfun', txHash: r.tx_hash, wallet: r.wallet, kind: r.kind, refId: r.ref_id, clanId: r.clan_id, tradeId: r.trade_id, createdAt: r.created_at })),
+    });
+  });
   indexer.get('/trades', (c) => {
     const since = Number(c.req.query('since') ?? 0);
     const rows = getDb().prepare('SELECT * FROM leader_trades WHERE opened_at > ? ORDER BY opened_at LIMIT 1000').all(since) as Record<string, unknown>[];
     return c.json({
       trades: rows.map((r) => ({
         tradeId: r.id,
+        venue: r.venue,
         userId: r.user_id,
         perplAccountId: r.account_id,
-        marketId: r.market_id,
+        market: r.market,
         side: r.side,
         positionId: r.position_id,
         openTx: r.open_tx,
@@ -198,35 +246,46 @@ export function createApp(engine: MirrorEngine) {
     return c.body(null, 204);
   });
 
+  // Everything the member holds, both venues, valued in AUSD right now.
   authed.get('/positions', async (c) => {
     const userId = c.get('userId');
-    if (!members.credentials(userId)) return c.json({ positions: [] });
-    return c.json({ positions: await viewPositions((await restFor(userId).positions()).d) });
+    const [p, n] = await Promise.all([
+      venue('perpl').holdings(userId).catch(() => []),
+      venue('nadfun').holdings(userId, heldMarkets(userId, 'nadfun')).catch(() => []),
+    ]);
+    return c.json({ positions: [...p, ...n] });
   });
 
-  // A member's own trade. Not tagged as an engine order -> it's a leader trade
-  // and clan-mates get auto-mirrored.
+  // A member's own trade, on either venue. Not tagged as an engine order, so
+  // it's a leader trade and clan-mates get auto-mirrored. marketId is a Perpl
+  // market id or a Nad.fun token address; notional = marginUsd x leverage (AUSD).
   authed.post('/positions/open', async (c) => {
     const body = z
-      .object({ marketId: z.coerce.number(), side: z.enum(['long', 'short']), marginUsd: z.number().positive(), leverage: z.number().min(1) })
+      .object({
+        marketId: z.coerce.string(),
+        side: z.enum(['long', 'short', 'buy']),
+        marginUsd: z.number().positive(),
+        leverage: z.number().min(1).default(1),
+      })
       .parse(await c.req.json());
     const userId = c.get('userId');
     const m = members.get(userId)!;
-    if (!m.perplAccountId || !m.forwarding) throw bad(409, 'finish Perpl setup first');
-    await getMarket(body.marketId);
-    const session = await sessionFor(userId);
-    const size = await sizeForMargin(body.marketId, body.marginUsd, body.leverage);
-    const order = await openPosition(session, { accountId: m.perplAccountId, marketId: body.marketId, side: body.side, size, leverage: body.leverage });
-    return c.json({ orderId: order.oid, requestId: order.rq, filledSize: order.fs, fillPrice: order.fp, txHash: order.at?.txid ?? null });
+    const v = venueOf(body.marketId);
+    if (v === 'perpl') {
+      if (!m.perplAccountId || !m.forwarding) throw bad(409, 'finish Perpl setup first');
+      if (body.side === 'buy') throw bad(400, 'perpl side must be long or short');
+      await getMarket(Number(body.marketId));
+    } else if (body.side !== 'buy') throw bad(400, 'nad.fun side must be buy');
+    const fill = await venue(v).open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage });
+    return c.json(fill);
   });
 
   authed.post('/positions/close', async (c) => {
-    const body = z.object({ marketId: z.coerce.number() }).parse(await c.req.json());
+    const body = z.object({ marketId: z.coerce.string(), sizeRaw: z.string().regex(/^\d+$/).optional() }).parse(await c.req.json());
     const userId = c.get('userId');
-    const m = members.get(userId)!;
-    if (!m.perplAccountId) throw bad(409, 'no Perpl account');
-    const order = await closePosition(await sessionFor(userId), m.perplAccountId, body.marketId);
-    return c.json({ orderId: order.oid, requestId: order.rq, filledSize: order.fs, fillPrice: order.fp, txHash: order.at?.txid ?? null });
+    const v = venueOf(body.marketId);
+    if (v === 'perpl' && !members.get(userId)?.perplAccountId) throw bad(409, 'no Perpl account');
+    return c.json(await venue(v).close({ userId, market: body.marketId, sizeRaw: body.sizeRaw }));
   });
 
   // ---- clans ---------------------------------------------------------------
@@ -267,7 +326,7 @@ export function createApp(engine: MirrorEngine) {
     const clan = clanFor(c);
     const marketId = c.req.query('marketId');
     const resolution = Number(c.req.query('resolution') ?? 300);
-    return c.json(await buildChart(clan, c.get('userId'), marketId ? Number(marketId) : undefined, resolution));
+    return c.json(await buildChart(clan, c.get('userId'), marketId || undefined, resolution));
   });
 
   authed.post('/clans/:clanId/mirrors/:mirrorId/skip', async (c) => {
@@ -283,7 +342,7 @@ export function createApp(engine: MirrorEngine) {
       .object({ markerId: z.string(), notionalUsd: z.number().positive(), leverage: z.number().min(1).optional() })
       .parse(await c.req.json());
     const tradeId = resolveTradeId(body.markerId);
-    const result = await stackOnTrade({ clanId: clan.id, userId: c.get('userId'), tradeId, notionalUsd: body.notionalUsd, leverage: body.leverage }, sessionFor);
+    const result = await stackOnTrade({ clanId: clan.id, userId: c.get('userId'), tradeId, notionalAusd: body.notionalUsd, leverage: body.leverage });
     return c.json(result, result.status === 'open' ? 200 : 502);
   });
 

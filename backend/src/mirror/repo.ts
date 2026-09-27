@@ -1,17 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../store/db.js';
-import type { Side } from '../trading/positions.js';
+import type { TradeSide, Venue } from '../venues/types.js';
 
 export interface LeaderTrade {
   id: string;
+  venue: Venue;
   userId: string;
-  accountId: number;
-  marketId: number;
-  side: Side;
-  positionId: number;
-  size: number;
-  entryPrice: number;
-  leverage: number;
+  accountId: number | null; // perpl
+  market: string; // perpl market id | nadfun token (lowercase)
+  side: TradeSide;
+  positionId: number | null; // perpl
+  size: string; // raw
+  entryPrice: number | null; // AUSD per unit
+  leverage: number; // hundredths
   marginFraction: number;
   openTx: string | null;
   openedAt: number;
@@ -29,7 +30,7 @@ export interface Mirror {
   skipUntil: number;
   marginUsd: number | null;
   notionalUsd: number | null;
-  size: number | null;
+  size: string | null;
   capApplied: string | null;
   openRq: number | null;
   openOid: number | null;
@@ -44,9 +45,10 @@ export interface Mirror {
 
 const TRADE_COLS: Record<keyof LeaderTrade, string> = {
   id: 'id',
+  venue: 'venue',
   userId: 'user_id',
   accountId: 'account_id',
-  marketId: 'market_id',
+  market: 'market',
   side: 'side',
   positionId: 'position_id',
   size: 'size',
@@ -92,6 +94,7 @@ const mirrorFrom = (r: unknown) => fromRow<Mirror>(MIRROR_COLS, r as Record<stri
 
 export const trades = {
   insert(t: Omit<LeaderTrade, 'closedAt'>): LeaderTrade {
+    t = { ...t, market: t.market.toLowerCase() };
     const keys = Object.keys(t) as (keyof LeaderTrade)[];
     getDb()
       .prepare(`INSERT INTO leader_trades (${keys.map((k) => TRADE_COLS[k]).join(',')}) VALUES (${keys.map(() => '?').join(',')})`)
@@ -104,11 +107,11 @@ export const trades = {
   byPosition(accountId: number, positionId: number) {
     return tradeFrom(getDb().prepare('SELECT * FROM leader_trades WHERE account_id = ? AND position_id = ?').get(accountId, positionId));
   },
-  openFor(accountId: number, marketId: number) {
+  openFor(userId: string, venue: Venue, market: string) {
     return tradeFrom(
       getDb()
-        .prepare('SELECT * FROM leader_trades WHERE account_id = ? AND market_id = ? AND closed_at IS NULL ORDER BY opened_at DESC')
-        .get(accountId, marketId),
+        .prepare('SELECT * FROM leader_trades WHERE user_id = ? AND venue = ? AND market = ? AND closed_at IS NULL ORDER BY opened_at DESC')
+        .get(userId, venue, market.toLowerCase()),
     );
   },
   openForUsers(userIds: string[]): LeaderTrade[] {
@@ -145,6 +148,12 @@ export const mirrors = {
   },
   byStatus(status: MirrorStatus): Mirror[] {
     return getDb().prepare('SELECT * FROM mirrors WHERE status = ?').all(status).map((r) => mirrorFrom(r)!);
+  },
+  forUser(userId: string, statuses: MirrorStatus[]): Mirror[] {
+    return getDb()
+      .prepare(`SELECT * FROM mirrors WHERE user_id = ? AND status IN (${statuses.map(() => '?').join(',')}) ORDER BY created_at`)
+      .all(userId, ...statuses)
+      .map((r) => mirrorFrom(r)!);
   },
   forClan(clanId: string, statuses: MirrorStatus[]): Mirror[] {
     return getDb()

@@ -1,21 +1,33 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { getExchangeInfo, getMarket, getTicker, maxLeverageHundredths, scale } from '../perpl/context.js';
+import { ethers } from 'ethers';
+import { hasSignerOverride } from '../accounts/signers.js';
+import { rpc } from '../chain/signer.js';
+import { NadWatcher, type NadTradeEvent } from '../nadfun/watcher.js';
+import { getExchangeInfo } from '../perpl/context.js';
 import type { TradingSession } from '../perpl/session.js';
 import { PositionSide, type Position } from '../perpl/types.js';
+import { monPriceAusd } from '../prices.js';
 import { clans } from '../store/clans.js';
 import { members } from '../store/members.js';
-import { closePosition, openPosition } from '../trading/positions.js';
-import { recordEngineOrder, isEngineOrder } from './origin.js';
+import { venue as defaultVenue, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
+import { isEngineOrder, isEngineTx, recordRef } from './origin.js';
 import { mirrors, trades, type LeaderTrade, type Mirror } from './repo.js';
-import { sizeMirror } from './sizing.js';
+import { mirrorNotional } from './sizing.js';
 
-// Position status reasons that mean "a new position now exists".
+// Perpl position status reasons that mean "a new position now exists".
 const SR_OPENED = 21;
 const SR_INVERTED = 18;
 
 export interface MirrorEngineConfig {
   optOutSeconds: number;
+  minMirrorAusd?: number; // don't fire dust mirrors
+}
+
+export interface MirrorEngineDeps {
+  sessionFor: (userId: string) => Promise<TradingSession>;
+  venue?: (v: Venue) => VenueAdapter;
+  nadWatcher?: NadWatcher | null; // null disables Nad.fun leader detection
 }
 
 export interface MirrorEngineEvents {
@@ -24,103 +36,192 @@ export interface MirrorEngineEvents {
   mirror: [Mirror];
 }
 
-// Auto-mirror: a clan member opens a position themselves -> every other member
-// of their clan(s) gets a pending mirror with a skip deadline -> at the
-// deadline, un-skipped mirrors are sized from each follower's own balance and
-// policy and opened -> when the leader's position closes, the mirrors close.
+// A member's own trade on either venue, however it was detected.
+export interface LeaderOpen {
+  venue: Venue;
+  userId: string;
+  market: string;
+  side: TradeSide;
+  sizeRaw: string;
+  entryPriceAusd: number | null;
+  leverageHundredths: number;
+  marginFraction: number;
+  accountId?: number;
+  positionId?: number;
+  openTx?: string | null;
+}
+
+// One engine, two venues. A clan member opens a trade themselves (Perpl
+// position or Nad.fun buy) -> every other member of their clan(s) gets a
+// pending mirror with a skip deadline -> at the deadline, un-skipped mirrors
+// are sized from each follower's own balance and policy and opened through the
+// venue adapter -> when the leader exits, the mirrors exit.
 //
-// Manual stacking is NOT here; see mirror/stack.ts. Positions this engine (or
-// the stack path) opens are tagged in engine_orders and never treated as a new
-// leader trade, which is what stops mirrors from mirroring each other.
+// Leader detection: Perpl via each member's trading websocket; Nad.fun via the
+// router log watcher. Anything this engine (or a manual stack) sends is tagged
+// before it leaves (engine_orders / engine_txs), so a mirror is never picked
+// up as a new leader trade. Manual stacking is not here: see mirror/stack.ts.
 export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
-  private watching = new Set<string>();
+  private watchingPerpl = new Set<string>();
   private timers = new Map<string, NodeJS.Timeout>();
+  private readonly venue: (v: Venue) => VenueAdapter;
+  private readonly nad: NadWatcher | null;
 
   constructor(
     readonly cfg: MirrorEngineConfig,
-    private readonly sessionFor: (userId: string) => Promise<TradingSession>,
+    private readonly deps: MirrorEngineDeps,
   ) {
     super();
+    this.venue = deps.venue ?? defaultVenue;
+    this.nad = deps.nadWatcher === undefined ? new NadWatcher() : deps.nadWatcher;
+    this.nad?.on('trade', (t) => void this.onNadTrade(t).catch((e) => this.log('nadfun', e)));
   }
 
   async start() {
-    for (const userId of clans.allMemberUserIds()) {
-      if (members.credentials(userId)) await this.watch(userId);
-    }
+    for (const userId of clans.allMemberUserIds()) await this.watch(userId).catch((e) => this.log(`watch ${userId}`, e));
+    await this.nad?.start();
     await this.recover();
   }
 
   stop() {
+    this.nad?.stop();
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
   }
 
   async watch(userId: string) {
-    if (this.watching.has(userId)) return;
-    const session = await this.sessionFor(userId);
-    this.watching.add(userId);
-    session.on('position', (p) => void this.onPosition(userId, session, p).catch((e) => this.log('onPosition', e)));
-    session.on('positionClosed', (p) => void this.onPositionClosed(p).catch((e) => this.log('onPositionClosed', e)));
+    const m = members.get(userId);
+    if (!m) return;
+    this.nad?.add(m.wallet);
+    if (this.watchingPerpl.has(userId) || !members.credentials(userId)) return;
+    const session = await this.deps.sessionFor(userId);
+    this.watchingPerpl.add(userId);
+    session.on('position', (p) => void this.onPerplPosition(userId, session, p).catch((e) => this.log('perpl position', e)));
+    session.on('positionClosed', (p) => void this.onPerplClosed(userId, p).catch((e) => this.log('perpl close', e)));
   }
 
-  // ---- leader side -------------------------------------------------------
+  // ---- leader detection: Perpl ---------------------------------------------
 
-  private async onPosition(userId: string, session: TradingSession, p: Position) {
+  private async onPerplPosition(userId: string, session: TradingSession, p: Position) {
     if (p.sr !== SR_OPENED && p.sr !== SR_INVERTED) return; // increases/decreases aren't new trades
-    if (isEngineOrder(p.acc, p.rq)) return; // our own mirror/stack, not a leader trade
-    if (trades.byPosition(p.acc, p.pid)) return; // already seen (reconnect replay)
+    if (isEngineOrder(p.acc, p.rq)) return; // our own mirror/stack
+    if (trades.byPosition(p.acc, p.pid)) return; // replay after reconnect
     if (p.sr === SR_INVERTED) {
-      // Flip = old side closed + new side opened. Close out the old trade first.
-      const prev = trades.openFor(p.acc, p.mkt);
+      const prev = trades.openFor(userId, 'perpl', String(p.mkt));
       if (prev) await this.closeTrade(prev);
     }
-
-    const clanIds = clans.forUser(userId).map((c) => c.id);
-    if (clanIds.length === 0) return;
-
     const acct = session.accounts.get(p.acc);
     const { collateralDecimals } = await getExchangeInfo();
     const unit = 10 ** collateralDecimals;
     const collateral = Number(p.c) / unit;
     const free = acct ? (Number(acct.b) - Number(acct.lb)) / unit : 0;
-    const marginFraction = collateral > 0 ? collateral / (free + collateral) : 0;
+    const { getMarket, scale } = await import('../perpl/context.js');
+    const m = await getMarket(p.mkt);
+    await this.leaderOpened({
+      venue: 'perpl',
+      userId,
+      market: String(p.mkt),
+      side: p.sd === PositionSide.Long ? 'long' : 'short',
+      sizeRaw: String(p.s),
+      entryPriceAusd: scale.unprice(p.ep, m),
+      leverageHundredths: p.lv,
+      marginFraction: collateral > 0 ? collateral / (free + collateral) : 0,
+      accountId: p.acc,
+      positionId: p.pid,
+      openTx: p.ots?.txid ?? p.at?.txid ?? null,
+    });
+  }
 
+  private async onPerplClosed(userId: string, p: Position) {
+    const trade = trades.byPosition(p.acc, p.pid) ?? trades.openFor(userId, 'perpl', String(p.mkt));
+    if (trade && !trade.closedAt) await this.closeTrade(trade);
+  }
+
+  // ---- leader detection: Nad.fun --------------------------------------------
+
+  private async onNadTrade(t: NadTradeEvent) {
+    if (isEngineTx(t.txHash)) return; // our own mirror/stack
+    const member = members.byWallet(t.wallet);
+    if (!member) return;
+    const open = trades.openFor(member.userId, 'nadfun', t.token);
+
+    if (t.side === 'buy') {
+      if (open) return; // adding to a holding they already lead with isn't a new trade
+      const monPx = await monPriceAusd();
+      // Share of their MON this buy used, from the balance just before it.
+      const before = await rpc().getBalance(t.wallet, t.blockNumber - 1).catch(() => 0n);
+      const fraction = before > 0n ? Number((t.monAmount * 1_000_000n) / before) / 1_000_000 : 0;
+      const tokens = Number(ethers.formatEther(t.tokenAmount));
+      await this.leaderOpened({
+        venue: 'nadfun',
+        userId: member.userId,
+        market: t.token,
+        side: 'buy',
+        sizeRaw: t.tokenAmount.toString(),
+        entryPriceAusd: tokens > 0 ? (Number(ethers.formatEther(t.monAmount)) * monPx) / tokens : null,
+        leverageHundredths: 100,
+        marginFraction: Math.min(fraction, 1),
+        openTx: t.txHash,
+      });
+      return;
+    }
+
+    // Sell: only a full exit closes the trade (partial sells don't propagate).
+    if (!open) return;
+    const { tokenBalance } = await import('../nadfun/trading.js');
+    const left = await tokenBalance(t.token, t.wallet);
+    if (left * 100n <= BigInt(open.size)) await this.closeTrade(open); // <1% of the original left = exited
+  }
+
+  // ---- shared pipeline ---------------------------------------------------------
+
+  async leaderOpened(e: LeaderOpen): Promise<LeaderTrade | null> {
+    const clanIds = clans.forUser(e.userId).map((c) => c.id);
+    if (clanIds.length === 0) return null;
     const trade = trades.insert({
       id: randomUUID(),
-      userId,
-      accountId: p.acc,
-      marketId: p.mkt,
-      side: p.sd === PositionSide.Long ? 'long' : 'short',
-      positionId: p.pid,
-      size: p.s,
-      entryPrice: p.ep,
-      leverage: p.lv,
-      marginFraction,
-      openTx: p.ots?.txid ?? p.at?.txid ?? null,
+      venue: e.venue,
+      userId: e.userId,
+      accountId: e.accountId ?? null,
+      market: e.market,
+      side: e.side,
+      positionId: e.positionId ?? null,
+      size: e.sizeRaw,
+      entryPrice: e.entryPriceAusd,
+      leverage: e.leverageHundredths,
+      marginFraction: e.marginFraction,
+      openTx: e.openTx ?? null,
       openedAt: Date.now(),
     });
     this.emit('trade', trade);
 
     const skipUntil = Date.now() + this.cfg.optOutSeconds * 1000;
-    const seen = new Set<string>([userId]);
+    const seen = new Set<string>([e.userId]);
     for (const clanId of clanIds) {
       for (const m of clans.members(clanId)) {
         if (seen.has(m.userId)) continue; // one mirror per follower even across shared clans
         seen.add(m.userId);
-        if (!m.policy.enabled || !members.credentials(m.userId)) continue;
+        if (!m.policy.enabled || !this.canTrade(m.userId, e.venue)) continue;
         const mirror = mirrors.insertPending({ tradeId: trade.id, clanId, userId: m.userId, skipUntil });
         this.emit('mirror', mirror);
         this.schedule(mirror);
       }
     }
+    return trade;
   }
 
-  private async onPositionClosed(p: Position) {
-    const trade = trades.byPosition(p.acc, p.pid) ?? trades.openFor(p.acc, p.mkt);
-    if (trade && !trade.closedAt) await this.closeTrade(trade);
+  // Perpl needs an enrolled key and account; Nad.fun needs a wallet signer the
+  // backend may use (the Privy grant, or a registered test key). An injected
+  // venue (tests) decides for itself.
+  private canTrade(userId: string, v: Venue) {
+    const m = members.get(userId);
+    if (!m) return false;
+    if (this.deps.venue) return true;
+    if (v === 'perpl') return !!members.credentials(userId) && !!m.perplAccountId;
+    return !!m.privyWalletId || hasSignerOverride(userId);
   }
 
-  private async closeTrade(trade: LeaderTrade) {
+  async closeTrade(trade: LeaderTrade) {
     trades.markClosed(trade.id);
     this.emit('tradeClosed', { ...trade, closedAt: Date.now() });
     for (const m of mirrors.forTrade(trade.id)) {
@@ -132,8 +233,6 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       }
     }
   }
-
-  // ---- follower side -----------------------------------------------------
 
   skip(mirrorId: string, userId: string): Mirror {
     const m = mirrors.get(mirrorId);
@@ -173,48 +272,41 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       return;
     }
     try {
-      const session = await this.sessionFor(m.userId);
-      const follower = members.get(m.userId)!;
-      const acct = session.accounts.get(follower.perplAccountId!);
-      if (!acct) throw new Error('follower has no Perpl account on session');
+      const adapter = this.venue(trade.venue);
       const membership = clans.membership(m.clanId, m.userId)!;
-      const market = await getMarket(trade.marketId);
-      const { d } = await getTicker();
-      const { collateralDecimals } = await getExchangeInfo();
-
-      const sizing = sizeMirror({
-        leaderMarginFraction: trade.marginFraction,
-        leaderLeverage: trade.leverage / 100,
-        marketMaxLeverage: maxLeverageHundredths(market) / 100,
-        followerFreeBalanceUsd: (Number(acct.b) - Number(acct.lb)) / 10 ** collateralDecimals,
-        markPrice: scale.unprice(d[String(market.id)]?.mrk ?? 0, market),
-        sizeDecimals: market.config.size_decimals,
-        policy: membership.policy,
-      });
+      const sizing = mirrorNotional(
+        {
+          leaderMarginFraction: trade.marginFraction,
+          leaderLeverage: trade.leverage / 100,
+          marketMaxLeverage: await adapter.maxLeverage(trade.market),
+          followerFreeBalanceUsd: await adapter.freeBalanceAusd(m.userId),
+          policy: membership.policy,
+        },
+        this.cfg.minMirrorAusd ?? 1,
+      );
       if (!sizing.ok) throw new Error(`not sized: ${sizing.reason}`);
 
-      const order = await openPosition(session, {
-        accountId: acct.id,
-        marketId: market.id,
+      const fill = await adapter.open({
+        userId: m.userId,
+        market: trade.market,
         side: trade.side,
-        size: sizing.size,
+        notionalAusd: sizing.notionalUsd,
         leverage: sizing.leverage,
-        onRq: (rq) => {
-          recordEngineOrder(acct.id, rq, 'mirror_open', m.id);
-          mirrors.patch(m.id, { openRq: rq });
+        onRef: (ref) => {
+          recordRef(ref, 'mirror_open', m.id);
+          if (ref.rq != null) mirrors.patch(m.id, { openRq: ref.rq });
         },
       });
       const updated = mirrors.transition(m.id, 'submitting', 'open', {
         marginUsd: sizing.marginUsd,
-        notionalUsd: sizing.notionalUsd,
-        size: order.fs,
+        notionalUsd: fill.notionalAusd,
+        size: fill.sizeRaw,
         capApplied: sizing.capsApplied.join(','),
-        openOid: order.oid,
-        openTx: order.at?.txid ?? null,
+        openOid: fill.orderId ?? null,
+        openTx: fill.txHash ?? null,
       })!;
       this.emit('mirror', updated);
-      // Leader may have closed while we were filling.
-      if (trades.get(trade.id)!.closedAt) await this.closeMirror(updated, trade);
+      if (trades.get(trade.id)!.closedAt) await this.closeMirror(updated, trade); // leader left while we filled
     } catch (e) {
       this.emit('mirror', mirrors.transition(m.id, 'submitting', 'failed', { error: String(e).slice(0, 500) })!);
     }
@@ -222,28 +314,27 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
   private async closeMirror(m: Mirror, trade: LeaderTrade) {
     try {
-      const session = await this.sessionFor(m.userId);
-      const follower = members.get(m.userId)!;
-      const order = await closePosition(session, follower.perplAccountId!, trade.marketId, {
-        sizeScaled: m.size ?? undefined,
-        onRq: (rq) => {
-          recordEngineOrder(follower.perplAccountId!, rq, 'mirror_close', m.id);
-          mirrors.patch(m.id, { closeRq: rq });
+      const fill = await this.venue(trade.venue).close({
+        userId: m.userId,
+        market: trade.market,
+        sizeRaw: m.size ?? undefined,
+        onRef: (ref) => {
+          recordRef(ref, 'mirror_close', m.id);
+          if (ref.rq != null) mirrors.patch(m.id, { closeRq: ref.rq });
         },
       });
-      this.emit('mirror', mirrors.transition(m.id, 'open', 'closed', { closeOid: order.oid, closeTx: order.at?.txid ?? null })!);
+      this.emit('mirror', mirrors.transition(m.id, 'open', 'closed', { closeOid: fill.orderId ?? null, closeTx: fill.txHash ?? null })!);
     } catch (e) {
       mirrors.patch(m.id, { error: `close failed: ${String(e).slice(0, 400)}` });
       this.emit('mirror', mirrors.get(m.id)!);
     }
   }
 
-  // After a restart: fire anything whose window lapsed, re-arm the rest.
+  // After a restart: re-arm pending mirrors; flag interrupted submits.
   private async recover() {
     for (const m of mirrors.byStatus('pending')) this.schedule(m);
     for (const m of mirrors.byStatus('submitting')) {
-      // Unknown outcome; leave for reconciliation rather than risk a double open.
-      mirrors.patch(m.id, { error: 'interrupted mid-submit; reconcile against Perpl before retrying' });
+      mirrors.patch(m.id, { error: 'interrupted mid-submit; reconcile against the venue before retrying' });
     }
   }
 
@@ -251,6 +342,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     console.error(`[mirror] ${where}:`, e);
   }
 }
+
 
 export class MirrorError extends Error {
   constructor(
@@ -260,4 +352,3 @@ export class MirrorError extends Error {
     super(message);
   }
 }
-
