@@ -11,6 +11,9 @@ let cached: { at: number; ctx: Context } | undefined;
 export async function getContext(force = false): Promise<Context> {
   if (!force && cached && Date.now() - cached.at < TTL_MS) return cached.ctx;
   const ctx = await getJson<Context>(`${env.perplApiUrl}/v1/pub/context`);
+  // Mainnet leaves `symbol` blank on some markets (BTC, MON) and puts the
+  // ticker in `name`; everything downstream reads `symbol`.
+  for (const m of ctx.markets) if (!m.symbol) m.symbol = m.name;
   cached = { at: Date.now(), ctx };
   return ctx;
 }
