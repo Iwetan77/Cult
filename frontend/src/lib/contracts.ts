@@ -9,7 +9,7 @@ export type Market = {
 };
 export type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number };
 export type Candle = { time: number; open: number; high: number; low: number; close: number };
-export type Clan = { id: string; name: string; inviteCode: string; memberCount: number; myPolicy: MirrorPolicy | null };
+export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; memberCount: number; myPolicy: MirrorPolicy | null };
 export type Member = {
   id: string; name: string; address: string; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
@@ -20,8 +20,13 @@ export type Member = {
     copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
   };
 };
+export type ChatRoom = { id: string; kind: 'global' | 'country' | 'cult'; name: string };
+export type DiscoverCult = { id: string; name: string; visibility: 'public'; memberCount: number; createdAt: string; joined: boolean };
+export type LeaderboardEntry = { rank: number; memberId: string; name: string; address: string; country: string | null; realizedPnlUsd: number; winRate: number | null; tradeCount: number; copiedTradeCount: number };
+export type Leaderboard = { scope: string; name: string; metric: 'realizedPnlUsd'; period: 'all'; entries: LeaderboardEntry[]; me: (Omit<LeaderboardEntry, 'rank'> & { rank: number | null }) | null; rankedCount: number; memberCount: number; asOf: string };
+export type CultStanding = { rank: number; cultId: string; name: string; memberCount: number; realizedPnlUsd: number; winRate: number | null; tradeCount: number; joined: boolean };
 export type ChatMessage = {
-  id: string; clanId: string; memberId: string; memberName: string; body: string;
+  id: string; room: string; clanId: string | null; memberId: string; memberName: string; body: string;
   replyTo: string | null; markerId: string | null; createdAt: string;
 };
 export type ChatPage = { messages: ChatMessage[]; hasMore: boolean };
@@ -50,7 +55,7 @@ export type BackendConfig = {
   autoMirrorOptOutWindowSeconds: number; mirrorPolicyBounds: unknown; markets: Market[];
 };
 export type Me = {
-  id: string; address: `0x${string}`; name: string; clans: Clan[];
+  id: string; address: `0x${string}`; name: string; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
   perpl: { accountId: string | null; keyEnrolled: boolean; forwarding: boolean };
   balances: {
     perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;

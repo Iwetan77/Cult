@@ -40,7 +40,7 @@ export function ClanChat({ clanId, liveMessage, selectedMarker, onOpenMarker }: 
     setUnread(0);
     stickToBottom.current = true;
     getAccessToken().then(accessToken => {
-      if (!accessToken) throw new Error('Sign in again to read clan messages.');
+      if (!accessToken) throw new Error('Sign in again to read cult messages.');
       return getClanMessages(accessToken, clanId);
     }).then(page => {
       if (!active) return;
@@ -74,7 +74,7 @@ export function ClanChat({ clanId, liveMessage, selectedMarker, onOpenMarker }: 
     setError(null);
     try {
       const accessToken = await getAccessToken();
-      if (!accessToken) throw new Error('Sign in again to read clan messages.');
+      if (!accessToken) throw new Error('Sign in again to read cult messages.');
       const page = await getClanMessages(accessToken, clanId, before);
       const list = listRef.current;
       if (list) prependPosition.current = { height: list.scrollHeight, top: list.scrollTop };
@@ -112,7 +112,7 @@ export function ClanChat({ clanId, liveMessage, selectedMarker, onOpenMarker }: 
   };
 
   return <div className="detail-body chat-panel">
-    <div className="detail-section-label">PRIVATE CLAN</div>
+    <div className="detail-section-label">CULT</div>
     <h2>Clan chat</h2>
     <div className="chat-log" ref={listRef} onScroll={event => {
       const list = event.currentTarget;
@@ -120,7 +120,7 @@ export function ClanChat({ clanId, liveMessage, selectedMarker, onOpenMarker }: 
       if (stickToBottom.current) setUnread(0);
     }}>
       {hasMore && <button className="chat-older" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading...' : 'Older messages'}</button>}
-      {loading ? <p className="field-note">Loading messages...</p> : messages.length === 0 ? <p className="field-note">No messages in this clan yet.</p> : messages.map(message => <div className="chat-message" key={message.id} id={'chat-message-' + message.id}>
+      {loading ? <p className="field-note">Loading messages...</p> : messages.length === 0 ? <p className="field-note">No messages in this cult yet.</p> : messages.map(message => <div className="chat-message" key={message.id} id={'chat-message-' + message.id}>
         <div className="chat-meta"><strong>{message.memberName}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
         {message.replyTo && <div className="chat-reference"><Reply size={12} /> Reply to {messages.find(item => item.id === message.replyTo)?.memberName ?? 'message'}</div>}
         <p className="chat-text">{message.body}</p>
@@ -133,7 +133,7 @@ export function ClanChat({ clanId, liveMessage, selectedMarker, onOpenMarker }: 
       {replyTo && <div className="chat-context"><Reply size={13} /> Replying to {replyTo.memberName}<button type="button" title="Cancel reply" onClick={() => setReplyTo(null)}><X size={13} /></button></div>}
       {markerId && <div className="chat-context"><Link2 size={13} /> Linked trade<button type="button" title="Remove trade link" onClick={() => setMarkerId(null)}><X size={13} /></button></div>}
       {selectedMarker && !markerId && <button className="chat-attach" type="button" onClick={() => setMarkerId(selectedMarker.id)}><Link2 size={13} /> Link selected trade</button>}
-      <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={1000} rows={3} placeholder="Message your clan" aria-label="Message your clan" />
+      <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={1000} rows={3} placeholder="Message your cult" aria-label="Message your cult" />
       <div className="chat-submit"><span>{draft.length}/1000</span><button className="primary" type="submit" disabled={sending || !draft.trim()}><Send size={14} /> Send</button></div>
     </form>
   </div>;
