@@ -116,6 +116,8 @@ const g = await call('read global (anyone signed in)', 'GET', '/v1/chat/global/m
 if (!g.messages.some((m: any) => m.body === 'gm from Lagos' && m.room === 'global')) throw new Error('global message missing');
 await call('post in my country room', 'POST', '/v1/chat/country:NG/messages', auth(alice, 'alice'), { body: 'naija traders' });
 await call("someone else's country room", 'GET', '/v1/chat/country:NG/messages', auth(bob, 'bob'));
+const enc = await call('room id url-encoded (as browsers send it)', 'GET', `/v1/chat/${encodeURIComponent('country:NG')}/messages`, auth(alice, 'alice'));
+if (!enc.messages?.some((m: any) => m.body === 'naija traders')) throw new Error('encoded room id not understood');
 await call('a cult room via /chat', 'GET', `/v1/chat/cult:${clan.id}/messages`, auth(bob, 'bob'));
 const me2 = await call('me shows country and rooms', 'GET', '/v1/me', auth(alice, 'alice'));
 if (me2.country?.code !== 'NG' || me2.rooms.length < 3) throw new Error('me is missing country/rooms');
