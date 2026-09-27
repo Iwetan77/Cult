@@ -44,7 +44,7 @@ export interface MirrorEngineDeps {
 
 export interface MirrorEngineEvents {
   trade: [LeaderTrade];
-  tradeChanged: [LeaderTrade]; // the leader added or partly exited
+  tradeChanged: [LeaderTrade, number]; // the leader added or partly exited; size after / before
   tradeClosed: [LeaderTrade];
   mirror: [Mirror];
   adjustment: [Adjustment];
@@ -325,7 +325,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     // No await from here to the end of the loop: the resize and the set of
     // open mirrors it applies to have to be read as one step.
     trades.resize(trade.id, sizeRaw.toString(), entryPriceAusd);
-    this.emit('tradeChanged', trades.get(trade.id)!);
+    this.emit('tradeChanged', trades.get(trade.id)!, ratio);
     for (const m of mirrors.forTrade(trade.id)) {
       if (m.status === 'open') this.queueAdjustment(trade, m, ratio, detectedLateBySeconds);
     }

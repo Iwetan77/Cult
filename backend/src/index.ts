@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { sessionFor, stopAllSessions } from './accounts/lifecycle.js';
+import { startActivityFeed } from './api/activity.js';
 import { createApp } from './api/server.js';
 import { env } from './config/env.js';
 import { MirrorEngine } from './mirror/engine.js';
@@ -8,6 +9,7 @@ import { getDb } from './store/db.js';
 
 getDb();
 const engine = new MirrorEngine({ optOutSeconds: env.mirrorOptOutSeconds }, { sessionFor });
+startActivityFeed(engine);
 await engine.start();
 void reconcileStacks().catch((e) => console.error('[stack] reconcile', e));
 

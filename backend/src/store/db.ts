@@ -14,7 +14,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -45,7 +45,8 @@ function migrate(d: DatabaseSync) {
       invite_code TEXT NOT NULL UNIQUE,       -- ABC-DEF (older cults may have a legacy code)
       created_by  TEXT NOT NULL REFERENCES members(user_id),
       created_at  INTEGER NOT NULL,
-      visibility  TEXT NOT NULL DEFAULT 'private'  -- private: code only | public: listed, anyone can join
+      visibility  TEXT NOT NULL DEFAULT 'private', -- private: code only | public: listed, anyone can join
+      pinned_message_id TEXT                        -- the owner's pinned chat message
     );
 
     -- Mirror policy is set once at join and never re-asked per trade.
@@ -226,7 +227,8 @@ function migrate(d: DatabaseSync) {
       body        TEXT NOT NULL,
       reply_to    TEXT,
       marker_id   TEXT,
-      created_at  INTEGER NOT NULL
+      created_at  INTEGER NOT NULL,
+      kind        TEXT NOT NULL DEFAULT 'text'   -- text | system ("X joined", "X opened BTC long")
     );
     CREATE INDEX IF NOT EXISTS chat_messages_room ON chat_messages(room, created_at);
 
@@ -242,6 +244,9 @@ function migrate(d: DatabaseSync) {
   // v3 -> v4: public cults, member countries, room-based chat (global / country / cult).
   if (!hasCol('clans', 'visibility')) d.exec("ALTER TABLE clans ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'");
   if (!hasCol('members', 'country')) d.exec('ALTER TABLE members ADD COLUMN country TEXT');
+  // v4 -> v5: system messages in chat, a pinned message per cult.
+  if (!hasCol('chat_messages', 'kind')) d.exec("ALTER TABLE chat_messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'");
+  if (!hasCol('clans', 'pinned_message_id')) d.exec('ALTER TABLE clans ADD COLUMN pinned_message_id TEXT');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);
