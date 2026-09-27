@@ -13,6 +13,12 @@ export type Clan = { id: string; name: string; inviteCode: string; memberCount: 
 export type Member = {
   id: string; name: string; address: string; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
+  stats: {
+    verified: boolean; tradeCount: number; winRate: number | null;
+    realizedPnlPerplUsd: number; realizedPnlMon: number; realizedPnlUsd: number | null;
+    monPriceUsed: number | null; lastTradeAt: number | null;
+    copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
+  };
 };
 export type TpslSuggestion = {
   id: string; markerId: string; tradeId: string; fromMemberId: string; fromName: string;
