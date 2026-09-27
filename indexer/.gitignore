@@ -4,6 +4,7 @@ node_modules/
 !.env.example
 .generated/
 .envio/
+envio-env.d.ts
 dist/
 *.log
 __pycache__/

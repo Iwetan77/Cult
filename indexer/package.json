@@ -2,7 +2,8 @@
   "name": "cult-indexer",
   "version": "1.0.0",
   "private": true,
-  "description": "Envio HyperIndex for Cult: verified per-address Perpl trading stats on Monad testnet",
+  "type": "module",
+  "description": "Envio HyperIndex for Cult: verified per-address Perpl + Nad.fun trading stats on Monad testnet",
   "scripts": {
     "codegen": "envio codegen",
     "dev": "envio dev",
