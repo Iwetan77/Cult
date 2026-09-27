@@ -34,8 +34,8 @@ the MON->AUSD display conversion. See `API.md`.
 ## Prerequisites
 
 - Node 22+ (envio 3.13 requires it; Node 18 is too old and 20 is unsupported)
-- Docker (for the local Postgres + Hasura stack `envio dev` spins up; `envio start`
-  can run against an external Postgres via `ENVIO_PG_*` if you don't have Docker)
+- Docker for `envio dev` (a local Postgres + Hasura), **or** any Postgres for
+  `envio start` (see "Without Docker" below)
 - An [Envio API token](https://envio.dev/app/api-tokens) for HyperSync
 - pnpm or npm
 
@@ -65,6 +65,26 @@ npm run test         # run the test suite (see test/)
 
 Once `dev` is up, the auto-generated GraphQL API (Hasura) is available locally at
 `http://localhost:8080/v1/graphql`. The entity data is in Postgres.
+
+### Without Docker (no Hasura)
+
+The indexer only needs a Postgres. Hasura is just the GraphQL layer on top of it,
+and the Cult backend can read the `Trader` table directly instead
+(`INDEXER_PG_URL` on the backend). This is how it runs on a host without Docker:
+
+```bash
+ENVIO_HASURA=false ENVIO_TUI=false \
+ENVIO_PG_HOST=... ENVIO_PG_PORT=5432 ENVIO_PG_USER=... ENVIO_PG_PASSWORD=... ENVIO_PG_DATABASE=... \
+ENVIO_API_TOKEN=... \
+npx envio start
+```
+
+- `ENVIO_API_TOKEN` (HyperSync) is what makes a full sync from the Perpl deploy
+  block practical. Over the public RPC it's 100 blocks per request.
+- Give the backend a **read-only** Postgres user for `INDEXER_PG_URL`.
+- Run a single process. Add `-r` only to wipe and re-index.
+- A short, token-free check over a fixed block range: `npx envio start --config
+  config.check.yaml -r` (see `API.md`, "Adds and partial sells").
 
 ## Config
 

@@ -75,8 +75,10 @@ async function closeRoundTrip(
     trader_id: pos.wallet,
     token: pos.token,
     // null = the member's own trade. A mirror/stack trade is labelled by joining
-    // openTx against the backend's GET /v1/indexer/txs (venue=nadfun, kind=
-    // mirror_open|mirror_close|stack_open). Not set here — the backend owns the tag.
+    // openTx against the backend's GET /v1/indexer/txs (venue=nadfun): any
+    // mirror_* kind -> "mirror", stack_* -> "stack". Not set here; the backend
+    // owns the tag. A mirrored round trip can hold mirror_add buys and
+    // mirror_reduce sells too; average cost folds them in, only openTx labels it.
     origin: null,
     qtyRaw: pos.peakQtyRaw,
     costMon: monWeiToMon(pos.totalCostMonWei),

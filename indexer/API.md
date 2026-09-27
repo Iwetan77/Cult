@@ -172,15 +172,46 @@ block ~66010060. All four validation wallets came out matching the independent
 | `0xC434777485d8f4e8A4f6e93A2aCE32155C84eF13` | 1 | 0 | `-0.003630122573596442` | −0.003630 |
 | `0x6222DDA40a6d550b703D0CE62f5bAb17FB7907EE` | 1 | 0 | `-0.001088590628317125` | −0.001089 |
 
+### Adds and partial sells (2026-09-27)
+
+`config.check.yaml` is the same indexer over blocks 66073800–66074100, synced
+over RPC only. It needs no Envio token, no Docker and no Hasura
+(`ENVIO_HASURA=false`, writing straight to Postgres). That range covers the
+backend's live Phase 4 run through Privy wallets (backend commit `17f84cf`):
+- the leader bought;
+- two followers mirrored;
+- the leader sold half, and they each sold half;
+- the leader bought more, and they added;
+- the leader exited, and they exited.
+
+Each wallet is **one round trip with 2 buys and 2 sells**, closed at 0. Its
+`openTx`/`closeTx` are the backend's, and realized PnL matches
+`scripts/validate_nadfun.py` to the wei:
+
+| wallet | role | cost MON | proceeds MON | realizedPnlMon | validator |
+|--------|------|----------|--------------|----------------|-----------|
+| `0x57ee4c88c8b0b594fe53994d00af86bc394abaaa` | leader | 0.15 | 0.144060421738145408 | `-0.005939578261854592` | −5939578261854592 wei |
+| `0x6bef4b8d9f9000178d9dc3de8c114b19375c7333` | follower (Privy) | 0.14801980384860803 | 0.142157798581172436 | `-0.005862005267435594` | −5862005267435594 wei |
+| `0x252ac9acdc29f438620471b2b76992829c8db463` | follower (Privy) | 0.040683184174660832 | 0.039072129378229567 | `-0.001611054796431265` | −1611054796431265 wei |
+
 ## Correlating with the backend (clan labels + mirror vs own)
 
 The backend tags mirror/stack activity so the indexer can tell it apart from a
 member's own trades. It exposes (with header `X-Indexer-Key`):
 
 - `GET /v1/indexer/accounts` -> `{ accounts: [{ userId, wallet, perplAccountId, clanIds }] }`
-- `GET /v1/indexer/orders?since=<ms>` -> Perpl orders, `kind: mirror_open | mirror_close | stack_open`
+- `GET /v1/indexer/orders?since=<ms>` -> Perpl orders, `kind: mirror_open | mirror_close | mirror_add | mirror_reduce | stack_open`, plus `refId` and `mirrorId`
 - `GET /v1/indexer/trades?since=<ms>` -> leader trades with `tradeId`, `perplAccountId`, `openTx`, `venue`, `market`
-- `GET /v1/indexer/txs?since=<ms>` -> `{ txs: [{ venue, txHash, wallet, kind, refId, clanId, tradeId, createdAt }] }`
+- `GET /v1/indexer/txs?since=<ms>` -> `{ txs: [{ venue, txHash, wallet, kind, refId, mirrorId, clanId, tradeId, createdAt }] }`
+
+Since 2026-09-27 the backend also mirrors a leader's **adds and partial sells**:
+- `mirror_add` is a follower buying more because their leader did.
+- `mirror_reduce` is a follower selling part because their leader did.
+
+For these two kinds `refId` is the adjustment id and `mirrorId` is the mirror;
+`mirrorId` is set on every `mirror_*` row. **Match any `mirror_*` kind as
+auto-mirror** (a prefix match, not a fixed list), so new kinds don't break
+the labels.
 
 **Perpl** — `OrderRequest(perpId, accountId, orderDescId, …)` carries `orderDescId`
 = the backend's `requestId`. A fill whose `(accountId, orderDescId)` appears in
@@ -191,7 +222,12 @@ Map `accountId` -> member/clans through `/accounts`.
 indexer exposes `NadFunTrade.openTx` / `closeTx` and a nullable `NadFunTrade.origin`
 (`null` = member's own, `"mirror"`, `"stack"`). The label is set by joining the
 trade's `openTx` against `/v1/indexer/txs` (venue=`nadfun`, `kind`):
-`mirror_open` -> `"mirror"`, `stack_open` -> `"stack"`.
+`mirror_*` -> `"mirror"`, `stack_*` -> `"stack"`.
+
+A round trip is labelled by how it **opened**. A follower's mirrored round trip
+can include `mirror_add` buys and `mirror_reduce` sells; average cost already folds
+them into the one round trip, and it closes when the balance reaches 0. Only
+`openTx` is needed for the label.
 
 The last two gate wallets are the auto-mirror test case (same token, the leader
 `0xc4f8…` opened at block 66006918 and the two mirrors followed):
