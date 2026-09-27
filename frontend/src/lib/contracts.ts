@@ -13,7 +13,18 @@ export type Clan = { id: string; name: string; inviteCode: string; memberCount: 
 export type Member = {
   id: string; name: string; address: string; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
+  stats: {
+    verified: boolean; tradeCount: number; winRate: number | null;
+    realizedPnlPerplUsd: number; realizedPnlMon: number; realizedPnlUsd: number | null;
+    monPriceUsed: number | null; lastTradeAt: number | null;
+    copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
+  };
 };
+export type ChatMessage = {
+  id: string; clanId: string; memberId: string; memberName: string; body: string;
+  replyTo: string | null; markerId: string | null; createdAt: string;
+};
+export type ChatPage = { messages: ChatMessage[]; hasMore: boolean };
 export type TpslSuggestion = {
   id: string; markerId: string; tradeId: string; fromMemberId: string; fromName: string;
   takeProfitPrice: number | null; stopLossPrice: number | null; createdAt: string;
@@ -26,7 +37,8 @@ export type ChartMarker = {
   pnlUsd: number | null; valueUsd: number | null; leverage: number | null;
   takeProfitPrice?: number | null; stopLossPrice?: number | null; suggestions?: TpslSuggestion[];
   isMine: boolean; mirrorStatus?: 'pending' | 'submitted' | 'filled';
-  skipUntil?: string; txHash?: string | null;
+  skipUntil?: string; pendingAdd?: { id: string; ratio: number; skipUntil: string } | null;
+  txHash?: string | null;
 };
 export type ChartSnapshot = {
   clan: Clan; markets: Market[]; selectedMarket: Market; candles: Candle[];
@@ -44,7 +56,7 @@ export type Me = {
     perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;
     gasReserveMon: number; lowGas: boolean; memesPayWith: 'ausd' | 'mon';
   } | null;
-  signerGranted: boolean;
+  signer: { prepared: boolean; attached: boolean | null; policyCurrent: boolean | null };
 };
 export type PrivySignerGrant = {
   signerId: string; policyIds: string[]; capAusd: number; maxBuyMon: number; monPriceAusd: number;

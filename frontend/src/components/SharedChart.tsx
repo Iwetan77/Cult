@@ -152,7 +152,8 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         } else {
           ctx.beginPath(); ctx.moveTo(iconX, markerY - 6); ctx.lineTo(iconX + 6, markerY + 5); ctx.lineTo(iconX - 6, markerY + 5); ctx.closePath(); ctx.fill();
         }
-        ctx.fillStyle = '#ecf1f2'; ctx.fillText(badge, x + 29, markerY + 1, badgeWidth - 35);
+        ctx.fillStyle = '#ecf1f2'; ctx.fillText(badge, x + 29, markerY + 1, badgeWidth - (marker.pendingAdd ? 68 : 35));
+        if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = '10px Arial, sans-serif'; ctx.fillText('ADD', x + badgeWidth - 34, markerY + 1); ctx.font = '12px Arial, sans-serif'; }
         hits.push({ id: marker.id, x, y: markerY - 15, width: badgeWidth, height: 30 });
       });
       setHitRegions(hits);
