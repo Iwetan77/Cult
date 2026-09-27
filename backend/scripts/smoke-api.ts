@@ -133,10 +133,13 @@ if (!fr.rooms.every((r: any) => 'lastMessage' in r && typeof r.memberCount === '
 // Usernames and photos.
 const me0 = await call('me before a username', 'GET', '/v1/me', auth(alice, 'alice'));
 if (me0.needsUsername !== true) throw new Error('should ask for a username');
-await call('bad username', 'GET', '/v1/usernames/7x', auth(alice, 'alice'));
-await call('is iwetan free?', 'GET', '/v1/usernames/iwetan', auth(alice, 'alice'));
+await call('bad username', 'GET', '/v1/usernames/7x');
+const free = await call('is iwetan free? (no sign-in needed)', 'GET', '/v1/usernames/iwetan');
+if (free.available !== true) throw new Error('availability check broken');
 await call('take it', 'POST', '/v1/me/username', auth(alice, 'alice'), { username: 'iwetan' });
 await call('someone else wants it (any case)', 'POST', '/v1/me/username', auth(bob, 'bob'), { username: 'IWETAN' });
+const gone = await call('now it shows as taken', 'GET', '/v1/usernames/Iwetan');
+if (gone.available !== false) throw new Error('taken name shows as free');
 const me1 = await call('me after', 'GET', '/v1/me', auth(alice, 'alice'));
 if (me1.name !== 'iwetan' || me1.needsUsername !== false) throw new Error('username not applied');
 const PNG1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
