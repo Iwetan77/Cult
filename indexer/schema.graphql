@@ -154,6 +154,8 @@ type NadFunTrade {
   venue: Venue!
   trader: Trader!
   token: String!
+  "null = the member's own trade; 'mirror' | 'stack' once joined against backend /v1/indexer/txs by openTx."
+  origin: String
   "Total token quantity of the round trip, raw token units."
   qtyRaw: BigInt!
   "Total MON spent across all buys, MON."
