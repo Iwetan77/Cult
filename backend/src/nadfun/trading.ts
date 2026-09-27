@@ -64,8 +64,8 @@ export async function quoteSell(tokenAddr: string, tokensIn: bigint): Promise<bi
   return router().getFunction('getAmountOut')(tokenAddr, tokensIn, false);
 }
 
-export async function tokenBalance(tokenAddr: string, owner: string): Promise<bigint> {
-  return token(tokenAddr).getFunction('balanceOf')(owner);
+export async function tokenBalance(tokenAddr: string, owner: string, blockTag?: number): Promise<bigint> {
+  return token(tokenAddr).getFunction('balanceOf')(owner, blockTag != null ? { blockTag } : {});
 }
 
 export interface NadFill {
