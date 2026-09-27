@@ -73,6 +73,17 @@ export const members = {
       .run(apiKey, seal(secret), pubkey, userId);
   },
 
+  privyPolicy(userId: string): { id: string; capRaw: bigint } | null {
+    const r = getDb().prepare('SELECT privy_policy_id, privy_policy_cap FROM members WHERE user_id = ?').get(userId) as
+      | { privy_policy_id: string | null; privy_policy_cap: number | null }
+      | undefined;
+    return r?.privy_policy_id ? { id: r.privy_policy_id, capRaw: BigInt(r.privy_policy_cap ?? 0) } : null;
+  },
+
+  setPrivyPolicy(userId: string, id: string, capRaw: bigint) {
+    getDb().prepare('UPDATE members SET privy_policy_id = ?, privy_policy_cap = ? WHERE user_id = ?').run(id, Number(capRaw), userId);
+  },
+
   credentials(userId: string): ApiKeyCredentials | null {
     const r = getDb().prepare('SELECT api_key, api_key_secret FROM members WHERE user_id = ?').get(userId) as
       | { api_key: string | null; api_key_secret: string | null }
