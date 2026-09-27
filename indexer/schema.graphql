@@ -1,0 +1,134 @@
+"""
+Verified per-address Perpl trading stats on Monad testnet.
+
+Every `Trader` is keyed by the lowercase wallet address. The indexer joins
+Perpl's on-chain `accountId` (used by all position events) back to the owning
+wallet through `PerplAccount`, so the whole API surface is address-first.
+"""
+
+enum Venue {
+  PERPL
+  NAD_FUN
+}
+
+enum TradeStatus {
+  CLOSED
+  LIQUIDATED
+  DELEVERAGED
+  UNWOUND
+  INVERTED
+}
+
+"""
+Maps a Perpl on-chain account id to the wallet that created it.
+"""
+type PerplAccount {
+  id: BigInt!
+  owner: String!
+}
+
+"""
+Aggregate verified stats for one wallet, combined across venues.
+"""
+type Trader {
+  id: String!
+  "Number of fully-closed round-trip trades (both venues)."
+  tradeCount: Int!
+  "Closed trades with a positive realized PnL."
+  winningTrades: Int!
+  "Closed trades with a negative or zero realized PnL."
+  losingTrades: Int!
+  "winningTrades / tradeCount, 0..1. 0 when there are no closed trades."
+  winRate: Float!
+  "All-time realized PnL, raw Perpl CNS (USD * 1e6). Negative = net loss."
+  realizedPnlCNS: BigInt!
+  "All-time realized PnL in USD (combined across venues)."
+  realizedPnlUsd: BigDecimal!
+  "Epoch ms of the first closed trade, if any."
+  firstTradeAt: BigInt
+  "Epoch ms of the last closed trade, if any."
+  lastTradeAt: BigInt
+  trades: [Trade!]! @derivedFrom(field: "trader")
+  events: [PositionEvent!]! @derivedFrom(field: "trader")
+}
+
+"""
+A single closed round-trip trade (a Perpl position opened then fully closed).
+"""
+type Trade {
+  id: ID!
+  venue: Venue!
+  trader: Trader!
+  "Perpl perpetual id."
+  marketId: BigInt!
+  symbol: String!
+  side: String!
+  status: TradeStatus!
+  "Position size in base units (e.g. BTC)."
+  size: BigDecimal!
+  entryPrice: BigDecimal!
+  exitPrice: BigDecimal!
+  "entryPrice * size, in USD."
+  notionalUsd: BigDecimal!
+  "Realized PnL for this round trip, raw CNS (USD * 1e6)."
+  realizedPnlCNS: BigInt!
+  "Realized PnL for this round trip, in USD."
+  realizedPnlUsd: BigDecimal!
+  isWin: Boolean!
+  openedAt: BigInt!
+  closedAt: BigInt!
+  openTx: String!
+  closeTx: String!
+  openBlock: BigInt!
+  closeBlock: BigInt!
+}
+
+"""
+One position lifecycle event. This is the raw, timestamped history the
+summaries are built from — every open, increase, decrease, close, liquidation,
+deleverage, inversion and unwind.
+"""
+type PositionEvent {
+  id: ID!
+  venue: Venue!
+  trader: Trader!
+  marketId: BigInt!
+  symbol: String!
+  side: String!
+  "OPENED | INCREASED | DECREASED | CLOSED | LIQUIDATED | DELEVERAGED | INVERTED | UNWOUND"
+  kind: String!
+  "Fill/exit price for this event (human)."
+  price: BigDecimal!
+  "Signed size change (positive = adds size, negative = removes size)."
+  sizeDelta: BigDecimal!
+  "Realized delta (price) PnL of this event, raw CNS."
+  deltaPnlCNS: BigInt!
+  "Realized funding PnL of this event, raw CNS."
+  fundingCNS: BigInt!
+  "deltaPnlCNS + fundingCNS, raw CNS."
+  realizedPnlCNS: BigInt!
+  timestamp: BigInt!
+  tx: String!
+  block: BigInt!
+  logIndex: Int!
+}
+
+"""
+Internal position state used to reconstruct round trips. Not exposed.
+"""
+type PerplPosition @internal {
+  id: ID!
+  perpId: BigInt!
+  accountId: BigInt!
+  owner: String!
+  side: String!
+  "Current open size in raw lots."
+  sizeLNS: BigInt!
+  "Cumulative realized PnL (CNS) since this position last opened."
+  realizedPnlCNS: BigInt!
+  entryPricePNS: BigInt!
+  openedAt: BigInt!
+  openTx: String!
+  openBlock: BigInt!
+  status: String!
+}
