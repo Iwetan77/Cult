@@ -1,14 +1,11 @@
-# Frontend contract status
+# Frontend-only assumptions
 
-Status (2026-09-27): I read `CONTRACTS.md` at backend commit `8c0c1c1325da3fff7f88b4123423e11b58ed175d` in full. The frontend now follows its Perpl types and routes for config, clans, chart, skip, stack, setup, and EIP-712 key enrollment. The backend's current chain is Monad testnet `10143`; the UI selects that chain for embedded wallets and validates every wallet action against runtime `/v1/config`. The opt-out deadline comes from each marker's `skipUntil`; the backend enforces it.
+Status (2026-09-27): I read the canonical `origin/backend:CONTRACTS.md` at `3dd4bc2`. The frontend uses its published AUSD, Nad.fun, Privy signer, funding, positions, chart, and public share shapes. This file records only UI-side choices and remaining gaps.
 
-## Open integration gaps
-
-- The newest product brief supersedes the older spec on funding: USDC must flow through Kuru, with no Agora integration or AUSD presented to users. The backend contract still discusses Agora and says Kuru is banned. Backend must resolve this conflict and publish a USDC funding route. The frontend will not send funds to an invented destination. Privy card funding is not available for the current testnet; the control is disabled there.
-- The contract has no Nad.fun market, holdings, stack, or enrollment shape yet. The shared chart already supports a Nad.fun venue and distinct manual/auto markers, but token execution remains unavailable until the API is defined.
-- `ChartMarker` does not include Perpl TP/SL prices. The chart can draw them when supplied, but cannot show real levels from the current response.
-- Indexer verified win rate, realized PnL, and trade count are nullable/unverified pending its API. The frontend never substitutes demo results.
-- Public result sharing has no published create/read endpoint. The provisional public card route omits clan identity unless `includeClan` is true, but the backend must enforce privacy in its payload. A public link cannot be created reliably until the contract is published.
-- Backend `MirrorPolicy` is `{ enabled, balancePercentCap, maxUsdPerTrade }`, with `(0,100]` and `[1,1000000]` bounds. Both creator and join forms collect it. The contract does not yet define how a member updates policy after joining.
-
-Provisional Nad.fun and public-share types are isolated in `src/lib/contracts.ts`; their calls must be reconciled when backend and indexer publish those contracts. No sample prices, PnL, or track records are presented as real data.
+- Direct AUSD deposit means sending AUSD on the configured Monad chain to the member's own embedded-wallet address, then continuing the member-signed Perpl setup. The backend has no separate direct-deposit endpoint. The UI labels `collateralBalance` as Perpl collateral, not wallet balance.
+- The MON balance is read from the configured testnet RPC by the browser. A value under 0.05 MON is shown as low because the backend reserves 0.05 MON for gas. A Nad.fun buy is gated locally on that reserve plus `notionalUsd / monPriceAusd`; the backend remains authoritative.
+- `GET /v1/privy/signer` gives the policy and caps; `useSigners().addSigners` is requested immediately after clan creation/join. The contract has no signer-grant status endpoint, so the frontend offers a visible retry/reconfirmation control after reload. It does not treat local browser storage as proof of authorization.
+- The USDC funding option uses the backend plan/confirm flow. The backend's 409 response is authoritative while Kuru has no liquidity. Privy's card rail is only offered when the runtime chain is mainnet; direct AUSD remains the usable testnet path.
+- Chart markers and Nad.fun values are already AUSD in the backend payload, converted from MON with its served price. The frontend does not convert them again. Null PnL, ROI, holdings, and unverified indexer track records stay empty or pending.
+- TP/SL prices are not in the published `ChartMarker` shape. The frontend cannot draw truthful TP/SL guides until backend adds those values. No synthetic levels are shown.
+- The public share UI shows `clanName` only when `includeClan` is true. The backend's public endpoint must continue omitting the clan ID, invite code, and member list regardless of UI choice.

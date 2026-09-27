@@ -1,4 +1,4 @@
-import type { BackendConfig, ChartSnapshot, Clan, EnrollmentChallenge, Me, MirrorPolicy, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult } from './contracts';
+import type { BackendConfig, ChartSnapshot, Clan, EnrollmentChallenge, Fill, FundingPlan, FundingResult, Holding, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult } from './contracts';
 
 const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
@@ -28,6 +28,11 @@ export async function api<T>(path: string, token: string | null, options: Reques
 const json = (value: unknown) => JSON.stringify(value);
 export const getConfig = () => api<BackendConfig>('/v1/config', null);
 export const getMe = (token: string) => api<Me>('/v1/me', token);
+export const getPrivySigner = (token: string) => api<PrivySignerGrant>('/v1/privy/signer', token);
+export const getNadMarkets = (token: string) => api<{ markets: NadMarket[] }>('/v1/nadfun/markets?order=latest_trade', token);
+export const getHoldings = (token: string) => api<{ positions: Holding[] }>('/v1/positions', token);
+export const openPosition = (token: string, marketId: string, side: 'long' | 'short' | 'buy', marginUsd: number, leverage?: number) => api<Fill>('/v1/positions/open', token, { method: 'POST', body: json({ marketId, side, marginUsd, ...(leverage ? { leverage } : {}) }) });
+export const closePosition = (token: string, marketId: string) => api<Fill>('/v1/positions/close', token, { method: 'POST', body: json({ marketId }) });
 export const createClan = (token: string, name: string, policy: MirrorPolicy) => api<Clan>('/v1/clans', token, { method: 'POST', body: json({ name, policy }) });
 export const getJoinChallenge = (token: string, inviteCode: string, policy: MirrorPolicy) => api<SignedChallenge>('/v1/clans/join/challenge', token, { method: 'POST', body: json({ inviteCode, policy }) });
 export const joinClan = (token: string, challengeId: string, signature: string) => api<Clan>('/v1/clans/join', token, { method: 'POST', body: json({ challengeId, signature }) });
@@ -36,7 +41,8 @@ export const getPerplSetup = (token: string) => api<SetupStatus>('/v1/perpl/setu
 export const getEnrollmentChallenge = (token: string) => api<EnrollmentChallenge>('/v1/enrollment/perpl/challenge', token, { method: 'POST' });
 export const enrollPerpl = (token: string, challengeId: string, signature: string) => api<void>('/v1/enrollment/perpl', token, { method: 'POST', body: json({ challengeId, signature }) });
 export const skipAutoMirror = (token: string, clanId: string, markerId: string) => api<void>(`/v1/clans/${encodeURIComponent(clanId)}/mirrors/${encodeURIComponent(markerId)}/skip`, token, { method: 'POST' });
-export const stackPerpl = (token: string, clanId: string, markerId: string, notionalUsd: number) => api<StackResult>(`/v1/clans/${encodeURIComponent(clanId)}/stack`, token, { method: 'POST', body: json({ markerId, notionalUsd }) });
-// Share endpoints are provisional until indexer/backend publish them.
+export const stackPosition = (token: string, clanId: string, markerId: string, notionalUsd: number) => api<StackResult>(`/v1/clans/${encodeURIComponent(clanId)}/stack`, token, { method: 'POST', body: json({ markerId, notionalUsd }) });
+export const prepareUsdcFunding = (token: string, amountUsdc: string) => api<FundingPlan>('/v1/funding/usdc/prepare', token, { method: 'POST', body: json({ amountUsdc }) });
+export const confirmUsdcFunding = (token: string, planId: string, hashes: string[]) => api<FundingResult>('/v1/funding/usdc/confirm', token, { method: 'POST', body: json({ planId, hashes }) });
 export const createShare = (token: string, markerId: string, includeClan: boolean) => api<ShareResult>('/v1/shares', token, { method: 'POST', body: json({ markerId, includeClan }) });
 export const getPublicShare = (id: string) => api<PublicShare>(`/v1/shares/${encodeURIComponent(id)}`, null);
