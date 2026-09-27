@@ -11,13 +11,12 @@ description: Verified per-address trading stats (win rate, realized PnL, trade h
 # Frontend joins addresses in lowercase, so normalize everything at the source.
 address_format: lowercase
 
-# Every handler reads event.block.timestamp and event.transaction.hash, so fetch
-# them globally rather than repeating a `fields` option on each registration.
+# Every handler reads event.block.timestamp and event.transaction.hash. `number`
+# and `timestamp` are always available on `event.block`; only `hash` needs asking
+# for on `event.transaction`.
 field_selection:
   transaction_fields:
     - hash
-  block_fields:
-    - timestamp
 
 contracts:
   - name: Exchange
