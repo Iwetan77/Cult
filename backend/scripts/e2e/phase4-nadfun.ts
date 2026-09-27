@@ -140,7 +140,11 @@ try {
     await until(`${u.name} sold out (on-chain balance 0)`, async () => (await tokenBalance(token, u.address)) === 0n);
     console.log(u.name, 'sold out, on-chain balance 0');
   }
-  const after = mirrors.forTrade(trade.id);
+  // The engine records each close after the sale's receipt; wait for that, not just the balances.
+  const after = await until('engine to record both mirror closes', async () => {
+    const ms = mirrors.forTrade(trade.id);
+    return ms.every((m) => m.status === 'closed') ? ms : null;
+  }, 60_000).catch(() => mirrors.forTrade(trade.id));
   evidence.mirrorsAfterClose = after;
   for (const m of after) if (m.status !== 'closed') problems.push(`mirror ${m.id} is ${m.status} after leader exit`);
   if (!trades.get(trade.id)!.closedAt) problems.push('leader trade not marked closed');
