@@ -33,10 +33,11 @@ the MON->AUSD display conversion. See `API.md`.
 
 ## Prerequisites
 
-- Node 20+ (HyperIndex needs import-attributes; Node 18 is too old)
-- Docker (for the local Postgres + Hasura stack `envio dev`/`start` spins up)
+- Node 22+ (envio 3.13 requires it; Node 18 is too old and 20 is unsupported)
+- Docker (for the local Postgres + Hasura stack `envio dev` spins up; `envio start`
+  can run against an external Postgres via `ENVIO_PG_*` if you don't have Docker)
 - An [Envio API token](https://envio.dev/app/api-tokens) for HyperSync
-- pnpm (or npm — the scripts below use npm)
+- pnpm or npm
 
 ## Setup (cold)
 
@@ -70,7 +71,9 @@ Once `dev` is up, the auto-generated GraphQL API (Hasura) is available locally a
 `config.yaml`:
 
 - `chains[].id: 10143` — Monad testnet. HyperSync is primary; the public testnet
-  RPC is `fallback`.
+  RPC is `fallback`. Note the public Monad RPC caps `eth_getLogs` at a 100-block
+  range, so an RPC-only sync needs `initial_block_interval: 100` (see `API.md`
+  for how the gate was run).
 - Two contracts on that chain:
   - `Exchange` `0x1964C32f0bE608E7D29302AFF5E61268E72080cc`, start block `62953`.
   - `NadFunRouter` `0x75588668999cA0557b78046b8a5E86b47b9234ec`, start block
