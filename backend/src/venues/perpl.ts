@@ -28,7 +28,7 @@ export const perpl: VenueAdapter = {
     const { m, px } = await mark(Number(i.market));
     const step = 10 ** m.config.size_decimals;
     const size = Math.floor((i.notionalAusd / px) * step) / step;
-    if (size <= 0) throw new Error(`notional ${i.notionalAusd} AUSD rounds to 0 ${m.symbol}`);
+    if (size <= 0) throw new Error(`$${i.notionalAusd} rounds to 0 ${m.symbol}`);
     const order = await openPosition(await sessionFor(i.userId), {
       accountId,
       marketId: m.id,

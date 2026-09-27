@@ -71,7 +71,7 @@ export function createApp(engine: MirrorEngine) {
     return c.json({
       chainId: env.chainId,
       venues: ['perpl', 'nadfun'],
-      displayUnit: 'AUSD',
+      displayUnit: 'USD', // show $ everywhere; the word AUSD only appears on the funding screen
       monPriceAusd: await monPriceAusd().catch(() => null),
       autoMirrorOptOutWindowSeconds: env.mirrorOptOutSeconds,
       mirrorPolicyBounds: { balancePercentCap: { min: 0, minExclusive: true, max: 100 }, maxUsdPerTrade: { min: 1, max: 1_000_000 } },
@@ -97,7 +97,7 @@ export function createApp(engine: MirrorEngine) {
         id: m.token.toLowerCase(),
         symbol: m.symbol,
         baseSymbol: m.symbol,
-        quoteSymbol: 'AUSD',
+        quoteSymbol: 'USD',
         name: m.name,
         tokenAddress: m.token.toLowerCase(),
         imageUri: m.imageUri ?? null,

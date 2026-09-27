@@ -9,7 +9,8 @@ import { members } from '../store/members.js';
 import { venue, venueOf, type Holding, type TradeSide, type Venue } from '../venues/index.js';
 
 // Shapes follow frontend/src/lib/contracts.ts (ChartSnapshot, ChartMarker, ...)
-// and are published in CONTRACTS.md. Every money figure is AUSD.
+// and are published in CONTRACTS.md. Every money figure is in dollars (settled
+// in AUSD 1:1 under the hood; the UI shows $, never the word AUSD).
 
 export type MarkerOrigin = 'leader' | 'auto_mirror' | 'manual_stack';
 
@@ -40,7 +41,7 @@ export interface ApiMarket {
   id: string; // perpl market id | nadfun token address
   symbol: string;
   baseSymbol: string;
-  quoteSymbol: 'AUSD';
+  quoteSymbol: 'USD';
   maxLeverage: number;
   makerFeeBps: number | null;
   takerFeeBps: number | null;
@@ -75,7 +76,7 @@ export function toApiMarket(m: PerplMarket): ApiMarket {
     id: String(m.id),
     symbol: `${m.symbol}-PERP`,
     baseSymbol: m.symbol,
-    quoteSymbol: 'AUSD',
+    quoteSymbol: 'USD',
     maxLeverage: Math.floor((10_000 / m.config.initial_margin) * 100) / 100,
     makerFeeBps: m.config.maker_fee / 100,
     takerFeeBps: m.config.taker_fee / 100,
@@ -91,7 +92,7 @@ export async function nadMarket(token: string): Promise<ApiMarket> {
     nadMeta.set(t, { symbol: info?.symbol ?? 'TOKEN', imageUri: info?.image_uri });
   }
   const meta = nadMeta.get(t)!;
-  return { venue: 'nadfun', id: t, symbol: meta.symbol, baseSymbol: meta.symbol, quoteSymbol: 'AUSD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null, tokenAddress: t, imageUri: meta.imageUri };
+  return { venue: 'nadfun', id: t, symbol: meta.symbol, baseSymbol: meta.symbol, quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null, tokenAddress: t, imageUri: meta.imageUri };
 }
 
 export async function perplCandles(market: PerplMarket, resolutionSec = 300, count = 300): Promise<Candle[]> {

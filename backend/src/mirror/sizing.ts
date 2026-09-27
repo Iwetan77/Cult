@@ -41,7 +41,7 @@ export type NotionalResult = Omit<SizingResult, 'size' | 'sizeScaled'>;
 export function mirrorNotional(i: NotionalInput, minNotional = 0): NotionalResult {
   const r = sizeMirror({ ...i, markPrice: 1, sizeDecimals: 6 });
   if (r.ok && r.notionalUsd < minNotional) {
-    return { ok: false, reason: `mirror notional ${r.notionalUsd.toFixed(2)} AUSD is under the ${minNotional} AUSD minimum`, leverage: r.leverage, marginUsd: r.marginUsd, notionalUsd: r.notionalUsd, capsApplied: r.capsApplied };
+    return { ok: false, reason: `mirror size $${r.notionalUsd.toFixed(2)} is under the $${minNotional} minimum`, leverage: r.leverage, marginUsd: r.marginUsd, notionalUsd: r.notionalUsd, capsApplied: r.capsApplied };
   }
   const { size: _s, sizeScaled: _ss, ...rest } = r;
   return rest;
