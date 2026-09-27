@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 import { signerFor } from '../accounts/signers.js';
 import { rpc } from '../chain/signer.js';
-import { env } from '../config/env.js';
+import { env, numEnv } from '../config/env.js';
 import { erc20Abi } from '../chain/exchange.js';
 import { buy, quoteSell, sell, tokenAbi, tokenBalance } from '../nadfun/trading.js';
 import { getExchangeInfo } from '../perpl/context.js';
@@ -31,8 +31,8 @@ export function nadPaysWith(): PayWith {
 // runs: Monad charges the whole gas limit, a Nad.fun sell is ~0.055 MON, an
 // approve ~0.006, and paying in dollars adds a Kuru swap back. 0.25 covers a
 // full exit with margin (about $0.007 at current MON prices).
-export const GAS_RESERVE_WEI = ethers.parseEther(process.env.NADFUN_GAS_RESERVE_MON ?? '0.25');
-const SLIPPAGE_BPS = Number(process.env.NADFUN_SLIPPAGE_BPS ?? 300);
+export const GAS_RESERVE_WEI = ethers.parseEther(String(numEnv('NADFUN_GAS_RESERVE_MON', 0.25)));
+const SLIPPAGE_BPS = numEnv('NADFUN_SLIPPAGE_BPS', 300);
 const ONE = 10n ** 18n; // Nad.fun tokens are 18 decimals
 const toNum = (wei: bigint) => Number(ethers.formatEther(wei));
 const toAusdRaw = (usd: number) => ethers.parseUnits(usd.toFixed(6), 6);
