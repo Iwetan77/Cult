@@ -20,6 +20,11 @@ export type Member = {
     copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
   };
 };
+export type ChatMessage = {
+  id: string; clanId: string; memberId: string; memberName: string; body: string;
+  replyTo: string | null; markerId: string | null; createdAt: string;
+};
+export type ChatPage = { messages: ChatMessage[]; hasMore: boolean };
 export type TpslSuggestion = {
   id: string; markerId: string; tradeId: string; fromMemberId: string; fromName: string;
   takeProfitPrice: number | null; stopLossPrice: number | null; createdAt: string;
