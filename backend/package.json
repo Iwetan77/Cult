@@ -14,7 +14,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "e2e:phase4": "tsx scripts/e2e/phase4.ts",
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "start": "node --enable-source-maps dist/index.js",
     "e2e:phase3": "tsx scripts/e2e/phase3.ts",
     "spike:nadfun-trade": "tsx scripts/spikes/nadfun-trade.ts",
     "spike:perpl-order": "tsx scripts/e2e/phase1.ts",
@@ -28,7 +28,9 @@
     "e2e:phase4-nadfun-privy": "tsx scripts/e2e/phase4-nadfun-privy.ts",
     "spike:perpl-auth-shape": "tsx scripts/spikes/perpl-auth-shape.ts",
     "e2e:reconcile-read": "tsx scripts/e2e/reconcile-read.ts",
-    "preflight": "tsx scripts/preflight.ts"
+    "preflight": "tsx scripts/preflight.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start:dev": "tsx src/index.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

@@ -14,8 +14,28 @@ Requirements: Node 22 or newer (it uses the built-in `node:sqlite`).
 cp .env.example .env     # then fill in the values below
 npm ci
 npm run preflight        # checks config + every outside service; exit 1 on any FAIL
-npm start                # http://localhost:8787, all routes under /v1
+npm run start:dev        # http://localhost:8787, all routes under /v1 (npm run build && npm start for the compiled one)
 ```
+
+### Hosting
+
+The backend is a long-running process: one Perpl websocket per member, the Nad.fun
+watcher, mirror timers and a SQLite file. So it can't run on serverless platforms
+like Vercel; the frontend can. Any Node ≥ 22.5 host with a persistent disk works
+(Railway, Render, Fly):
+
+| Setting | Value |
+|---|---|
+| Root directory | `backend` |
+| Build | `npm ci --include=dev && npm run build` |
+| Start | `npm start` (runs the compiled `dist/`) |
+| Health check | `GET /v1/health` |
+| Disk | a volume mounted for the DB, with `DB_PATH=/data/cult.db` |
+| Env | everything in the table above, plus `NODE_ENV=production`. Set `CORS_ORIGINS` and `PUBLIC_APP_URL` to the frontend's URL, and add that URL to Privy's allowed domains |
+
+Run one instance only: rate limits and mirror timers live in memory, and two
+instances would both mirror every trade. `npm run preflight` on the host must show
+0 FAIL before traffic goes to it.
 
 Run `npm run preflight` on every new host, and before switching networks. It checks:
 
