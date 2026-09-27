@@ -1,4 +1,4 @@
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import WebSocket from 'ws';
 import { env } from '../config/env.js';
 import { wsSignInFrame, type ApiKeyCredentials } from './auth.js';
@@ -51,6 +51,7 @@ export class TradingSession extends EventEmitter<TradingSessionEvents> {
   private rqCounter = 0;
   private readyPromise?: Promise<void>;
   private readyResolve?: () => void;
+  private live = false; // signed in with fresh snapshots; false while reconnecting
   private pending = new Map<number, Pending>(); // by rq
   private statusWaiters = new Map<number, { rq: number }>(); // by outbound sn
 
@@ -108,6 +109,7 @@ export class TradingSession extends EventEmitter<TradingSessionEvents> {
       this.onMessage(msg);
     });
     ws.on('close', (code, reason) => {
+      this.live = false;
       clearInterval(this.pingTimer);
       this.lastSn = undefined;
       const why = reason.toString();
@@ -155,6 +157,7 @@ export class TradingSession extends EventEmitter<TradingSessionEvents> {
         for (const p of (msg.d ?? []) as Position[]) this.positions.set(`${p.acc}:${p.mkt}`, p);
         // Positions snapshot is the last of the three initial snapshots.
         this.retry = 0;
+        this.live = true;
         this.readyResolve?.();
         this.emit('ready');
         break;
@@ -234,10 +237,17 @@ export class TradingSession extends EventEmitter<TradingSessionEvents> {
   // st=Failed; callers check). lb defaults to 0 = market's max TTL window.
   // `onRq` runs synchronously before the frame is sent, so a caller can record the
   // request id before any position/order event for it can possibly arrive.
-  async placeOrder(input: OrderInput, opts: { timeoutMs?: number; onRq?: (rq: number) => void } = {}): Promise<Order> {
+  async placeOrder(input: OrderInput, opts: { timeoutMs?: number; reconnectWaitMs?: number; onRq?: (rq: number) => void } = {}): Promise<Order> {
     const timeoutMs = opts.timeoutMs ?? 30_000;
     await this.readyPromise;
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error(`${this.label}: socket not open`);
+    if (!this.live) {
+      // Mid-reconnect: wait briefly for fresh snapshots rather than failing a
+      // mirror over a blip. Nothing has been sent yet, so waiting is safe.
+      await once(this, 'ready', { signal: AbortSignal.timeout(opts.reconnectWaitMs ?? 10_000) }).catch(() => {
+        throw new Error(`${this.label}: Perpl session is reconnecting; order not sent`);
+      });
+    }
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error(`${this.label}: socket not open; order not sent`);
     const acct = this.accounts.get(input.acc);
     const floor = acct ? acct.lfr : 0;
     const rq = Math.max(this.rqCounter, floor, Date.now()) + 1;
