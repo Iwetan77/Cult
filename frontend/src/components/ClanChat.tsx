@@ -3,22 +3,27 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { getAccessToken } from '@privy-io/react-auth';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { Link2, Reply, Send, X } from 'lucide-react';
-import { getRoomEventUrl, getRoomMessages, sendRoomMessage } from '@/lib/api';
-import type { ChatMessage, ChatRoom, ChartMarker } from '@/lib/contracts';
+import { Link2, Pin, Reply, Send, X } from 'lucide-react';
+import { getRoomEventUrl, getRoomMessages, pinRoomMessage, sendRoomMessage } from '@/lib/api';
+import type { ChatMessage, ChatPage, ChatRoom, ChartMarker } from '@/lib/contracts';
 
 type Props = {
   room: ChatRoom;
   liveMessage: ChatMessage | null;
   selectedMarker: ChartMarker | null;
   onOpenMarker: (markerId: string) => void;
+  onMember: (memberId: string) => void;
+  onActivity: () => void;
+  onInvite?: () => void;
+  canPin?: boolean;
 };
 
 const messageError = (error: unknown) => error instanceof Error ? error.message : 'Messages are unavailable.';
 
-export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker }: Props) {
+export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hasMore, setHasMore] = useState(false);
+  const [pinned, setPinned] = useState<ChatPage['pinned']>(null);
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [sending, setSending] = useState(false);
@@ -35,6 +40,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker }: Pr
     let active = true;
     setMessages([]);
     setHasMore(false);
+    setPinned(null);
     setLoading(true);
     setReplyTo(null);
     setMarkerId(null);
@@ -47,6 +53,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker }: Pr
       if (!active) return;
       setMessages(page.messages);
       setHasMore(page.hasMore);
+      setPinned(page.pinned);
       setError(null);
     }).catch(reason => { if (active) setError(messageError(reason)); })
       .finally(() => { if (active) setLoading(false); });
@@ -57,7 +64,8 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker }: Pr
     if (!liveMessage || liveMessage.room !== room.id) return;
     setMessages(current => current.some(item => item.id === liveMessage.id) ? current : [...current, liveMessage]);
     if (!stickToBottom.current) setUnread(count => count + 1);
-  }, [liveMessage, room.id]);
+    onActivity();
+  }, [liveMessage, room.id, onActivity]);
 
   useEffect(() => {
     if (room.kind === 'cult') return;
@@ -88,6 +96,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker }: Pr
           if (incoming.room !== room.id || typeof incoming.id !== 'string' || typeof incoming.body !== 'string') return;
           setMessages(current => current.some(item => item.id === incoming.id) ? current : [...current, incoming]);
           if (!stickToBottom.current) setUnread(count => count + 1);
+          onActivity();
         } catch { /* Ignore malformed messages. */ }
       },
       onclose: () => { throw new Error('Live messages disconnected.'); },
@@ -97,7 +106,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker }: Pr
       },
     }).catch(reason => { if (!controller.signal.aborted) setError(messageError(reason)); });
     return () => controller.abort();
-  }, [room.id, room.kind]);
+  }, [room.id, room.kind, onActivity]);
 
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -141,8 +150,18 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker }: Pr
       setReplyTo(null);
       setMarkerId(null);
       setUnread(0);
+      onActivity();
     } catch (reason) { setError(messageError(reason)); }
     finally { setSending(false); }
+  };
+
+  const togglePin = async (messageId: string | null) => {
+    try {
+      const accessToken = await getAccessToken();
+      if (!accessToken) throw new Error('Sign in again to pin messages.');
+      const result = await pinRoomMessage(accessToken, room.id, messageId);
+      setPinned(result.pinned);
+    } catch (reason) { setError(messageError(reason)); }
   };
 
   const jumpToLatest = () => {
@@ -153,19 +172,19 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker }: Pr
   };
 
   return <div className="detail-body chat-panel">
-    <div className="detail-section-label">{room.kind.toUpperCase()} CHAT</div>
-    <h2>{room.name}</h2>
+    <div className="chat-room-heading"><div><span className="detail-section-label">{room.kind.toUpperCase()} CHAT</span><h2>{room.name}</h2><small>{room.memberCount} members</small></div>{room.kind === 'cult' && onInvite && <button className="outline" onClick={onInvite}><Link2 size={14} /> Invite</button>}</div>
+    {pinned && <div className="chat-pinned"><Pin size={14} /><span><strong>{pinned.memberName}</strong> {pinned.body}</span>{canPin && <button className="icon-button compact" title="Unpin message" onClick={() => void togglePin(null)}><X size={13} /></button>}</div>}
     <div className="chat-log" ref={listRef} onScroll={event => {
       const list = event.currentTarget;
       stickToBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 50;
       if (stickToBottom.current) setUnread(0);
     }}>
       {hasMore && <button className="chat-older" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading...' : 'Older messages'}</button>}
-      {loading ? <p className="field-note">Loading messages...</p> : messages.length === 0 ? <p className="field-note">No messages in this room yet.</p> : messages.map(message => <div className="chat-message" key={message.id} id={'chat-message-' + message.id}>
-        <div className="chat-meta"><strong>{message.memberName}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+      {loading ? <p className="field-note">Loading messages...</p> : messages.length === 0 ? <p className="field-note">No messages in this room yet.</p> : messages.map(message => message.kind === 'system' ? <div className="chat-system-wrap" key={message.id}>{message.markerId ? <button className="chat-system" onClick={() => onOpenMarker(message.markerId!)}>{message.body} <Link2 size={13} /></button> : <span className="chat-system">{message.body}</span>}</div> : <div className="chat-message" key={message.id} id={'chat-message-' + message.id}>
+        <span className="room-avatar">{message.memberName.slice(0, 1).toUpperCase()}</span><div className="chat-message-main"><div className="chat-meta"><button onClick={() => onMember(message.memberId)}><strong>{message.memberName}</strong></button><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
         {message.replyTo && <div className="chat-reference"><Reply size={12} /> Reply to {messages.find(item => item.id === message.replyTo)?.memberName ?? 'message'}</div>}
         <p className="chat-text">{message.body}</p>
-        <div className="chat-actions"><button title="Reply to message" onClick={() => setReplyTo(message)}><Reply size={13} /> Reply</button>{room.kind === 'cult' && message.markerId && <button title="Show linked chart marker" onClick={() => onOpenMarker(message.markerId!)}><Link2 size={13} /> View trade</button>}</div>
+        <div className="chat-actions"><button title="Reply to message" onClick={() => setReplyTo(message)}><Reply size={13} /> Reply</button>{message.markerId && <button title="Show linked chart marker" onClick={() => onOpenMarker(message.markerId!)}><Link2 size={13} /> View trade</button>}{canPin && <button title="Pin message" onClick={() => void togglePin(message.id)}><Pin size={13} /> Pin</button>}</div></div>
       </div>)}
     </div>
     {unread > 0 && <button className="chat-latest" onClick={jumpToLatest}>{unread} new - Latest</button>}
