@@ -21,7 +21,8 @@
     "e2e:phase4-nadfun": "tsx scripts/e2e/phase4-nadfun.ts",
     "spike:kuru-flow": "tsx scripts/spikes/kuru-flow.ts",
     "spike:funding-plan": "tsx scripts/spikes/funding-plan.ts",
-    "spike:meme-buy-sim": "tsx scripts/spikes/meme-buy-sim.ts"
+    "spike:meme-buy-sim": "tsx scripts/spikes/meme-buy-sim.ts",
+    "e2e:sweep": "tsx scripts/e2e/sweep.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",

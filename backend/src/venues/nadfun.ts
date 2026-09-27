@@ -27,8 +27,11 @@ export function nadPaysWith(): PayWith {
 }
 
 // MON always kept back for gas, so a mirror can't leave a member unable to
-// sell or to pay for their own next transaction.
-export const GAS_RESERVE_WEI = ethers.parseEther(process.env.NADFUN_GAS_RESERVE_MON ?? '0.05');
+// sell or to pay for their own next transaction. Sized from real testnet
+// runs: Monad charges the whole gas limit, a Nad.fun sell is ~0.055 MON, an
+// approve ~0.006, and paying in dollars adds a Kuru swap back. 0.25 covers a
+// full exit with margin (about $0.007 at current MON prices).
+export const GAS_RESERVE_WEI = ethers.parseEther(process.env.NADFUN_GAS_RESERVE_MON ?? '0.25');
 const SLIPPAGE_BPS = Number(process.env.NADFUN_SLIPPAGE_BPS ?? 300);
 const ONE = 10n ** 18n; // Nad.fun tokens are 18 decimals
 const toNum = (wei: bigint) => Number(ethers.formatEther(wei));

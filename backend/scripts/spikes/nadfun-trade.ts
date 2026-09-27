@@ -7,11 +7,12 @@ import { ethers } from 'ethers';
 import { LocalKeySigner, rpc } from '../../src/chain/signer.js';
 import { NADFUN } from '../../src/nadfun/constants.js';
 import { buy, listMonMarkets, quoteBuy, sell, tokenBalance } from '../../src/nadfun/trading.js';
-import { funder } from '../e2e/fund.js';
+import { funder, newThrowaway, sweepBack } from '../e2e/fund.js';
 
 const SPEND = ethers.parseEther(process.env.NAD_SPEND_MON ?? '0.01');
 const GAS = ethers.parseEther(process.env.NAD_GAS_MON ?? '0.2');
 const evidence: Record<string, unknown> = { startedAt: new Date().toISOString(), router: NADFUN.router };
+let me: LocalKeySigner | undefined;
 
 try {
   const f = funder();
@@ -32,9 +33,8 @@ try {
   console.log('token', target.symbol, target.token, target.graduated ? '(DEX)' : '(curve)');
   evidence.token = target;
 
-  const w = ethers.Wallet.createRandom();
-  const seedTx = await f.sendTransaction({ to: w.address, data: '0x', value: SPEND + GAS });
-  const me = new LocalKeySigner(w.privateKey);
+  me = newThrowaway('spikeC');
+  const seedTx = await f.sendTransaction({ to: me.address, data: '0x', value: SPEND + GAS });
   console.log('fresh wallet', me.address, 'seeded', seedTx);
   evidence.wallet = me.address;
   evidence.seedTx = seedTx;
@@ -67,6 +67,7 @@ try {
   console.error(e);
   process.exitCode = 1;
 } finally {
+  if (me) evidence.sweep = await sweepBack(me).catch((e) => String(e));
   mkdirSync('data/evidence', { recursive: true });
   const file = `data/evidence/spikeC-nadfun-${Date.now()}.json`;
   writeFileSync(file, JSON.stringify(evidence, null, 2));

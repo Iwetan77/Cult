@@ -26,7 +26,7 @@ import { monPriceAusd } from '../../src/prices.js';
 import { clans, type MirrorPolicy } from '../../src/store/clans.js';
 import { members } from '../../src/store/members.js';
 import { venue } from '../../src/venues/index.js';
-import { funder } from './fund.js';
+import { funder, newThrowaway, sweepBack } from './fund.js';
 
 const FUND_EACH = ethers.parseEther(process.env.NAD_E2E_MON_EACH ?? '0.6');
 const LEADER_BUY_MON = Number(process.env.NAD_E2E_LEADER_BUY_MON ?? '0.1');
@@ -38,6 +38,7 @@ const json = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => (typeof v =
 const evidence: Record<string, unknown> = { startedAt: new Date().toISOString(), router: NADFUN.router };
 const problems: string[] = [];
 let engine: MirrorEngine | undefined;
+const users: { name: string; userId: string; address: string; signer: LocalKeySigner }[] = [];
 
 async function until<T>(what: string, fn: () => Promise<T | undefined | null | false>, ms = 120_000): Promise<T> {
   const end = Date.now() + ms;
@@ -56,11 +57,10 @@ try {
   if (have < need) throw new Error(`funder has ${ethers.formatEther(have)} MON, needs ${ethers.formatEther(need)}`);
 
   // Fresh wallets, MON only.
-  const users: { name: string; userId: string; address: string; signer: LocalKeySigner }[] = [];
   for (const name of ['A', 'B', 'C']) {
-    const w = ethers.Wallet.createRandom();
+    const signer = newThrowaway(`phase4-nadfun-${name}`);
+    const w = signer.wallet;
     const seed = await f.sendTransaction({ to: w.address, data: '0x', value: FUND_EACH });
-    const signer = new LocalKeySigner(w.privateKey);
     const userId = `e2e-nad:${name}:${w.address.toLowerCase()}`;
     members.upsert(userId, w.address);
     registerSigner(userId, signer);
@@ -165,6 +165,7 @@ try {
   process.exitCode = 1;
 } finally {
   engine?.stop();
+  for (const u of users) evidence[`sweep${u.name}`] = await sweepBack(u.signer).catch((e) => String(e));
   mkdirSync('data/evidence', { recursive: true });
   const file = `data/evidence/phase4-nadfun-${Date.now()}.json`;
   writeFileSync(file, JSON.stringify(json(evidence), null, 2));
