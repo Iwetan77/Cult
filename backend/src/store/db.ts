@@ -14,7 +14,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -35,15 +35,17 @@ function migrate(d: DatabaseSync) {
       forwarding       INTEGER NOT NULL DEFAULT 0,
       privy_policy_id  TEXT,                      -- this member's backend-signer policy (src/privy/policy.ts)
       privy_policy_cap INTEGER,                   -- the raw AUSD cap that policy was built with
+      country          TEXT,                      -- ISO 3166 alpha-2 the member picked (their country room + leaderboard)
       created_at       INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS clans (
       id          TEXT PRIMARY KEY,
       name        TEXT NOT NULL,
-      invite_code TEXT NOT NULL UNIQUE,
+      invite_code TEXT NOT NULL UNIQUE,       -- ABC-DEF (older cults may have a legacy code)
       created_by  TEXT NOT NULL REFERENCES members(user_id),
-      created_at  INTEGER NOT NULL
+      created_at  INTEGER NOT NULL,
+      visibility  TEXT NOT NULL DEFAULT 'private'  -- private: code only | public: listed, anyone can join
     );
 
     -- Mirror policy is set once at join and never re-asked per trade.
@@ -215,14 +217,34 @@ function migrate(d: DatabaseSync) {
     );
     CREATE INDEX IF NOT EXISTS clan_messages_clan ON clan_messages(clan_id, created_at);
 
+    -- Every chat room: "global", "country:NG", "cult:<id>". Replaces
+    -- clan_messages (copied over in the v3 -> v4 step below).
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id          TEXT PRIMARY KEY,
+      room        TEXT NOT NULL,
+      user_id     TEXT NOT NULL REFERENCES members(user_id),
+      body        TEXT NOT NULL,
+      reply_to    TEXT,
+      marker_id   TEXT,
+      created_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS chat_messages_room ON chat_messages(room, created_at);
+
     -- How far the Nad.fun router log watcher has read.
     CREATE TABLE IF NOT EXISTS cursors (
       name  TEXT PRIMARY KEY,
       value INTEGER NOT NULL
     );
   `);
+  const hasCol = (table: string, col: string) => (d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
   // v2 -> v3: leaders' adds and partial exits are mirrored.
-  const cols = d.prepare('PRAGMA table_info(leader_trades)').all() as { name: string }[];
-  if (!cols.some((c) => c.name === 'open_size')) d.exec('ALTER TABLE leader_trades ADD COLUMN open_size TEXT');
+  if (!hasCol('leader_trades', 'open_size')) d.exec('ALTER TABLE leader_trades ADD COLUMN open_size TEXT');
+  // v3 -> v4: public cults, member countries, room-based chat (global / country / cult).
+  if (!hasCol('clans', 'visibility')) d.exec("ALTER TABLE clans ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'");
+  if (!hasCol('members', 'country')) d.exec('ALTER TABLE members ADD COLUMN country TEXT');
+  if (user_version < 4) {
+    d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
+            SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);
+  }
   d.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }

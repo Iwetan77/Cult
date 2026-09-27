@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getDb } from './db.js';
 
@@ -11,12 +11,30 @@ export const MirrorPolicySchema = z.object({
 });
 export type MirrorPolicy = z.infer<typeof MirrorPolicySchema>;
 
+// A cult (the product's name for a clan; the code and API keep "clan" in
+// identifiers so nothing breaks). Private cults are joined with their code;
+// public ones are listed and anyone can join (still with signed consent).
+export type Visibility = 'private' | 'public';
+
 export interface Clan {
   id: string;
   name: string;
   inviteCode: string;
   createdBy: string;
   createdAt: number;
+  visibility: Visibility;
+}
+
+// Invite codes: six letters shown as ABC-DEF. 26^6 ~ 309M, so guessing one is hopeless.
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+export function newInviteCode(): string {
+  const l = () => LETTERS[randomInt(26)];
+  return `${l()}${l()}${l()}-${l()}${l()}${l()}`;
+}
+// What people type: any case, with or without the dash or spaces.
+export function normalizeInviteCode(input: string): string {
+  const letters = input.toUpperCase().replace(/[^A-Z]/g, '');
+  return letters.length === 6 ? `${letters.slice(0, 3)}-${letters.slice(3)}` : input.trim();
 }
 
 export interface ClanMembership {
@@ -32,6 +50,7 @@ interface ClanRow {
   invite_code: string;
   created_by: string;
   created_at: number;
+  visibility: Visibility;
 }
 interface MemberRow {
   clan_id: string;
@@ -48,6 +67,7 @@ const toClan = (r: ClanRow): Clan => ({
   inviteCode: r.invite_code,
   createdBy: r.created_by,
   createdAt: r.created_at,
+  visibility: r.visibility === 'public' ? 'public' : 'private',
 });
 const toMembership = (r: MemberRow): ClanMembership => ({
   clanId: r.clan_id,
@@ -57,19 +77,36 @@ const toMembership = (r: MemberRow): ClanMembership => ({
 });
 
 export const clans = {
-  create(name: string, createdBy: string, creatorPolicy: MirrorPolicy): Clan {
+  create(name: string, createdBy: string, creatorPolicy: MirrorPolicy, visibility: Visibility = 'private'): Clan {
     const id = randomUUID();
-    const inviteCode = randomBytes(6).toString('base64url');
     const db = getDb();
-    db.prepare('INSERT INTO clans (id, name, invite_code, created_by, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      id,
-      name,
-      inviteCode,
-      createdBy,
-      Date.now(),
-    );
+    for (let attempt = 0; ; attempt++) {
+      try {
+        db.prepare('INSERT INTO clans (id, name, invite_code, created_by, created_at, visibility) VALUES (?, ?, ?, ?, ?, ?)').run(
+          id,
+          name,
+          newInviteCode(),
+          createdBy,
+          Date.now(),
+          visibility,
+        );
+        break;
+      } catch (e) {
+        if (attempt < 5 && /UNIQUE/.test(String(e))) continue; // code taken: draw another
+        throw e;
+      }
+    }
     this.join(id, createdBy, creatorPolicy);
     return this.get(id)!;
+  },
+
+  setVisibility(id: string, visibility: Visibility) {
+    getDb().prepare('UPDATE clans SET visibility = ? WHERE id = ?').run(visibility, id);
+  },
+
+  // Public cults, newest first (callers rank them).
+  publicList(limit = 200): Clan[] {
+    return (getDb().prepare(`SELECT * FROM clans WHERE visibility = 'public' ORDER BY created_at DESC LIMIT ?`).all(limit) as unknown as ClanRow[]).map(toClan);
   },
 
   get(id: string): Clan | null {
@@ -78,7 +115,9 @@ export const clans = {
   },
 
   byInvite(code: string): Clan | null {
-    const r = getDb().prepare('SELECT * FROM clans WHERE invite_code = ?').get(code) as ClanRow | undefined;
+    const db = getDb();
+    const r = (db.prepare('SELECT * FROM clans WHERE invite_code = ?').get(normalizeInviteCode(code)) ??
+      db.prepare('SELECT * FROM clans WHERE invite_code = ?').get(code.trim())) as ClanRow | undefined; // legacy codes
     return r ? toClan(r) : null;
   },
 
