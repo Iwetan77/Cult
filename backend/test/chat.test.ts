@@ -85,3 +85,14 @@ test('system notices, room activity and pins', () => {
   assert.equal(chat.listMessages(room).pinned!.id, msg.id);
   assert.equal(chat.setPin(room, 'A', null), null);
 });
+
+test('room icons, and notices read as a sentence with the username', async () => {
+  const rooms = chat.roomsFor('A');
+  assert.deepEqual(rooms.map((r) => r.icon), ['🌍', '🇳🇬', 'C'], 'the Nigeria room gets its flag, not the C from "country:NG"');
+  members.setUsername('A', 'iwetan');
+  const n = chat.postSystem('global', 'A', 'joined Cult');
+  assert.equal(n.memberName, 'iwetan');
+  assert.equal(n.text, 'iwetan joined Cult');
+  const t = chat.postMessage('global', 'A', { body: 'gm' });
+  assert.equal(t.text, 'gm', 'a typed message shows its body');
+});

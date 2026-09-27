@@ -12,6 +12,8 @@ export interface Member {
   forwarding: boolean;
   privyPolicyId: string | null;
   country: string | null; // ISO 3166 alpha-2
+  username: string | null;
+  avatarAt: number | null; // when their photo last changed; null = no photo
   createdAt: number; // first sign-in
 }
 
@@ -25,6 +27,8 @@ interface Row {
   forwarding: number;
   privy_policy_id: string | null;
   country: string | null;
+  username: string | null;
+  avatar_at: number | null;
   created_at: number;
 }
 
@@ -38,6 +42,8 @@ const toMember = (r: Row): Member => ({
   forwarding: r.forwarding === 1,
   privyPolicyId: r.privy_policy_id,
   country: r.country ?? null,
+  username: r.username ?? null,
+  avatarAt: r.avatar_at ?? null,
   createdAt: r.created_at,
 });
 
@@ -70,6 +76,32 @@ export const members = {
 
   setAccount(userId: string, accountId: number) {
     getDb().prepare('UPDATE members SET perpl_account_id = ? WHERE user_id = ?').run(accountId, userId);
+  },
+
+  byUsername(username: string): Member | null {
+    const r = getDb().prepare('SELECT * FROM members WHERE lower(username) = lower(?)').get(username) as Row | undefined;
+    return r ? toMember(r) : null;
+  },
+
+  setUsername(userId: string, username: string) {
+    getDb().prepare('UPDATE members SET username = ? WHERE user_id = ?').run(username, userId);
+  },
+
+  setAvatar(userId: string, mime: string, bytes: Uint8Array) {
+    const now = Date.now();
+    const db = getDb();
+    db.prepare('INSERT INTO avatars (user_id, mime, bytes, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET mime = excluded.mime, bytes = excluded.bytes, updated_at = excluded.updated_at').run(userId, mime, bytes, now);
+    db.prepare('UPDATE members SET avatar_at = ? WHERE user_id = ?').run(now, userId);
+  },
+
+  clearAvatar(userId: string) {
+    getDb().prepare('DELETE FROM avatars WHERE user_id = ?').run(userId);
+    getDb().prepare('UPDATE members SET avatar_at = NULL WHERE user_id = ?').run(userId);
+  },
+
+  avatar(userId: string): { mime: string; bytes: Uint8Array; updatedAt: number } | null {
+    const r = getDb().prepare('SELECT mime, bytes, updated_at FROM avatars WHERE user_id = ?').get(userId) as { mime: string; bytes: Uint8Array; updated_at: number } | undefined;
+    return r ? { mime: r.mime, bytes: r.bytes, updatedAt: r.updated_at } : null;
   },
 
   setCountry(userId: string, country: string) {

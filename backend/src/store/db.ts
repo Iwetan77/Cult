@@ -14,7 +14,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -36,6 +36,8 @@ function migrate(d: DatabaseSync) {
       privy_policy_id  TEXT,                      -- this member's backend-signer policy (src/privy/policy.ts)
       privy_policy_cap INTEGER,                   -- the raw AUSD cap that policy was built with
       country          TEXT,                      -- ISO 3166 alpha-2 the member picked (their country room + leaderboard)
+      username         TEXT,                      -- chosen at first sign-in; unique ignoring case
+      avatar_at        INTEGER,                   -- when their photo last changed (cache-busts the avatar URL)
       created_at       INTEGER NOT NULL
     );
 
@@ -232,6 +234,14 @@ function migrate(d: DatabaseSync) {
     );
     CREATE INDEX IF NOT EXISTS chat_messages_room ON chat_messages(room, created_at);
 
+    -- Profile photos, small (resized in the browser before upload).
+    CREATE TABLE IF NOT EXISTS avatars (
+      user_id    TEXT PRIMARY KEY REFERENCES members(user_id),
+      mime       TEXT NOT NULL,
+      bytes      BLOB NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     -- How far the Nad.fun router log watcher has read.
     CREATE TABLE IF NOT EXISTS cursors (
       name  TEXT PRIMARY KEY,
@@ -247,6 +257,10 @@ function migrate(d: DatabaseSync) {
   // v4 -> v5: system messages in chat, a pinned message per cult.
   if (!hasCol('chat_messages', 'kind')) d.exec("ALTER TABLE chat_messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'");
   if (!hasCol('clans', 'pinned_message_id')) d.exec('ALTER TABLE clans ADD COLUMN pinned_message_id TEXT');
+  // v5 -> v6: usernames and profile photos.
+  if (!hasCol('members', 'username')) d.exec('ALTER TABLE members ADD COLUMN username TEXT');
+  if (!hasCol('members', 'avatar_at')) d.exec('ALTER TABLE members ADD COLUMN avatar_at INTEGER');
+  d.exec('CREATE UNIQUE INDEX IF NOT EXISTS members_username ON members(lower(username)) WHERE username IS NOT NULL');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);
