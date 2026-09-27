@@ -606,7 +606,7 @@ if (!me && !error) return <main className="config-state"><div className="brand">
 
   return <div className="app-shell">
     <div className="workspace">
-      <aside className="rail murmo-rail">
+      <aside className="rail side-rail">
         <div className="rail-logo">CULT<span>.</span></div>
         <nav className="primary-nav" aria-label="Main navigation">
           <button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home size={17} /> Home</button>
