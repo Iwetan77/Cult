@@ -63,6 +63,16 @@ on `PORT` (default `8787`). All routes are under `/v1`.
        through Privy (C clamped by `balancePercentCap`), and A's sell made both exit to
        0 on-chain. Privy confirmed each signer attached and current, and lowering B's cap
        made that policy outdated. Run it with `npm run e2e:phase4-nadfun-privy`.
+       **Re-run with adds and partial sells (2026-09-27), all through Privy:**
+       - A bought (`0xf5f3daa7…4ea2`); B and C mirrored (`0x12a492bb…b242`,
+         `0x5b50e7f0…0443`).
+       - A sold half (`0xd68f1648…6296`), and B and C each sold exactly half of their
+         mirror at once (`0xdb09d2d1…e623`, `0x2425b596…855f`); their balances match
+         the mirror sizes to the wei.
+       - A bought more (`0x9bca95cd…951a`, ratio 2.0), and after the skip window B
+         and C added their share (`0x6de0c8fe…d613`, `0x45a29b94…1973`).
+       - A exited (`0x0cc474fb…3e3c`), and B and C sold out to 0 (`0x65c29de4…ac3d`,
+         `0x90815541…82bd4`).
      - The Privy login path against the real app: the embedded-wallet lookup matches,
        and forged, garbage and missing tokens are refused (`npm run e2e:privy-auth`).
      - Kuru Flow swaps and the USDC funding plan, **simulated on mainnet**: real
