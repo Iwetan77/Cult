@@ -505,10 +505,24 @@ type MemberStats = {         // ChartSnapshot.members[].stats, Profile.record
 
 type RecentWindow = { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
 
-type ClosedTrade = { venue: 'perpl' | 'nadfun'; market: string; symbol: string; side: string;
+type ClosedTrade = { venue: 'perpl' | 'nadfun'; market: string; symbol: string; side: string;  // symbol: "BTC-PERP" | "$MOE"
                      returnPct: number | null;  // perpl: price move in the trade's direction; nad.fun: proceeds / cost - 1
-                     pnlUsd: number | null; isWin: boolean; openedAt: number | null; closedAt: number; openTx: string;
+                     pnlUsd: number | null; entryPrice: number | null; exitPrice: number | null;   // prices: perpl only
+                     isWin: boolean; openedAt: number | null; closedAt: number; openTx: string;
+                     tradeId: string | null;     // GET /v1/trades/:tradeId when Cult saw it open
                      copied: boolean };          // Cult opened it for them (never counts in the record)
+
+type TradeView = {           // GET /v1/trades/:id: the "View trade" sheet, open or closed
+  tradeId: string; markerId: string;
+  member: { id: string; name: string; address: string };
+  venue: 'perpl' | 'nadfun'; market: string; symbol: string; side: string; leverage: number;
+  openedAt: number; openTx: string | null;
+  status: 'open' | 'closed'; closedAt: number | null;
+  result: { returnPct: number | null; pnlUsd: number | null; entryPrice: number | null; exitPrice: number | null; isWin: boolean } | null;
+                             // verified by the indexer once closed; null while open or not indexed yet
+  tradersIn: number; youCopied: boolean;
+  cultId: string | null;     // a cult to open for context
+};
 
 type Profile = {             // GET /v1/members/:id  (id = "me" | user id | wallet)
   id: string; name: string; address: string; country: { code: string; name: string } | null;
@@ -523,7 +537,10 @@ type Home = {                // GET /v1/home
   topTrades: { rank: number; memberId: string; name: string; venue: string; market: string; symbol: string; side: string;
                returnPct: number; pnlUsd: number | null; closedAt: number;
                tradersIn: number;            // the caller + everyone who copied or stacked it ("3 traders were in")
-               markerId: string | null }[];  // the week's best own trades across Cult
+               markerId: string | null;
+               tradeId: string | null;       // "View trade" -> GET /v1/trades/:tradeId (null: a trade Cult never saw open; show the card data + profile)
+               cultId: string | null;        // a cult to open for context: one you share with the trader, else a public one of theirs
+               openTx: string }[];           // the week's best own trades across Cult
   sevenDay: { trades: number; profitUsd: number; positionsOpened: number };   // yours
   asOf: string;
 };
@@ -631,6 +648,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/cults/:id/auto-follow` | `{ enabled: false }` | `Clan`. Turns copying off at once; anything pending for you there is cancelled; open copies still follow their leader's partial sells and exit. `{ enabled: true }` is a `400`: turn it on with `/policy/challenge` (`enabled: true`, limits from `/v1/config.autoFollowDefaults`) then `/policy`; that message starts "Turn on Auto-follow in the Cult" |
 | POST | `/v1/chat/:room/pin` | `{ messageId }` or `{ messageId: null }` | `{ pinned }`. The cult owner only (`403`) |
 | GET | `/v1/home` | none | `Home` |
+| GET | `/v1/trades/:id` | none | `TradeView`. Any member can view (trades are on-chain); copies are counted, never named. Open trades: show the live marker (open the cult chart at `markerId`). Closed ones: show `result`. `404` if unknown |
 | GET | `/v1/members/:id` | none | `Profile`. `id` = `me`, a user id, or a wallet. `404` if unknown |
 | GET | `/v1/cults/discover?limit=` | none | `{ cults: [{ id, name, visibility: 'public', memberCount, createdAt, joined }] }`. Public cults only |
 | POST | `/v1/cults/:id/visibility` | `{ visibility }` | `Clan`. Owner only (`403` otherwise) |

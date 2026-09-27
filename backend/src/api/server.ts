@@ -30,7 +30,7 @@ import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
 import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, postSystem, roomsFor, setPin, type ChatMessage } from './chat.js';
 import { countryName } from './countries.js';
 import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError, parsePeriod } from './leaderboards.js';
-import { home, profile, ProfileError } from './profiles.js';
+import { home, profile, ProfileError, tradeView } from './profiles.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
@@ -314,6 +314,7 @@ export function createApp(engine: MirrorEngine) {
   // ---- home feed and profiles (the Home and Account screens) ----
   authed.get('/home', async (c) => c.json(await home(c.get('userId'))));
   authed.get('/members/:id', async (c) => c.json(await profile(c.req.param('id'), c.get('userId'))));
+  authed.get('/trades/:id', async (c) => c.json(await tradeView(c.req.param('id'), c.get('userId'))));
 
   // ---- leaderboards: global, a country, public cults ------------------------
   const boardLimit = (c: Context<Vars>) => Math.min(Math.max(Number(c.req.query('limit') ?? 100) || 100, 1), 500);
