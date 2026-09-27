@@ -15,6 +15,7 @@ import { venue as defaultVenue, type TradeSide, type Venue, type VenueAdapter } 
 import { isEngineOrder, isEngineTx, recordRef } from './origin.js';
 import { adjustments, mirrors, sizeFactor, trades, type Adjustment, type LeaderTrade, type Mirror } from './repo.js';
 import { leaderDollarFraction, mirrorNotional } from './sizing.js';
+import { landed as defaultLanded, type Landed, type LandedLookup } from './reconcile.js';
 import { erc20Abi } from '../chain/exchange.js';
 import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
 
@@ -37,6 +38,7 @@ export interface MirrorEngineDeps {
   sessionFor: (userId: string) => Promise<TradingSession>;
   venue?: (v: Venue) => VenueAdapter;
   nadWatcher?: NadWatcher | null; // null disables Nad.fun leader detection
+  landed?: LandedLookup; // what a tagged order/tx did on the venue (crash recovery)
 }
 
 export interface MirrorEngineEvents {
@@ -81,6 +83,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   private attempts = new Map<string, number>(); // mirror/adjustment id -> fire attempts so far
   private lanes = new Map<string, Promise<unknown>>(); // mirror id -> its adjustments and close, one at a time
   private perplSeen = new Map<string, bigint>(); // "acc:pid" -> last position size seen, ours included
+  private recovering: Promise<void> = Promise.resolve();
   private readonly venue: (v: Venue) => VenueAdapter;
   private readonly nad: NadWatcher | null;
 
@@ -424,13 +427,8 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         if (sell > heldRaw) sell = heldRaw; // they sold some by hand; never sell what isn't theirs
         if (sell <= 0n) return done('done', { sizeDelta: '0', error: 'rounds to nothing at this size' });
         const fill = await adapter.close({ userId: m.userId, market: trade.market, sizeRaw: sell.toString(), onRef: onRef('mirror_reduce') });
-        const sold = BigInt(fill.sizeRaw || '0') || sell;
-        const left = size > sold ? size - sold : 0n;
-        const keep = Number((left * 1_000_000n) / size) / 1_000_000;
-        mirrors.patch(m.id, { size: left.toString(), notionalUsd: (m.notionalUsd ?? 0) * keep, marginUsd: (m.marginUsd ?? 0) * keep });
         this.attempts.delete(id);
-        done('done', { sizeDelta: sold.toString(), notionalUsd: fill.notionalAusd, oid: fill.orderId ?? null, tx: fill.txHash ?? null });
-        this.emit('mirror', left === 0n ? mirrors.transition(m.id, 'open', 'closed', { closeTx: fill.txHash ?? null, closeOid: fill.orderId ?? null })! : mirrors.get(m.id)!);
+        this.applyReduce(a, m, BigInt(fill.sizeRaw || '0') || sell, { notionalUsd: fill.notionalAusd, oid: fill.orderId ?? null, tx: fill.txHash ?? null });
         return;
       }
 
@@ -444,14 +442,13 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       const sized = capAdd(want, leverage, await adapter.freeBalanceAusd(m.userId), membership.policy, this.cfg.minMirrorAusd ?? 1);
       if (!sized.ok) throw new NotSized(`not sized: ${sized.reason}`);
       const fill = await adapter.open({ userId: m.userId, market: trade.market, side: trade.side, notionalAusd: sized.notionalUsd, leverage, onRef: onRef('mirror_add') });
-      mirrors.patch(m.id, {
-        size: (size + BigInt(fill.sizeRaw)).toString(),
-        notionalUsd: (m.notionalUsd ?? 0) + fill.notionalAusd,
-        marginUsd: (m.marginUsd ?? 0) + fill.notionalAusd / leverage,
-      });
       this.attempts.delete(id);
-      done('done', { sizeDelta: fill.sizeRaw, notionalUsd: fill.notionalAusd, oid: fill.orderId ?? null, tx: fill.txHash ?? null, error: sized.capsApplied.length ? `capped: ${sized.capsApplied.join(',')}` : null });
-      this.emit('mirror', mirrors.get(m.id)!);
+      this.applyAdd(a, m, BigInt(fill.sizeRaw), leverage, {
+        notionalUsd: fill.notionalAusd,
+        oid: fill.orderId ?? null,
+        tx: fill.txHash ?? null,
+        error: sized.capsApplied.length ? `capped: ${sized.capsApplied.join(',')}` : null,
+      });
     } catch (e) {
       const msg = String(e).slice(0, 450);
       if (!sent && !(e instanceof NotSized) && attempt <= MAX_RETRIES) {
@@ -462,6 +459,152 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       }
       this.attempts.delete(id);
       done('failed', { error: `${sent ? 'failed after sending, not retried: ' : ''}${msg}` });
+    }
+  }
+
+  // Book a mirror's partial sell: the size and cost basis shrink together
+  // (entry price unchanged); selling all of it closes the mirror.
+  private applyReduce(a: Adjustment, m: Mirror, sold: bigint, fill: { notionalUsd: number; oid: number | null; tx: string | null; error?: string | null }) {
+    const size = BigInt(m.size ?? '0');
+    const left = size > sold ? size - sold : 0n;
+    const keep = size > 0n ? Number((left * 1_000_000n) / size) / 1_000_000 : 0;
+    mirrors.patch(m.id, { size: left.toString(), notionalUsd: (m.notionalUsd ?? 0) * keep, marginUsd: (m.marginUsd ?? 0) * keep });
+    this.emit('adjustment', adjustments.transition(a.id, 'submitting', 'done', { sizeDelta: sold.toString(), ...fill })!);
+    this.emit('mirror', left === 0n ? mirrors.transition(m.id, 'open', 'closed', { closeTx: fill.tx, closeOid: fill.oid })! : mirrors.get(m.id)!);
+  }
+
+  private applyAdd(a: Adjustment, m: Mirror, bought: bigint, leverage: number, fill: { notionalUsd: number; oid: number | null; tx: string | null; error?: string | null }) {
+    mirrors.patch(m.id, {
+      size: (BigInt(m.size ?? '0') + bought).toString(),
+      notionalUsd: (m.notionalUsd ?? 0) + fill.notionalUsd,
+      marginUsd: (m.marginUsd ?? 0) + fill.notionalUsd / leverage,
+    });
+    this.emit('adjustment', adjustments.transition(a.id, 'submitting', 'done', { sizeDelta: bought.toString(), ...fill })!);
+    this.emit('mirror', mirrors.get(m.id)!);
+  }
+
+  // ---- crash recovery ------------------------------------------------------------
+  //
+  // Anything the engine sends is tagged before it leaves, so after a restart
+  // every mirror or adjustment caught mid-send can be settled by what actually
+  // reached the venue: filled -> booked as if the send had returned; nothing
+  // reached it -> tried again if the leader's move is still fresh, else
+  // cancelled; still in flight -> looked at again shortly. Mirrors of a trade
+  // that closed while we were down are unwound, unless their exit already landed.
+
+  private async reconcileAll() {
+    for (const m of mirrors.byStatus('submitting')) await this.guard(`reconcile mirror ${m.id}`, () => this.reconcileMirror(m.id));
+    for (const a of adjustments.byStatus('submitting')) await this.guard(`reconcile adjustment ${a.id}`, () => this.reconcileAdjustment(a.id));
+    for (const m of mirrors.byStatus('open')) {
+      const trade = trades.get(m.tradeId)!;
+      if (trade.closedAt) await this.guard(`reconcile exit ${m.id}`, () => this.reconcileExit(m.id));
+    }
+  }
+
+  private landed(venue: Venue, kind: Parameters<LandedLookup>[1], refId: string, userId: string): Promise<Landed> {
+    return (this.deps.landed ?? defaultLanded)(venue, kind, refId, userId);
+  }
+
+  private async reconcileMirror(id: string): Promise<void> {
+    const m = mirrors.get(id)!;
+    if (m.status !== 'submitting') return;
+    const trade = trades.get(m.tradeId)!;
+    const r = await this.landed(trade.venue, 'mirror_open', m.id, m.userId);
+    if (r.state === 'pending') return this.lookAgain(`m:${id}`, () => this.reconcileMirror(id));
+    if (r.state === 'filled') {
+      const lev = trade.venue === 'perpl' ? trade.leverage / 100 : 1;
+      const opened = mirrors.transition(id, 'submitting', 'open', {
+        size: r.sizeRaw,
+        notionalUsd: r.notionalUsd,
+        marginUsd: r.notionalUsd / lev,
+        openTx: r.txHash,
+        openOid: r.orderId,
+        error: 'recovered after a restart',
+      })!;
+      this.emit('mirror', opened);
+      if (trade.closedAt) await this.closeMirror(opened, trade);
+      return;
+    }
+    if (r.state === 'failed') {
+      this.emit('mirror', mirrors.transition(id, 'submitting', 'failed', { error: `interrupted by a restart; ${r.reason}` })!);
+      return;
+    }
+    // Nothing reached the venue, so trying again can't double anything up.
+    if (!trade.closedAt && Date.now() - trade.openedAt <= this.maxAgeMs()) {
+      const again = mirrors.transition(id, 'submitting', 'pending', { skipUntil: Date.now(), error: 'interrupted by a restart before sending; trying again' })!;
+      this.emit('mirror', again);
+      this.schedule(again);
+      return;
+    }
+    this.emit('mirror', mirrors.transition(id, 'submitting', 'cancelled', { error: 'interrupted by a restart before sending; too late to copy now' })!);
+  }
+
+  private async reconcileAdjustment(id: string): Promise<void> {
+    const a = adjustments.get(id)!;
+    if (a.status !== 'submitting') return;
+    const trade = trades.get(a.tradeId)!;
+    const m = mirrors.get(a.mirrorId)!;
+    const r = await this.landed(trade.venue, a.kind === 'add' ? 'mirror_add' : 'mirror_reduce', id, a.userId);
+    if (r.state === 'pending') return this.lookAgain(`a:${id}`, () => this.reconcileAdjustment(id));
+    const note = { notionalUsd: r.state === 'filled' ? r.notionalUsd : 0, oid: r.state === 'filled' ? r.orderId : null, tx: r.state === 'filled' ? r.txHash : null, error: 'recovered after a restart' };
+    if (r.state === 'filled' && m.status === 'open') {
+      if (a.kind === 'reduce') this.applyReduce(a, m, BigInt(r.sizeRaw), note);
+      else this.applyAdd(a, m, BigInt(r.sizeRaw), trade.venue === 'perpl' ? trade.leverage / 100 : 1, note);
+      return;
+    }
+    if (r.state === 'filled') {
+      this.emit('adjustment', adjustments.transition(id, 'submitting', 'done', { ...note, sizeDelta: r.sizeRaw })!);
+      return;
+    }
+    // A partial sell that didn't happen still has to: it only takes risk off.
+    // An add is only retried while the leader's move is fresh, like a new mirror.
+    const retry = a.kind === 'reduce' || (r.state === 'none' && Date.now() - a.createdAt <= this.maxAgeMs());
+    if (retry) {
+      const again = adjustments.transition(id, 'submitting', 'pending', { skipUntil: Date.now(), error: `interrupted by a restart${r.state === 'failed' ? `; ${r.reason}` : ' before sending'}; trying again` })!;
+      this.emit('adjustment', again);
+      this.scheduleAdjustment(again);
+      return;
+    }
+    this.emit('adjustment', adjustments.transition(id, 'submitting', r.state === 'failed' ? 'failed' : 'cancelled', { error: `interrupted by a restart; ${r.state === 'failed' ? r.reason : 'too late to copy now'}` })!);
+  }
+
+  // The leader closed; this mirror is still open. If its exit already landed
+  // (we went down right after sending it), just record that; never sell twice.
+  private async reconcileExit(id: string): Promise<void> {
+    const m = mirrors.get(id)!;
+    const trade = trades.get(m.tradeId)!;
+    const r = await this.landed(trade.venue, 'mirror_close', m.id, m.userId);
+    if (r.state === 'pending') return this.lookAgain(`x:${id}`, () => this.reconcileExit(id));
+    if (r.state === 'filled') {
+      this.emit('mirror', mirrors.transition(id, 'open', 'closed', { closeTx: r.txHash, closeOid: r.orderId, error: 'exit recovered after a restart' })!);
+      return;
+    }
+    await this.closeMirror(m, trade);
+  }
+
+  private lookAgain(key: string, fn: () => Promise<void>): void {
+    const k = `look:${key}`;
+    const attempt = (this.attempts.get(k) ?? 0) + 1;
+    this.attempts.set(k, attempt);
+    if (attempt > LOOK_AGAIN_MAX) return void this.log(key, 'still in flight after a restart; check it by hand');
+    this.timers.set(
+      k,
+      setTimeout(() => {
+        this.timers.delete(k);
+        void this.guard(key, fn);
+      }, LOOK_AGAIN_MS),
+    );
+  }
+
+  private maxAgeMs() {
+    return (this.cfg.maxLeaderAgeSeconds ?? 120) * 1000;
+  }
+
+  private async guard(where: string, fn: () => Promise<void>) {
+    try {
+      await fn();
+    } catch (e) {
+      this.log(where, e);
     }
   }
 
@@ -644,16 +787,17 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     }
   }
 
-  // After a restart: re-arm pending mirrors; flag interrupted submits.
+  // After a restart: re-arm what was waiting, and settle what was mid-send
+  // (in the background, so a slow venue doesn't hold up startup).
   private async recover() {
     for (const m of mirrors.byStatus('pending')) this.schedule(m);
-    for (const m of mirrors.byStatus('submitting')) {
-      mirrors.patch(m.id, { error: 'interrupted mid-submit; reconcile against the venue before retrying' });
-    }
     for (const a of adjustments.byStatus('pending')) this.scheduleAdjustment(a);
-    for (const a of adjustments.byStatus('submitting')) {
-      adjustments.patch(a.id, { error: 'interrupted mid-submit; reconcile against the venue before retrying' });
-    }
+    this.recovering = this.reconcileAll();
+  }
+
+  // Resolves once the post-restart reconcile pass is done (tests, health).
+  recovered(): Promise<void> {
+    return this.recovering;
   }
 
   private log(where: string, e: unknown) {
@@ -663,6 +807,8 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
 
 const MAX_RETRIES = 2;
+const LOOK_AGAIN_MS = Number(process.env.MIRROR_RECONCILE_RECHECK_MS ?? 15_000);
+const LOOK_AGAIN_MAX = 40; // ~10 minutes of rechecks for a tx still in flight
 const RETRY_BACKOFF_MS = Number(process.env.MIRROR_RETRY_BACKOFF_MS ?? 3000);
 
 // A mirror refused by the rules (too small, disabled, left the clan). Not transient.
