@@ -131,6 +131,25 @@ export async function nadCandles(token: string, resolutionSec = 300, count = 300
   return (b.t ?? []).map((t, i) => ({ time: t, open: Number(b.o[i]), high: Number(b.h[i]), low: Number(b.l[i]), close: Number(b.c[i]) }));
 }
 
+// One marker's share of a member's live holding on a market. A member can hold
+// their own trade, a mirror and a stack on the same market, which the venue
+// reports as one position; `sizeRaw` (same raw unit as the holding) says how
+// much of it this marker accounts for.
+export function sliceOf(v: Venue, h: Holding | undefined, sizeRaw: string | null, entryPrice: number | null) {
+  const none = { entryPrice, size: null, pnlUsd: null, valueUsd: null };
+  if (!h || sizeRaw == null) return none;
+  const held = BigInt(h.sizeRaw);
+  if (held === 0n) return none;
+  const part = BigInt(sizeRaw);
+  // share in millionths, integer math on the raw sizes, capped at the whole holding
+  const share = Number(((part < held ? part : held) * 1_000_000n) / held) / 1_000_000;
+  const size = h.size * share;
+  const valueUsd = h.valueAusd * share;
+  const entry = entryPrice ?? h.entryPriceAusd;
+  const pnlUsd = v === 'perpl' ? (h.pnlAusd ?? 0) * share : entry != null ? valueUsd - entry * size : null;
+  return { entryPrice: entry, size, pnlUsd, valueUsd };
+}
+
 interface StackRow {
   id: string;
   user_id: string;
@@ -192,17 +211,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
   const name = (uid: string) => shortName(members.get(uid)?.wallet ?? uid);
   // Value one member's slice of their holding. `sizeRaw` is how much of it this
   // marker accounts for; `costAusd` is what that slice cost, when we know it.
-  const slice = (uid: string, sizeRaw: string | null, entryPrice: number | null) => {
-    const h = live.get(uid);
-    if (!h || sizeRaw == null || BigInt(h.sizeRaw.split('.')[0] || '0') === 0n) return { entryPrice, size: null, pnlUsd: null, valueUsd: null };
-    const share = Math.min(1, Number(sizeRaw) / Number(h.sizeRaw));
-    const size = h.size * share;
-    const valueUsd = h.valueAusd * share;
-    const entry = entryPrice ?? h.entryPriceAusd;
-    const pnlUsd =
-      v === 'perpl' ? (h.pnlAusd ?? 0) * share : entry != null ? valueUsd - entry * size : null;
-    return { entryPrice: entry, size, pnlUsd, valueUsd };
-  };
+  const slice = (uid: string, sizeRaw: string | null, entryPrice: number | null) => sliceOf(v, live.get(uid), sizeRaw, entryPrice);
 
   const markers: ChartMarker[] = [];
   for (const t of here) {
@@ -225,7 +234,8 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
     for (const m of mirrors.forTrade(t.id)) {
       if (m.clanId !== clan.id || !['pending', 'submitting', 'open'].includes(m.status)) continue;
       const pending = m.status === 'pending';
-      const mEntry = m.notionalUsd && m.size ? m.notionalUsd / (v === 'nadfun' ? Number(m.size) / 1e18 : (live.get(m.userId)?.size ?? 0) || 1) : null;
+      // Nad.fun mirror entry = dollars spent / tokens got. Perpl uses the position's own entry.
+      const mEntry = v === 'nadfun' && m.notionalUsd && m.size && m.size !== '0' ? m.notionalUsd / (Number(m.size) / 1e18) : null;
       markers.push({
         id: `mirror:${m.id}`,
         tradeId: t.id,

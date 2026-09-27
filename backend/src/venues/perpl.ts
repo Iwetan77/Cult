@@ -81,22 +81,25 @@ export const perpl: VenueAdapter = {
 
   async holdings(userId: string, markets?: string[]): Promise<Holding[]> {
     if (!members.credentials(userId)) return [];
-    const views = await viewPositions((await restFor(userId).positions()).d);
-    return views
-      .filter((v) => !markets || markets.includes(String(v.marketId)))
-      .map((v) => ({
+    const raw = (await restFor(userId).positions()).d.filter((p) => !markets || markets.includes(String(p.mkt)));
+    const views = await viewPositions(raw);
+    // sizeRaw is Perpl's scaled integer size, the same unit fills and mirrors record.
+    return raw.map((p, i) => {
+      const v = views[i]!;
+      return {
         venue: 'perpl' as const,
-        market: String(v.marketId),
+        market: String(p.mkt),
         symbol: v.symbol,
         side: v.side,
-        sizeRaw: String(Math.round(v.size * 10 ** 12) / 10 ** 12),
+        sizeRaw: String(p.s),
         size: v.size,
         entryPriceAusd: v.entryPrice,
         markPriceAusd: v.markPrice,
         valueAusd: v.notionalUsd,
         pnlAusd: v.unrealizedPnlUsd,
         leverage: v.leverage,
-      }));
+      };
+    });
   },
 
   async freeBalanceAusd(userId: string): Promise<number> {
