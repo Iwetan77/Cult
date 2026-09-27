@@ -32,7 +32,8 @@ export type ChartMarker = {
   pnlUsd: number | null; valueUsd: number | null; leverage: number | null;
   takeProfitPrice?: number | null; stopLossPrice?: number | null; suggestions?: TpslSuggestion[];
   isMine: boolean; mirrorStatus?: 'pending' | 'submitted' | 'filled';
-  skipUntil?: string; txHash?: string | null;
+  skipUntil?: string; pendingAdd?: { id: string; ratio: number; skipUntil: string } | null;
+  txHash?: string | null;
 };
 export type ChartSnapshot = {
   clan: Clan; markets: Market[]; selectedMarket: Market; candles: Candle[];
