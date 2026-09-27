@@ -66,6 +66,7 @@ export interface LeaderOpen {
 export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   private watchingPerpl = new Set<string>();
   private timers = new Map<string, NodeJS.Timeout>();
+  private attempts = new Map<string, number>(); // mirror id -> fire attempts so far
   private readonly venue: (v: Venue) => VenueAdapter;
   private readonly nad: NadWatcher | null;
 
@@ -297,9 +298,16 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       this.emit('mirror', mirrors.transition(m.id, 'submitting', 'cancelled', { error: 'leader already closed' })!);
       return;
     }
+    // Set the moment the venue hands back a ref, i.e. right before an order or
+    // tx leaves. Until then a failure provably sent nothing, so a retry can't
+    // double up a position.
+    let sent = false;
+    const attempt = (this.attempts.get(m.id) ?? 0) + 1;
+    this.attempts.set(m.id, attempt);
     try {
       const adapter = this.venue(trade.venue);
-      const membership = clans.membership(m.clanId, m.userId)!;
+      const membership = clans.membership(m.clanId, m.userId);
+      if (!membership) throw new NotSized('member is no longer in the clan');
       const sizing = mirrorNotional(
         {
           leaderMarginFraction: trade.marginFraction,
@@ -310,7 +318,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         },
         this.cfg.minMirrorAusd ?? 1,
       );
-      if (!sizing.ok) throw new Error(`not sized: ${sizing.reason}`);
+      if (!sizing.ok) throw new NotSized(`not sized: ${sizing.reason}`);
 
       const fill = await adapter.open({
         userId: m.userId,
@@ -319,10 +327,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         notionalAusd: sizing.notionalUsd,
         leverage: sizing.leverage,
         onRef: (ref) => {
+          sent = true;
           recordRef(ref, 'mirror_open', m.id);
           if (ref.rq != null) mirrors.patch(m.id, { openRq: ref.rq });
         },
       });
+      this.attempts.delete(m.id);
       const updated = mirrors.transition(m.id, 'submitting', 'open', {
         marginUsd: sizing.marginUsd,
         notionalUsd: fill.notionalAusd,
@@ -334,7 +344,16 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       this.emit('mirror', updated);
       if (trades.get(trade.id)!.closedAt) await this.closeMirror(updated, trade); // leader left while we filled
     } catch (e) {
-      this.emit('mirror', mirrors.transition(m.id, 'submitting', 'failed', { error: String(e).slice(0, 500) })!);
+      const msg = String(e).slice(0, 450);
+      if (!sent && !(e instanceof NotSized) && attempt <= MAX_RETRIES) {
+        // Transient and nothing left: back to pending, try again shortly.
+        const again = mirrors.transition(m.id, 'submitting', 'pending', { skipUntil: Date.now() + RETRY_BACKOFF_MS * attempt, error: `retrying (${attempt}/${MAX_RETRIES}): ${msg}` })!;
+        this.emit('mirror', again);
+        this.schedule(again);
+        return;
+      }
+      this.attempts.delete(m.id);
+      this.emit('mirror', mirrors.transition(m.id, 'submitting', 'failed', { error: `${sent ? 'failed after sending, not retried: ' : ''}${msg}` })!);
     }
   }
 
@@ -376,6 +395,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   }
 }
 
+
+const MAX_RETRIES = 2;
+const RETRY_BACKOFF_MS = Number(process.env.MIRROR_RETRY_BACKOFF_MS ?? 3000);
+
+// A mirror refused by the rules (too small, disabled, left the clan). Not transient.
+class NotSized extends Error {}
 
 export class MirrorError extends Error {
   constructor(
