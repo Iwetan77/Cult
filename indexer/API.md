@@ -89,14 +89,20 @@ Batch (the shape the backend uses to fill a clan's members):
 query CultMemberStats($ids: [String!]!) {
   Trader(where: { id: { _in: $ids } }) {
     id
-    tradeCount
-    winRate
-    realizedPnlUsd
-    realizedPnlMon
-    lastTradeAt
+    trades { openTx realizedPnlUsd isWin closedAt }
+    nadFunTrades { openTx realizedPnlMon isWin closedAt }
   }
 }
 ```
+
+**A member's record counts their own trades only** (product decision, 2026-09-27).
+- The `Trader` aggregates (`tradeCount`, `winRate`, …) count **every** round trip
+  in the wallet, including trades Cult copied into it.
+- So the backend reads the round trips instead and drops any whose `openTx` Cult
+  sent (an auto-mirror or a stack, from its own send log). It reports those apart
+  as "copied".
+- Self-hosted without Hasura, the backend reads the same rows from Postgres
+  (`Trader`, `Trade`, `NadFunTrade`; `trader_id` is the wallet).
 
 Real single-wallet response for `0xBdd51F3CBCC4890635c75453c93f8aB4C3e0A98A`
 (run against Monad testnet with `envio start`):
