@@ -499,8 +499,11 @@ type MemberStats = {         // ChartSnapshot.members[].stats, Profile.record
   lastTradeAt: number | null;
   streak: number;            // own wins in a row, back from the latest close
   avgWinPct: number | null;  // mean return % of own winning trades
+  recent: { d7: RecentWindow; d30: RecentWindow };     // own trades closed in the last 7 / 30 days
   copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
 };
+
+type RecentWindow = { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
 
 type ClosedTrade = { venue: 'perpl' | 'nadfun'; market: string; symbol: string; side: string;
                      returnPct: number | null;  // perpl: price move in the trade's direction; nad.fun: proceeds / cost - 1
@@ -528,7 +531,7 @@ type Home = {                // GET /v1/home
 type Leaderboard = {
   scope: string;             // "global" | "country:NG" | "cult:<id>"
   name: string;              // "Global" | "Nigeria" | cult name
-  metric: 'realizedPnlUsd'; period: 'all';
+  metric: 'realizedPnlUsd'; period: 'all' | '30d' | '7d';   // ?period= on every board route
   entries: { rank: number; memberId: string; name: string; address: string; country: string | null;
              realizedPnlUsd: number; winRate: number | null; tradeCount: number; copiedTradeCount: number }[];
   me: (same fields, but rank: number | null) | null;   // your row even when unranked (rank null)
@@ -636,7 +639,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/chat/:room/messages?before=&limit=` | none | `{ messages: ChatMessage[], hasMore, pinned: { id, memberName, body } \| null }`. Global is open to everyone signed in; a country room only to members who picked that country (`403`); a cult room only to its members (`404`) |
 | POST | `/v1/chat/:room/messages` | `{ body, replyTo?, markerId? }` | `201 ChatMessage`. The same limits as the cult chat |
 | GET | `/v1/chat/:room/events` | none | SSE: `message` (a `ChatMessage`) and `ping`. For the global and country rooms; cult rooms also come on the cult stream |
-| GET | `/v1/leaderboards/global?limit=` | none | `Leaderboard` |
+| GET | `/v1/leaderboards/global?limit=&period=` | none | `Leaderboard`. `period` = `all` (the default), `30d` or `7d`. The same parameter works on the country and cult boards |
 | GET | `/v1/leaderboards/country/:code?` | none | `Leaderboard`. With no code, it uses your country (`409` if you haven't picked one) |
 | GET | `/v1/cults/:id/leaderboard` | none | `Leaderboard` for that cult. Members only, or anyone for a public cult |
 | GET | `/v1/leaderboards/cults?limit=` | none | `{ entries: CultStanding[], asOf }`. Public cults ranked by their members' summed own PnL |
@@ -652,7 +655,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | POST | `/v1/clans/:clanId/stack` | `{ markerId, notionalUsd, leverage? }` | `StackResult`. Same for both venues; `leverage` is ignored on Nad.fun |
 | GET | `/v1/positions` | none | `{ positions: Holding[] }` (both venues) |
 | POST | `/v1/shares` | `{ markerId, includeClan }` | `201 { id, url }`. Only your own marker (`403` otherwise). A frozen snapshot at share time |
-| GET | `/v1/shares/:id` | none (public) | `PublicShare = { id, traderName, marketSymbol, venue, side, pnlUsd, roiPercent, notionalUsd, entryPrice, markPrice, closedAt, sharedAt, includeClan, clanName? }`. **Never** carries clan id, invite code or members; `clanName` only if `includeClan`. Money in $. `pnlUsd`/`roiPercent`/`notionalUsd` can be `null` when no live holding backs the marker; render that honestly |
+| GET | `/v1/shares/:id` | none (public) | `PublicShare = { id, traderName, marketSymbol, venue, side, pnlUsd, roiPercent, notionalUsd, entryPrice, markPrice, closedAt, sharedAt, traderRecord: { verified, tradeCount, winRate, realizedPnlUsd, streak }, includeClan, clanName? }`. `traderRecord` is the sharer's verified record (own trades), frozen at share time; show it as the proof behind the card, or show "unverified". **Never** carries clan id, invite code or members; `clanName` only if `includeClan`. Money in $. `pnlUsd`/`roiPercent`/`notionalUsd` can be `null` when no live holding backs the marker; render that honestly |
 | POST | `/v1/funding/usdc/prepare` | `{ amountUsdc: "25.5", depositToPerpl?: true }` | `FundingPlan = { id, expiresAt, requiredUsdc, minAusdOut, expectedAusdOut, depositToPerpl, actions: WalletAction[] }`. The member sends the actions in order: approve USDC → Kuru Flow `executeSwap` → (if `depositToPerpl`) approve AUSD and `createAccount`/`depositCollateral` of the guaranteed amount. With `depositToPerpl: false` the AUSD stays in the wallet, which is what meme buys spend. The plan expires in 5 minutes, because routes go stale. `409` with a plain `message` on testnet or when no route exists |
 | POST | `/v1/funding/usdc/confirm` | `{ planId, hashes: string[] }` | `{ planId, done, steps: [{ label, txHash, ok }], perplAccountId }`. Each hash is checked on-chain against the planned action |
 | POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage? }` | `Fill`. Perpl: side `long`/`short`, notional = margin x leverage. Nad.fun: side `buy`, spends `marginUsd` worth of MON, signed by the backend signer |
