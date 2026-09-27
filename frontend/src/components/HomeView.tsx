@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@privy-io/react-auth';
 import { ArrowRight, TrendingUp } from 'lucide-react';
-import { getHome } from '@/lib/api';
-import type { BackendConfig, ChatRoom, Holding, Home, Me, NadMarket } from '@/lib/contracts';
+import { getHome, getMarkets } from '@/lib/api';
+import type { ChatRoom, Holding, Home, MarketListing, Me } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
+import { Avatar } from './Avatar';
 
 type Props = {
-  me: Me; config: BackendConfig | null; holdings: Holding[]; nadMarkets: NadMarket[]; search: string;
+  me: Me; holdings: Holding[]; search: string; onMarket: (id: string) => void;
   onRoom: (roomId: string) => void; onProfile: (memberId: string) => void;
   onTrade: (trade: Home['topTrades'][number]) => void; onDeposit: () => void;
 };
@@ -16,14 +17,29 @@ type Props = {
 export function RoomRow({ room, onOpen }: { room: ChatRoom; onOpen: () => void }) {
   const last = room.lastMessage;
   return <button className="home-room" onClick={onOpen}>
-    <span className={`room-avatar ${room.kind}`}>{room.kind === 'global' ? 'G' : room.kind === 'country' ? 'C' : room.name.slice(0, 1).toUpperCase()}</span>
-    <span className="room-lines"><strong>{room.name}</strong><small>{last?.body ?? 'No messages yet'}</small></span>
+    <span className={`room-avatar ${room.kind}`}>{room.icon}</span>
+    <span className="room-lines"><strong>{room.name}</strong><small>{last?.text ?? 'No messages yet'}</small></span>
     <span className="room-end"><small>{last ? new Date(last.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</small><ArrowRight size={15} /></span>
   </button>;
 }
 
-export function HomeView({ me, config, holdings, nadMarkets, search, onRoom, onProfile, onTrade, onDeposit }: Props) {
+export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, onTrade, onDeposit }: Props) {
   const [home, setHome] = useState<Home | null>(null);
+  // Trending: the busiest perps and the top memes; with a search, whatever matches.
+  const [markets, setMarkets] = useState<MarketListing[]>([]);
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      getMarkets(search.trim()).then(r => {
+        if (!active) return;
+        const q = search.trim();
+        const perps = r.markets.filter(m => m.venue === 'perpl').sort((a, b) => (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0));
+        const memes = r.markets.filter(m => m.venue === 'nadfun');
+        setMarkets(q ? r.markets.slice(0, 8) : [...perps.slice(0, 4), ...memes.slice(0, 4)]);
+      }).catch(() => { if (active) setMarkets([]); });
+    }, 250);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [search]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -37,10 +53,7 @@ export function HomeView({ me, config, holdings, nadMarkets, search, onRoom, onP
 
   const query = search.trim().toLowerCase();
   const rooms = me.rooms.filter(room => room.name.toLowerCase().includes(query));
-  const trending = [
-    ...(config?.markets ?? []).filter(market => /^(BTC|ETH|SOL|MON)/i.test(market.symbol)).slice(0, 4),
-    ...nadMarkets.slice(0, 4),
-  ].filter(market => market.symbol.toLowerCase().includes(query)).slice(0, 8);
+  const trending = markets;
   const cash = me.balances?.walletUsd ?? null;
   const margin = me.balances?.perplMarginUsd ?? null;
   const spotValue = holdings.filter(item => item.venue === 'nadfun').reduce((sum, item) => sum + item.valueAusd, 0);
@@ -51,7 +64,7 @@ export function HomeView({ me, config, holdings, nadMarkets, search, onRoom, onP
       <div className="home-intro"><span className="eyebrow">HOME</span><h1>Good to see you, {me.name}.</h1></div>
       <section className="home-section"><div className="home-section-head"><h2>Top trades this week</h2><span>7 DAYS</span></div>
         {error ? <p className="wallet-warning">{error}</p> : !home ? <p className="field-note">Loading weekly trades...</p> : home.topTrades.length ? <div className="trade-carousel">{home.topTrades.map(trade => <article className="top-trade" key={`${trade.memberId}:${trade.rank}`}>
-          <button className="top-trade-person" onClick={() => onProfile(trade.memberId)}><span className="room-avatar">{trade.name.slice(0, 1).toUpperCase()}</span><span><strong>{trade.name}</strong><small>#{trade.rank} Trade</small></span></button>
+          <button className="top-trade-person" onClick={() => onProfile(trade.memberId)}><Avatar name={trade.name} url={trade.avatarUrl} /><span><strong>{trade.name}</strong><small>#{trade.rank} Trade</small></span></button>
           <strong className={`trade-return ${trade.returnPct >= 0 ? 'positive' : 'negative'}`}>{trade.returnPct >= 0 ? '+' : ''}{trade.returnPct.toFixed(1)}%</strong>
           <div className="trade-card-bottom"><span className="symbol-chip">{trade.symbol}</span><small>{trade.tradersIn} {trade.tradersIn === 1 ? 'trader was' : 'traders were'} in</small></div>
           <button className="trade-card-link" onClick={() => onTrade(trade)}>View trade <ArrowRight size={14} /></button>
@@ -63,7 +76,7 @@ export function HomeView({ me, config, holdings, nadMarkets, search, onRoom, onP
     <aside className="home-right">
       <section className="home-card"><span className="eyebrow">PORTFOLIO</span><div className="portfolio-total">{dollars(total)}</div><div className="portfolio-lines"><div><span>Wallet cash</span><strong>{dollars(cash)}</strong></div><div><span>Perpl margin</span><strong>{dollars(margin)}</strong></div><div><span>Spot holdings</span><strong>{dollars(spotValue)}</strong></div></div><button className="primary full" onClick={onDeposit}>Deposit</button></section>
       <section className="home-card"><span className="eyebrow">ACTIVE POSITIONS</span>{holdings.length ? holdings.slice(0, 4).map(item => <div className="home-holding" key={`${item.venue}:${item.market}`}><div><strong>{item.symbol}</strong><small>{item.side.toUpperCase()} · {item.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}</small></div><span className={(item.pnlAusd ?? 0) >= 0 ? 'positive' : 'negative'}>{item.pnlAusd == null ? 'Pending' : signedDollars(item.pnlAusd)}</span></div>) : <p className="field-note">No open positions.</p>}</section>
-      <section className="home-card"><span className="eyebrow">TRENDING MARKETS</span>{trending.length ? trending.map(item => <div className="trending-row" key={`${item.venue}:${item.id}`}><TrendingUp size={15} /><strong>{item.symbol}</strong><small>{item.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}</small></div>) : <p className="field-note">No markets match your search.</p>}</section>
+      <section className="home-card"><div className="home-card-head"><span className="eyebrow">{search.trim() ? 'MARKETS' : 'TRENDING MARKETS'}</span><button className="text-link" onClick={() => onMarket('')}>See all</button></div>{trending.length ? trending.map(item => <button className="trending-row clickable" key={`${item.venue}:${item.id}`} onClick={() => onMarket(item.id)}><TrendingUp size={15} /><strong>{item.symbol}</strong><span className="trending-price">{item.priceUsd == null ? '' : item.priceUsd >= 1 ? dollars(item.priceUsd) : `$${item.priceUsd.toPrecision(3)}`}</span>{item.change24hPct != null && <small className={item.change24hPct >= 0 ? 'positive' : 'negative'}>{item.change24hPct >= 0 ? '+' : ''}{item.change24hPct.toFixed(1)}%</small>}</button>) : <p className="field-note">{search.trim() ? 'No markets match your search.' : 'Markets are loading…'}</p>}</section>
     </aside>
   </main>;
 }

@@ -1,4 +1,4 @@
-import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues } from './contracts';
+import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 
 const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
@@ -82,3 +82,11 @@ export const pinRoomMessage = (token: string, room: string, messageId: string | 
 export const getHome = (token: string) => api<Home>('/v1/home', token);
 export const getProfile = (token: string, idOrWallet: string) => api<Profile>(`/v1/members/${encodeURIComponent(idOrWallet)}`, token);
 export const getTrade = (token: string, tradeId: string) => api<TradeView>(`/v1/trades/${encodeURIComponent(tradeId)}`, token);
+
+export const usernameAvailability = (name: string) => api<{ available: boolean; reason?: string }>(`/v1/usernames/${encodeURIComponent(name)}`, null);
+export const setUsername = (token: string, username: string) => api<{ username: string; name: string }>('/v1/me/username', token, { method: 'POST', body: json({ username }) });
+export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: string }>('/v1/me/avatar', token, { method: 'POST', body: json({ image }) });
+export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
+export const getDeposit = (token: string) => api<DepositInfo>('/v1/wallet/deposit', token);
+export const getMarkets = (query = '', venue?: Venue) => api<{ markets: MarketListing[] }>(`/v1/markets?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(venue ? { venue } : {}), limit: '100' })}`, null);
+export const getMarket = (id: string, resolutionSec = 3600) => api<MarketDetail>(`/v1/markets/${encodeURIComponent(id)}?resolution=${resolutionSec}`, null);

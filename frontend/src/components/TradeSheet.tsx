@@ -6,14 +6,15 @@ import { ArrowRight, X } from 'lucide-react';
 import { getTrade } from '@/lib/api';
 import type { ClosedTrade, Home, TradeView, Venue } from '@/lib/contracts';
 import { dollars, percent, shortAddress, signedDollars } from '@/lib/format';
+import { Avatar } from './Avatar';
 
 export type TradeSheetTarget =
   | { kind: 'trade'; tradeId: string }
   | { kind: 'home'; trade: Home['topTrades'][number] }
-  | { kind: 'closed'; trade: ClosedTrade; member: { id: string; name: string; address: string } };
+  | { kind: 'closed'; trade: ClosedTrade; member: { id: string; name: string; avatarUrl: string | null; address: string } };
 
 type Summary = {
-  member: { id: string; name: string; address: string | null };
+  member: { id: string; name: string; avatarUrl: string | null; address: string | null };
   venue: Venue; market: string; symbol: string; side: string; leverage: number | null;
   openedAt: number | null; closedAt: number | null; status: 'open' | 'closed';
   result: Pick<NonNullable<TradeView['result']>, 'returnPct' | 'pnlUsd' | 'entryPrice' | 'exitPrice'> | null;
@@ -32,7 +33,7 @@ function fallbackSummary(target: Exclude<TradeSheetTarget, { kind: 'trade' }>): 
   if (target.kind === 'home') {
     const trade = target.trade;
     return {
-      member: { id: trade.memberId, name: trade.name, address: null },
+      member: { id: trade.memberId, name: trade.name, avatarUrl: trade.avatarUrl, address: null },
       venue: trade.venue as Venue, market: trade.market, symbol: trade.symbol, side: trade.side,
       leverage: null, openedAt: null, closedAt: trade.closedAt, status: 'closed',
       result: { returnPct: trade.returnPct, pnlUsd: trade.pnlUsd, entryPrice: null, exitPrice: null },
@@ -87,7 +88,7 @@ export function TradeSheet({ target, onClose, onProfile, onChart }: Props) {
     <section className="trade-sheet" role="dialog" aria-modal="true" aria-label="Trade details">
       <div className="trade-sheet-head"><span className="eyebrow">TRADE</span><button className="icon-button" title="Close trade details" onClick={onClose}><X size={18} /></button></div>
       {loading ? <p className="field-note">Loading trade...</p> : error ? <p className="wallet-warning">{error}</p> : summary && <>
-        <button className="trade-sheet-member" onClick={() => { onClose(); onProfile(summary.member.id); }}><span className="room-avatar">{summary.member.name.slice(0, 1).toUpperCase()}</span><span><strong>{summary.member.name}</strong>{summary.member.address && <small>{shortAddress(summary.member.address)}</small>}</span><ArrowRight size={15} /></button>
+        <button className="trade-sheet-member" onClick={() => { onClose(); onProfile(summary.member.id); }}><Avatar name={summary.member.name} url={summary.member.avatarUrl} /><span><strong>{summary.member.name}</strong>{summary.member.address && <small>{shortAddress(summary.member.address)}</small>}</span><ArrowRight size={15} /></button>
         <div className="trade-sheet-title"><h2>{summary.symbol}</h2><span className="venue-badge">{summary.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}</span></div>
         <div className="trade-sheet-tags"><span>{summary.side.toUpperCase()}</span>{summary.venue === 'perpl' && summary.leverage != null && <span>{summary.leverage}x</span>}{summary.youCopied && <span className="copied-label">You copied this</span>}</div>
         <div className="trade-sheet-facts"><div><span>OPENED</span><strong>{dateTime(summary.openedAt)}</strong></div>{summary.status === 'closed' && <div><span>CLOSED</span><strong>{dateTime(summary.closedAt)}</strong></div>}{summary.tradersIn != null && <div><span>TOGETHER</span><strong>{summary.tradersIn} {summary.tradersIn === 1 ? 'trader was' : 'traders were'} in</strong></div>}</div>
