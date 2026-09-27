@@ -1,3 +1,4 @@
+import { statsFor } from '../indexer/stats.js';
 import { strEnv } from '../config/env.js';
 import { randomBytes } from 'node:crypto';
 import { mirrors, trades } from '../mirror/repo.js';
@@ -24,6 +25,9 @@ export interface PublicShare {
   markPrice: number | null;
   closedAt: string | null;
   sharedAt: string;
+  // The sharer's verified record (own trades only), frozen at share time. The
+  // card shows it as the proof behind the trade; verified false = not yet.
+  traderRecord: { verified: boolean; tradeCount: number; winRate: number | null; realizedPnlUsd: number | null; streak: number };
   includeClan: boolean;
   clanName?: string;
 }
@@ -67,6 +71,8 @@ export async function createShare(userId: string, markerId: string, includeClan:
   if (!marker.isMine) throw new ShareError(403, 'you can only share your own trades');
 
   const cost = marker.entryPrice != null && marker.size != null ? (marker.entryPrice * marker.size) / (marker.leverage || 1) : null;
+  const wallet = members.get(userId)!.wallet;
+  const rec = (await statsFor([wallet])).get(wallet.toLowerCase())!;
   const snapshot: Omit<PublicShare, 'id' | 'includeClan' | 'clanName'> = {
     traderName: shortName(members.get(userId)!.wallet),
     marketSymbol: chart.selectedMarket.symbol,
@@ -79,6 +85,7 @@ export async function createShare(userId: string, markerId: string, includeClan:
     markPrice: marker.markPrice,
     closedAt: null,
     sharedAt: new Date().toISOString(),
+    traderRecord: { verified: rec.verified, tradeCount: rec.tradeCount, winRate: rec.winRate, realizedPnlUsd: rec.realizedPnlUsd, streak: rec.streak },
   };
   const id = randomBytes(9).toString('base64url');
   getDb()
