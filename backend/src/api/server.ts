@@ -27,6 +27,7 @@ import { UpstreamError } from '../http.js';
 import { balancesFor } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
+import { ChatError, listMessages, MAX_MESSAGE_CHARS, postMessage, type ChatMessage } from './chat.js';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
@@ -61,6 +62,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof AuthError) return c.json({ message: err.message }, 401);
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
+    if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -146,20 +148,23 @@ export function createApp(engine: MirrorEngine) {
     const rows = getDb()
       .prepare(
         `SELECT e.account_id, e.rq, e.kind, e.ref_id, e.created_at,
+                mi.id AS mirror_id,
                 COALESCE(mi.clan_id, st.clan_id) AS clan_id,
                 COALESCE(mi.trade_id, st.target_trade) AS trade_id
          FROM engine_orders e
-         LEFT JOIN mirrors mi ON e.kind LIKE 'mirror%' AND mi.id = e.ref_id
+         LEFT JOIN mirror_adjustments ad ON e.kind IN ('mirror_add', 'mirror_reduce') AND ad.id = e.ref_id
+         LEFT JOIN mirrors mi ON e.kind LIKE 'mirror%' AND mi.id = COALESCE(ad.mirror_id, e.ref_id)
          LEFT JOIN stacks st ON e.kind LIKE 'stack%' AND st.id = e.ref_id
          WHERE e.created_at > ? ORDER BY e.created_at LIMIT 1000`,
       )
-      .all(since) as { account_id: number; rq: number; kind: string; ref_id: string; created_at: number; clan_id: string; trade_id: string }[];
+      .all(since) as { account_id: number; rq: number; kind: string; ref_id: string; mirror_id: string | null; created_at: number; clan_id: string; trade_id: string }[];
     return c.json({
       orders: rows.map((r) => ({
         perplAccountId: r.account_id,
         requestId: r.rq,
         kind: r.kind,
         refId: r.ref_id,
+        mirrorId: r.mirror_id,
         clanId: r.clan_id,
         tradeId: r.trade_id,
         createdAt: r.created_at,
@@ -172,16 +177,18 @@ export function createApp(engine: MirrorEngine) {
     const rows = getDb()
       .prepare(
         `SELECT e.tx_hash, e.wallet, e.kind, e.ref_id, e.created_at,
+                mi.id AS mirror_id,
                 COALESCE(mi.clan_id, st.clan_id) AS clan_id,
                 COALESCE(mi.trade_id, st.target_trade) AS trade_id
          FROM engine_txs e
-         LEFT JOIN mirrors mi ON e.kind LIKE 'mirror%' AND mi.id = e.ref_id
+         LEFT JOIN mirror_adjustments ad ON e.kind IN ('mirror_add', 'mirror_reduce') AND ad.id = e.ref_id
+         LEFT JOIN mirrors mi ON e.kind LIKE 'mirror%' AND mi.id = COALESCE(ad.mirror_id, e.ref_id)
          LEFT JOIN stacks st ON e.kind LIKE 'stack%' AND st.id = e.ref_id
          WHERE e.created_at > ? ORDER BY e.created_at LIMIT 1000`,
       )
-      .all(since) as { tx_hash: string; wallet: string; kind: string; ref_id: string; created_at: number; clan_id: string; trade_id: string }[];
+      .all(since) as { tx_hash: string; wallet: string; kind: string; ref_id: string; mirror_id: string | null; created_at: number; clan_id: string; trade_id: string }[];
     return c.json({
-      txs: rows.map((r) => ({ venue: 'nadfun', txHash: r.tx_hash, wallet: r.wallet, kind: r.kind, refId: r.ref_id, clanId: r.clan_id, tradeId: r.trade_id, createdAt: r.created_at })),
+      txs: rows.map((r) => ({ venue: 'nadfun', txHash: r.tx_hash, wallet: r.wallet, kind: r.kind, refId: r.ref_id, mirrorId: r.mirror_id, clanId: r.clan_id, tradeId: r.trade_id, createdAt: r.created_at })),
     });
   });
   indexer.get('/trades', (c) => {
@@ -404,14 +411,13 @@ export function createApp(engine: MirrorEngine) {
     return c.json(clanView(clan.id, ch.userId));
   });
 
-  // Leave a clan. Pending mirrors for you are cancelled; mirrors already open
-  // still unwind when their leader exits, so nothing is left orphaned.
+  // Leave a clan. Pending mirrors and pending adds for you are cancelled;
+  // mirrors already open still follow partial exits and unwind when their
+  // leader exits, so nothing is left orphaned.
   authed.post('/clans/:clanId/leave', async (c) => {
     const clan = clanFor(c);
     const userId = c.get('userId');
-    for (const m of mirrors.forClan(clan.id, ['pending'])) {
-      if (m.userId === userId) engine.cancelPending(m.id, 'member left the clan');
-    }
+    engine.memberLeft(clan.id, userId);
     clans.leave(clan.id, userId);
     return c.body(null, 204);
   });
@@ -425,8 +431,11 @@ export function createApp(engine: MirrorEngine) {
 
   authed.post('/clans/:clanId/mirrors/:mirrorId/skip', async (c) => {
     clanFor(c);
-    // Accept the bare mirror id or the chart marker id ("mirror:<id>").
-    engine.skip(c.req.param('mirrorId').replace(/^mirror:/, ''), c.get('userId'));
+    // Accept the bare mirror id, the chart marker id ("mirror:<id>"), or a
+    // pending add to a mirror ("adjust:<id>", from marker.pendingAdd.id).
+    const id = c.req.param('mirrorId');
+    if (id.startsWith('adjust:')) engine.skipAdjustment(id.slice('adjust:'.length), c.get('userId'));
+    else engine.skip(id.replace(/^mirror:/, ''), c.get('userId'));
     return c.body(null, 204);
   });
 
@@ -456,6 +465,21 @@ export function createApp(engine: MirrorEngine) {
     return c.json(addSuggestion(clan.id, tradeId, markerId, c.get('userId'), body.takeProfit ?? null, body.stopLoss ?? null), 201);
   });
 
+  // Clan group chat. Members only; new messages also arrive as SSE `message`.
+  authed.get('/clans/:clanId/messages', (c) => {
+    const clan = clanFor(c);
+    const limit = c.req.query('limit');
+    return c.json(listMessages(clan.id, { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
+  });
+
+  authed.post('/clans/:clanId/messages', async (c) => {
+    const clan = clanFor(c);
+    const body = z
+      .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
+      .parse(await c.req.json());
+    return c.json(postMessage(clan.id, c.get('userId'), body), 201);
+  });
+
   authed.post('/shares', async (c) => {
     const body = z.object({ markerId: z.string(), includeClan: z.boolean() }).parse(await c.req.json());
     return c.json(await createShare(c.get('userId'), body.markerId, body.includeClan), 201);
@@ -468,20 +492,29 @@ export function createApp(engine: MirrorEngine) {
     return streamSSE(c, async (stream) => {
       const send = (event: string, data: unknown) => void stream.writeSSE({ event, data: JSON.stringify(data) });
       const onTrade = (t: { userId: string }) => inClan(t.userId) && send('trade', t);
+      const onChanged = (t: { userId: string }) => inClan(t.userId) && send('trade_changed', t);
       const onClosed = (t: { userId: string }) => inClan(t.userId) && send('trade_closed', t);
       const onMirror = (m: { clanId: string }) => m.clanId === clan.id && send('mirror', m);
+      const onAdjust = (a: { clanId: string }) => a.clanId === clan.id && send('adjustment', a);
       engine.on('trade', onTrade);
+      engine.on('tradeChanged', onChanged);
       engine.on('tradeClosed', onClosed);
       engine.on('mirror', onMirror);
+      engine.on('adjustment', onAdjust);
       const onSuggestion = (clanId: string, sug: TpSlSuggestion) => clanId === clan.id && send('suggestion', sug);
+      const onMessage = (clanId: string, msg: ChatMessage) => clanId === clan.id && send('message', msg);
       clanBus.on('suggestion', onSuggestion);
+      clanBus.on('message', onMessage);
       const ping = setInterval(() => void stream.writeSSE({ event: 'ping', data: String(Date.now()) }), 15_000);
       await new Promise<void>((resolve) => stream.onAbort(resolve));
       clearInterval(ping);
       engine.off('trade', onTrade);
+      engine.off('tradeChanged', onChanged);
       engine.off('tradeClosed', onClosed);
       engine.off('mirror', onMirror);
+      engine.off('adjustment', onAdjust);
       clanBus.off('suggestion', onSuggestion);
+      clanBus.off('message', onMessage);
     });
   });
 

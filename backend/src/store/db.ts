@@ -14,11 +14,11 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
-  if (user_version < SCHEMA_VERSION) {
+  if (user_version < 2) {
     // v1 trade tables were perpl-only. Nothing but test data exists yet, so
     // rebuild them rather than carry a column-by-column migration.
     d.exec('DROP TABLE IF EXISTS mirrors; DROP TABLE IF EXISTS stacks; DROP TABLE IF EXISTS leader_trades; DROP TABLE IF EXISTS engine_orders;');
@@ -79,7 +79,8 @@ function migrate(d: DatabaseSync) {
       market          TEXT NOT NULL,
       side            TEXT NOT NULL,          -- long | short | buy
       position_id     INTEGER,                -- perpl position id
-      size            TEXT NOT NULL,          -- raw integer as string (perpl scaled size / token wei)
+      size            TEXT NOT NULL,          -- raw, the leader's size now (follows their adds and partial exits)
+      open_size       TEXT,                   -- raw, the size they opened with
       entry_price     REAL,                   -- AUSD per unit
       leverage        INTEGER NOT NULL,       -- hundredths (nadfun: 100)
       margin_fraction REAL NOT NULL,          -- share of the leader's free balance this trade used
@@ -111,6 +112,30 @@ function migrate(d: DatabaseSync) {
       updated_at    INTEGER NOT NULL,
       UNIQUE (trade_id, user_id)
     );
+
+    -- A leader adding to, or partly selling, a trade they lead. Each open
+    -- mirror follows by the same ratio of its own size. Adds wait out the
+    -- skip window like a new mirror; reductions go straight out, like exits.
+    CREATE TABLE IF NOT EXISTS mirror_adjustments (
+      id            TEXT PRIMARY KEY,
+      mirror_id     TEXT NOT NULL REFERENCES mirrors(id),
+      trade_id      TEXT NOT NULL REFERENCES leader_trades(id),
+      clan_id       TEXT NOT NULL REFERENCES clans(id),
+      user_id       TEXT NOT NULL REFERENCES members(user_id),
+      kind          TEXT NOT NULL,   -- add | reduce
+      ratio         REAL NOT NULL,   -- leader's size after / before the change
+      status        TEXT NOT NULL,   -- pending|skipped|submitting|done|failed|cancelled
+      skip_until    INTEGER NOT NULL,
+      size_delta    TEXT,            -- raw, what the follower actually bought or sold
+      notional_usd  REAL,
+      rq            INTEGER,
+      oid           INTEGER,
+      tx            TEXT,
+      error         TEXT,
+      created_at    INTEGER NOT NULL,
+      updated_at    INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS mirror_adjustments_mirror ON mirror_adjustments(mirror_id);
 
     -- Manual stack: an explicit member action on someone else's marker. Kept
     -- apart from mirrors on purpose; it never triggers auto-mirror itself.
@@ -177,11 +202,27 @@ function migrate(d: DatabaseSync) {
       created_at   INTEGER NOT NULL
     );
 
+    -- Clan group chat. Leaders say what they're about to do here, since
+    -- their trades (and adds and partial sells) are mirrored.
+    CREATE TABLE IF NOT EXISTS clan_messages (
+      id          TEXT PRIMARY KEY,
+      clan_id     TEXT NOT NULL REFERENCES clans(id),
+      user_id     TEXT NOT NULL REFERENCES members(user_id),
+      body        TEXT NOT NULL,
+      reply_to    TEXT,
+      marker_id   TEXT,               -- optional chart marker the message is about
+      created_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS clan_messages_clan ON clan_messages(clan_id, created_at);
+
     -- How far the Nad.fun router log watcher has read.
     CREATE TABLE IF NOT EXISTS cursors (
       name  TEXT PRIMARY KEY,
       value INTEGER NOT NULL
     );
   `);
+  // v2 -> v3: leaders' adds and partial exits are mirrored.
+  const cols = d.prepare('PRAGMA table_info(leader_trades)').all() as { name: string }[];
+  if (!cols.some((c) => c.name === 'open_size')) d.exec('ALTER TABLE leader_trades ADD COLUMN open_size TEXT');
   d.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }

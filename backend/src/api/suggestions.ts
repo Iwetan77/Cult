@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
+import type { ChatMessage } from './chat.js';
 import { shortName } from './names.js';
 
 export interface TpSlSuggestion {
@@ -16,7 +17,7 @@ export interface TpSlSuggestion {
 }
 
 // Clan-level events that aren't engine events (SSE fans these out too).
-export const clanBus = new EventEmitter<{ suggestion: [string, TpSlSuggestion] }>();
+export const clanBus = new EventEmitter<{ suggestion: [string, TpSlSuggestion]; message: [string, ChatMessage] }>();
 
 interface Row {
   id: string;

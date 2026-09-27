@@ -80,6 +80,16 @@ const mk = pc.markers.find((m: any) => m.id === `trade:${perplTrade.id}`);
 console.log('perpl marker tp/sl fields:', JSON.stringify({ takeProfitPrice: mk?.takeProfitPrice, stopLossPrice: mk?.stopLossPrice, suggestions: mk?.suggestions }));
 if (!mk?.suggestions?.[0] || mk.suggestions[0].takeProfitPrice !== 90000) throw new Error('suggestion missing from chart');
 await call('skip with marker-style id', 'POST', `/v1/clans/${clan.id}/mirrors/mirror:does-not-exist/skip`, auth(bob, 'bob'));
+await call('skip an unknown pending add', 'POST', `/v1/clans/${clan.id}/mirrors/adjust:does-not-exist/skip`, auth(bob, 'bob'));
+// Clan chat.
+const hi = await call('chat: alice posts', 'POST', `/v1/clans/${clan.id}/messages`, auth(alice, 'alice'), { body: 'selling half of my BTC in 5 min', markerId: 'trade:smoke-perpl' });
+await call('chat: bob replies', 'POST', `/v1/clans/${clan.id}/messages`, auth(bob, 'bob'), { body: 'ok, I will ride it', replyTo: hi.id });
+await call('chat: empty', 'POST', `/v1/clans/${clan.id}/messages`, auth(bob, 'bob'), { body: '   ' });
+await call('chat: outsider', 'POST', `/v1/clans/${clan.id}/messages`, auth(ethers.Wallet.createRandom(), 'eve'), { body: 'hi' });
+const page = await call('chat: list', 'GET', `/v1/clans/${clan.id}/messages?limit=1`, auth(bob, 'bob'));
+if (page.messages.length !== 1 || !page.hasMore || page.messages[0].replyTo !== hi.id) throw new Error('chat page wrong');
+const older = await call('chat: older page', 'GET', `/v1/clans/${clan.id}/messages?before=${page.messages[0].id}`, auth(bob, 'bob'));
+if (older.messages[0]?.id !== hi.id || older.hasMore) throw new Error('chat paging wrong');
 // Policy change (signed consent) and leaving.
 const newPolicy = { enabled: false, balancePercentCap: 5, maxUsdPerTrade: 20 };
 const polCh = await call('policy change challenge', 'POST', `/v1/clans/${clan.id}/policy/challenge`, auth(bob, 'bob'), { policy: newPolicy });

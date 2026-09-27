@@ -3,7 +3,7 @@ import { getJson } from '../http.js';
 import { NADFUN } from '../nadfun/constants.js';
 import { getContext, getMarket, scale } from '../perpl/context.js';
 import type { Market as PerplMarket } from '../perpl/types.js';
-import { mirrors, trades, type LeaderTrade } from '../mirror/repo.js';
+import { adjustments, mirrors, trades, type LeaderTrade } from '../mirror/repo.js';
 import { getDb } from '../store/db.js';
 import { clans, type Clan } from '../store/clans.js';
 import { members } from '../store/members.js';
@@ -39,6 +39,9 @@ export interface ChartMarker {
   isMine: boolean;
   mirrorStatus?: 'pending' | 'submitted' | 'filled';
   skipUntil?: string;
+  // Auto-mirror only: the leader added to this trade and this mirror will add
+  // the same share of itself at skipUntil, unless skipped (skip id "adjust:<id>").
+  pendingAdd?: { id: string; ratio: number; skipUntil: string } | null;
   txHash?: string | null;
   // Perpl only: the owner's live TP/SL (Perpl trigger orders on that position).
   takeProfitPrice?: number | null;
@@ -239,6 +242,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
     for (const m of mirrors.forTrade(t.id)) {
       if (m.clanId !== clan.id || !['pending', 'submitting', 'open'].includes(m.status)) continue;
       const pending = m.status === 'pending';
+      const add = m.status === 'open' ? adjustments.forMirror(m.id).find((a) => a.kind === 'add' && a.status === 'pending') : undefined;
       // Nad.fun mirror entry = dollars spent / tokens got. Perpl uses the position's own entry.
       const mEntry = v === 'nadfun' && m.notionalUsd && m.size && m.size !== '0' ? m.notionalUsd / (Number(m.size) / 1e18) : null;
       markers.push({
@@ -256,6 +260,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
         isMine: m.userId === viewerId,
         mirrorStatus: pending ? 'pending' : m.status === 'submitting' ? 'submitted' : 'filled',
         ...(pending ? { skipUntil: new Date(m.skipUntil).toISOString() } : {}),
+        pendingAdd: add ? { id: `adjust:${add.id}`, ratio: add.ratio, skipUntil: new Date(add.skipUntil).toISOString() } : null,
         txHash: m.openTx,
         ...(pending || m.status === 'submitting'
           ? { entryPrice: null, size: null, pnlUsd: null, valueUsd: null }
