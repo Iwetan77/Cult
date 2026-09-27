@@ -252,6 +252,14 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     await Promise.all(toClose.map((m) => this.closeMirror(m, trade)));
   }
 
+  // Stop a pending mirror for a reason other than the member's own skip.
+  cancelPending(mirrorId: string, reason: string) {
+    const updated = mirrors.transition(mirrorId, 'pending', 'cancelled', { error: reason });
+    if (!updated) return;
+    this.unschedule(mirrorId);
+    this.emit('mirror', updated);
+  }
+
   skip(mirrorId: string, userId: string): Mirror {
     const m = mirrors.get(mirrorId);
     if (!m || m.userId !== userId) throw new MirrorError(404, 'mirror not found');

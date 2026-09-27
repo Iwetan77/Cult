@@ -80,4 +80,15 @@ const mk = pc.markers.find((m: any) => m.id === `trade:${perplTrade.id}`);
 console.log('perpl marker tp/sl fields:', JSON.stringify({ takeProfitPrice: mk?.takeProfitPrice, stopLossPrice: mk?.stopLossPrice, suggestions: mk?.suggestions }));
 if (!mk?.suggestions?.[0] || mk.suggestions[0].takeProfitPrice !== 90000) throw new Error('suggestion missing from chart');
 await call('skip with marker-style id', 'POST', `/v1/clans/${clan.id}/mirrors/mirror:does-not-exist/skip`, auth(bob, 'bob'));
+// Policy change (signed consent) and leaving.
+const newPolicy = { enabled: false, balancePercentCap: 5, maxUsdPerTrade: 20 };
+const polCh = await call('policy change challenge', 'POST', `/v1/clans/${clan.id}/policy/challenge`, auth(bob, 'bob'), { policy: newPolicy });
+await call('policy change, wrong signer', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: polCh.challengeId, signature: await alice.signMessage(polCh.message) });
+const jc = await call('a join challenge…', 'POST', '/v1/clans/join/challenge', auth(bob, 'bob'), { inviteCode: clan.inviteCode, policy: newPolicy });
+await call('…reused as a policy change', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: jc.challengeId, signature: await bob.signMessage(jc.message) });
+const updated = await call('policy change, signed', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: polCh.challengeId, signature: await bob.signMessage(polCh.message) });
+if (JSON.stringify(updated.myPolicy) !== JSON.stringify(newPolicy)) throw new Error('policy not updated');
+if (!polCh.message.startsWith('Update my mirror policy')) throw new Error('policy consent text wrong');
+await call('leave clan', 'POST', `/v1/clans/${clan.id}/leave`, auth(bob, 'bob'));
+await call('chart after leaving', 'GET', `/v1/clans/${clan.id}/chart`, auth(bob, 'bob'));
 process.exit(0);

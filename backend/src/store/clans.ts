@@ -94,6 +94,18 @@ export const clans = {
       .run(clanId, userId, p.enabled ? 1 : 0, p.balancePercentCap, p.maxUsdPerTrade, Date.now());
   },
 
+  // Replaces the member's policy (after they've signed a fresh consent).
+  setPolicy(clanId: string, userId: string, policy: MirrorPolicy) {
+    const p = MirrorPolicySchema.parse(policy);
+    getDb()
+      .prepare('UPDATE clan_members SET mirror_enabled = ?, balance_percent_cap = ?, max_usd_per_trade = ? WHERE clan_id = ? AND user_id = ?')
+      .run(p.enabled ? 1 : 0, p.balancePercentCap, p.maxUsdPerTrade, clanId, userId);
+  },
+
+  leave(clanId: string, userId: string) {
+    getDb().prepare('DELETE FROM clan_members WHERE clan_id = ? AND user_id = ?').run(clanId, userId);
+  },
+
   members(clanId: string): ClanMembership[] {
     return (getDb().prepare('SELECT * FROM clan_members WHERE clan_id = ? ORDER BY joined_at').all(clanId) as unknown as MemberRow[]).map(
       toMembership,
