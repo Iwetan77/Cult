@@ -225,6 +225,20 @@ it against Nad.fun's own
 `https://dev-api.nadapp.net/trade/swap-history/0x5e2E014020f31A410cC6Cd44dEfb646b02467777`.
 The router proxy was deployed around block `30418626` (the curve at `30418615`).
 
+More real round trips on TTT from the Phase 4 Nad.fun gate, all around blocks
+66006900–66007000. Each is 1 closed trade and 0 wins, and all were checked against
+Nad.fun's API:
+
+| wallet | role | realized |
+|---|---|---|
+| `0xc4f8c5724313e74759e572065453e7C52C5EC185` | leader A | −0.003960 MON |
+| `0xC434777485d8f4e8A4f6e93A2aCE32155C84eF13` | auto-mirror B | −0.003630 MON |
+| `0x6222DDA40a6d550b703D0CE62f5bAb17FB7907EE` | auto-mirror C | −0.001089 MON |
+
+B's and C's buys are auto-mirrors, so their tx hashes appear in backend
+`/v1/indexer/txs` as `mirror_open` / `mirror_close`. That makes them the test case for
+labelling a trade as auto-mirrored rather than the member's own.
+
 **Trading calls (router):**
 
 - `buyWithNative((amountOutMin, token, to, deadline))`: payable. `msg.value` is the MON
