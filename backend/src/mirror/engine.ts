@@ -13,7 +13,7 @@ import { clans } from '../store/clans.js';
 import { members } from '../store/members.js';
 import { venue as defaultVenue, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
 import { isEngineOrder, isEngineTx, recordRef } from './origin.js';
-import { mirrors, trades, type LeaderTrade, type Mirror } from './repo.js';
+import { adjustments, mirrors, sizeFactor, trades, type Adjustment, type LeaderTrade, type Mirror } from './repo.js';
 import { leaderDollarFraction, mirrorNotional } from './sizing.js';
 import { erc20Abi } from '../chain/exchange.js';
 import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
@@ -21,6 +21,9 @@ import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
 // Perpl position status reasons that mean "a new position now exists".
 const SR_OPENED = 21;
 const SR_INVERTED = 18;
+// ...and the ones where the member changed the size of the one they have.
+const SR_INCREASED = 17;
+const SR_DECREASED = 14;
 
 export interface MirrorEngineConfig {
   optOutSeconds: number;
@@ -38,8 +41,10 @@ export interface MirrorEngineDeps {
 
 export interface MirrorEngineEvents {
   trade: [LeaderTrade];
+  tradeChanged: [LeaderTrade]; // the leader added or partly exited
   tradeClosed: [LeaderTrade];
   mirror: [Mirror];
+  adjustment: [Adjustment];
 }
 
 // A member's own trade on either venue, however it was detected.
@@ -62,7 +67,9 @@ export interface LeaderOpen {
 // position or Nad.fun buy) -> every other member of their clan(s) gets a
 // pending mirror with a skip deadline -> at the deadline, un-skipped mirrors
 // are sized from each follower's own balance and policy and opened through the
-// venue adapter -> when the leader exits, the mirrors exit.
+// venue adapter -> when the leader adds or partly exits, each open mirror
+// follows by the same ratio of its own size (adds get the skip window, partial
+// exits go straight out) -> when the leader exits, the mirrors exit.
 //
 // Leader detection: Perpl via each member's trading websocket; Nad.fun via the
 // router log watcher. Anything this engine (or a manual stack) sends is tagged
@@ -71,7 +78,9 @@ export interface LeaderOpen {
 export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   private watchingPerpl = new Set<string>();
   private timers = new Map<string, NodeJS.Timeout>();
-  private attempts = new Map<string, number>(); // mirror id -> fire attempts so far
+  private attempts = new Map<string, number>(); // mirror/adjustment id -> fire attempts so far
+  private lanes = new Map<string, Promise<unknown>>(); // mirror id -> its adjustments and close, one at a time
+  private perplSeen = new Map<string, bigint>(); // "acc:pid" -> last position size seen, ours included
   private readonly venue: (v: Venue) => VenueAdapter;
   private readonly nad: NadWatcher | null;
 
@@ -111,7 +120,9 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   // ---- leader detection: Perpl ---------------------------------------------
 
   private async onPerplPosition(userId: string, session: TradingSession, p: Position) {
-    if (p.sr !== SR_OPENED && p.sr !== SR_INVERTED) return; // increases/decreases aren't new trades
+    if (p.sr === SR_INCREASED || p.sr === SR_DECREASED) return this.onPerplResized(p);
+    if (p.sr !== SR_OPENED && p.sr !== SR_INVERTED) return;
+    this.perplSeen.set(`${p.acc}:${p.pid}`, BigInt(p.s));
     if (isEngineOrder(p.acc, p.rq)) return; // our own mirror/stack
     if (trades.byPosition(p.acc, p.pid)) return; // replay after reconnect
     if (p.sr === SR_INVERTED) {
@@ -140,7 +151,25 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     });
   }
 
+  // The leader grew or shrank a position they lead. Only their own orders
+  // count: a mirror or stack of someone else's trade can land on the same
+  // Perpl position, so their share is tracked apart from the position's total.
+  private async onPerplResized(p: Position) {
+    const key = `${p.acc}:${p.pid}`;
+    const trade = trades.byPosition(p.acc, p.pid);
+    const total = BigInt(p.s);
+    const seen = this.perplSeen.get(key) ?? (trade ? BigInt(trade.size) : total);
+    this.perplSeen.set(key, total);
+    if (!trade || trade.closedAt || total === seen) return; // not a trade we lead, or a replay
+    if (isEngineOrder(p.acc, p.rq)) return;
+    const own = BigInt(trade.size) + (total - seen);
+    if (own <= 0n) return this.closeTrade(trade);
+    const { getMarket, scale } = await import('../perpl/context.js');
+    await this.leaderResized(trade, own, scale.unprice(p.ep, await getMarket(p.mkt)));
+  }
+
   private async onPerplClosed(userId: string, p: Position) {
+    this.perplSeen.delete(`${p.acc}:${p.pid}`);
     const trade = trades.byPosition(p.acc, p.pid) ?? trades.openFor(userId, 'perpl', String(p.mkt));
     if (trade && !trade.closedAt) await this.closeTrade(trade);
   }
@@ -153,8 +182,20 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     if (!member) return;
     const open = trades.openFor(member.userId, 'nadfun', t.token);
 
+    const lateBy = t.blockTime > 0 ? Math.max(0, Math.round((Date.now() - t.blockTime) / 1000)) : undefined;
+
+    if (t.side === 'buy' && open) {
+      // Buying more of a token they already lead: followers add the same share of their own mirror.
+      const spentUsd = Number(ethers.formatEther(t.monAmount)) * (await monPriceAusd());
+      const before = BigInt(open.size);
+      const after = before + t.tokenAmount;
+      const [heldBefore, heldAfter] = [Number(ethers.formatEther(before)), Number(ethers.formatEther(after))];
+      const entry = open.entryPrice != null && heldAfter > 0 ? (open.entryPrice * heldBefore + spentUsd) / heldAfter : open.entryPrice;
+      await this.leaderResized(open, after, entry, lateBy);
+      return;
+    }
+
     if (t.side === 'buy') {
-      if (open) return; // adding to a holding they already lead with isn't a new trade
       const monPx = await monPriceAusd();
       const spentUsd = Number(ethers.formatEther(t.monAmount)) * monPx;
       // Share of their spendable dollars this buy used, just before it.
@@ -182,16 +223,22 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         leverageHundredths: 100,
         marginFraction: fraction,
         openTx: t.txHash,
-        detectedLateBySeconds: t.blockTime > 0 ? Math.max(0, Math.round((Date.now() - t.blockTime) / 1000)) : undefined,
+        detectedLateBySeconds: lateBy,
       });
       return;
     }
 
-    // Sell: only a full exit closes the trade (partial sells don't propagate).
+    // Sell. What's left of the trade decides: under 1% of it is a full exit,
+    // anything more is a partial one the mirrors follow proportionally. Also
+    // an exit if the wallet held nothing after that block (e.g. two sells in
+    // one block, or tokens moved out before selling the rest).
     if (!open) return;
+    const before = BigInt(open.size);
+    const after = before > t.tokenAmount ? before - t.tokenAmount : 0n;
     const { tokenBalance } = await import('../nadfun/trading.js');
-    const left = await tokenBalance(t.token, t.wallet);
-    if (left * 100n <= BigInt(open.size)) await this.closeTrade(open); // <1% of the original left = exited
+    const heldAtBlock = await tokenBalance(t.token, t.wallet, t.blockNumber).catch(() => null);
+    if (after * 100n <= before || heldAtBlock === 0n) return this.closeTrade(open);
+    await this.leaderResized(open, after, open.entryPrice);
   }
 
   // ---- shared pipeline ---------------------------------------------------------
@@ -263,9 +310,181 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     return null;
   }
 
+  // The leader's trade is now `sizeRaw` (was trade.size). Every open mirror
+  // follows by the same ratio of its own size. Mirrors still pending or
+  // mid-submit pick the change up themselves (see fire), so none is counted twice.
+  async leaderResized(trade: LeaderTrade, sizeRaw: bigint, entryPriceAusd: number | null, detectedLateBySeconds?: number) {
+    const before = BigInt(trade.size);
+    if (before <= 0n || sizeRaw === before) return;
+    if (sizeRaw * 100n <= before) return this.closeTrade(trade);
+    const ratio = Number((sizeRaw * 1_000_000n) / before) / 1_000_000;
+    // No await from here to the end of the loop: the resize and the set of
+    // open mirrors it applies to have to be read as one step.
+    trades.resize(trade.id, sizeRaw.toString(), entryPriceAusd);
+    this.emit('tradeChanged', trades.get(trade.id)!);
+    for (const m of mirrors.forTrade(trade.id)) {
+      if (m.status === 'open') this.queueAdjustment(trade, m, ratio, detectedLateBySeconds);
+    }
+  }
+
+  private queueAdjustment(trade: LeaderTrade, m: Mirror, ratio: number, detectedLateBySeconds?: number) {
+    const kind = ratio > 1 ? 'add' : 'reduce';
+    const a = adjustments.insert({
+      mirrorId: m.id,
+      tradeId: trade.id,
+      clanId: m.clanId,
+      userId: m.userId,
+      kind,
+      ratio,
+      // Adding spends the member's money, so they get the skip window. Partly
+      // exiting only takes risk off, so it goes out straight away like an exit.
+      skipUntil: kind === 'add' ? Date.now() + this.cfg.optOutSeconds * 1000 : Date.now(),
+    });
+    if (kind === 'add' && (detectedLateBySeconds ?? 0) > (this.cfg.maxLeaderAgeSeconds ?? 120)) {
+      this.emit('adjustment', adjustments.transition(a.id, 'pending', 'cancelled', { error: `leader's add detected ${detectedLateBySeconds}s late; not mirrored at a stale price` })!);
+      return;
+    }
+    this.emit('adjustment', a);
+    this.scheduleAdjustment(a);
+  }
+
+  skipAdjustment(id: string, userId: string): Adjustment {
+    const a = adjustments.get(id);
+    if (!a || a.userId !== userId) throw new MirrorError(404, 'adjustment not found');
+    if (a.kind !== 'add') throw new MirrorError(409, 'partial exits follow the leader straight away');
+    if (a.status !== 'pending') throw new MirrorError(409, `adjustment is ${a.status}, not pending`);
+    if (Date.now() >= a.skipUntil) throw new MirrorError(409, 'skip window has passed');
+    const updated = adjustments.transition(id, 'pending', 'skipped');
+    if (!updated) throw new MirrorError(409, 'adjustment already moved on');
+    this.unschedule(`adj:${id}`);
+    this.emit('adjustment', updated);
+    return updated;
+  }
+
+  // A member leaving a clan: nothing new fires for them there. Open mirrors
+  // still follow partial exits and the exit, so nothing is left orphaned.
+  memberLeft(clanId: string, userId: string) {
+    for (const m of mirrors.forClan(clanId, ['pending'])) {
+      if (m.userId === userId) this.cancelPending(m.id, 'member left the clan');
+    }
+    for (const a of adjustments.byStatus('pending')) {
+      if (a.clanId !== clanId || a.userId !== userId || a.kind !== 'add') continue;
+      const updated = adjustments.transition(a.id, 'pending', 'cancelled', { error: 'member left the clan' });
+      if (!updated) continue;
+      this.unschedule(`adj:${a.id}`);
+      this.emit('adjustment', updated);
+    }
+  }
+
+  private scheduleAdjustment(a: Adjustment) {
+    const key = `adj:${a.id}`;
+    this.timers.set(
+      key,
+      setTimeout(() => {
+        this.timers.delete(key);
+        void this.inLane(a.mirrorId, () => this.runAdjustment(a.id)).catch((e) => this.log('adjust', e));
+      }, Math.max(0, a.skipUntil - Date.now())),
+    );
+  }
+
+  // Bring one open mirror in step with its leader's change. Runs in the
+  // mirror's lane, so adjustments and the final close never overlap and each
+  // one starts from the size the previous one left.
+  private async runAdjustment(id: string) {
+    const a = adjustments.transition(id, 'pending', 'submitting');
+    if (!a) return;
+    const trade = trades.get(a.tradeId)!;
+    const m = mirrors.get(a.mirrorId)!;
+    const done = (to: 'done' | 'cancelled' | 'failed', patch: Parameters<typeof adjustments.patch>[1] = {}) =>
+      this.emit('adjustment', adjustments.transition(id, 'submitting', to, patch)!);
+    if (trade.closedAt) return done('cancelled', { error: 'leader already closed; the exit covers it' });
+    if (m.status !== 'open' || !m.size) return done('cancelled', { error: `mirror is ${m.status}` });
+
+    let sent = false;
+    const attempt = (this.attempts.get(id) ?? 0) + 1;
+    this.attempts.set(id, attempt);
+    const onRef = (kind: 'mirror_add' | 'mirror_reduce') => (ref: { rq?: number; accountId?: number; txHash?: string; wallet?: string }) => {
+      sent = true;
+      recordRef(ref, kind, id);
+      if (ref.rq != null) adjustments.patch(id, { rq: ref.rq });
+    };
+    try {
+      const adapter = this.venue(trade.venue);
+      const held = (await adapter.holdings(m.userId, [trade.market]))[0];
+      if (!held) {
+        this.emit('mirror', mirrors.transition(m.id, 'open', 'closed', { error: 'member had already exited this position' })!);
+        return done('cancelled', { error: 'member had already exited' });
+      }
+      const size = BigInt(m.size);
+      const keepMillionths = BigInt(Math.round(a.ratio * 1_000_000));
+
+      if (a.kind === 'reduce') {
+        let sell = size - (size * keepMillionths) / 1_000_000n;
+        const heldRaw = BigInt(held.sizeRaw);
+        if (sell > heldRaw) sell = heldRaw; // they sold some by hand; never sell what isn't theirs
+        if (sell <= 0n) return done('done', { sizeDelta: '0', error: 'rounds to nothing at this size' });
+        const fill = await adapter.close({ userId: m.userId, market: trade.market, sizeRaw: sell.toString(), onRef: onRef('mirror_reduce') });
+        const sold = BigInt(fill.sizeRaw || '0') || sell;
+        const left = size > sold ? size - sold : 0n;
+        const keep = Number((left * 1_000_000n) / size) / 1_000_000;
+        mirrors.patch(m.id, { size: left.toString(), notionalUsd: (m.notionalUsd ?? 0) * keep, marginUsd: (m.marginUsd ?? 0) * keep });
+        this.attempts.delete(id);
+        done('done', { sizeDelta: sold.toString(), notionalUsd: fill.notionalAusd, oid: fill.orderId ?? null, tx: fill.txHash ?? null });
+        this.emit('mirror', left === 0n ? mirrors.transition(m.id, 'open', 'closed', { closeTx: fill.txHash ?? null, closeOid: fill.orderId ?? null })! : mirrors.get(m.id)!);
+        return;
+      }
+
+      // Add: the member's mirror x (ratio - 1), valued at mark, under the same caps as a new mirror.
+      const membership = clans.membership(m.clanId, m.userId);
+      if (!membership) throw new NotSized('member is no longer in the clan');
+      if (!membership.policy.enabled) throw new NotSized('mirroring is disabled by the member');
+      const perRaw = Number(held.sizeRaw) > 0 ? held.size / Number(held.sizeRaw) : 0;
+      const want = Number(size) * perRaw * (a.ratio - 1) * held.markPriceAusd;
+      const leverage = Math.min(trade.leverage / 100, await adapter.maxLeverage(trade.market));
+      const sized = capAdd(want, leverage, await adapter.freeBalanceAusd(m.userId), membership.policy, this.cfg.minMirrorAusd ?? 1);
+      if (!sized.ok) throw new NotSized(`not sized: ${sized.reason}`);
+      const fill = await adapter.open({ userId: m.userId, market: trade.market, side: trade.side, notionalAusd: sized.notionalUsd, leverage, onRef: onRef('mirror_add') });
+      mirrors.patch(m.id, {
+        size: (size + BigInt(fill.sizeRaw)).toString(),
+        notionalUsd: (m.notionalUsd ?? 0) + fill.notionalAusd,
+        marginUsd: (m.marginUsd ?? 0) + fill.notionalAusd / leverage,
+      });
+      this.attempts.delete(id);
+      done('done', { sizeDelta: fill.sizeRaw, notionalUsd: fill.notionalAusd, oid: fill.orderId ?? null, tx: fill.txHash ?? null, error: sized.capsApplied.length ? `capped: ${sized.capsApplied.join(',')}` : null });
+      this.emit('mirror', mirrors.get(m.id)!);
+    } catch (e) {
+      const msg = String(e).slice(0, 450);
+      if (!sent && !(e instanceof NotSized) && attempt <= MAX_RETRIES) {
+        const again = adjustments.transition(id, 'submitting', 'pending', { skipUntil: Date.now() + RETRY_BACKOFF_MS * attempt, error: `retrying (${attempt}/${MAX_RETRIES}): ${msg}` })!;
+        this.emit('adjustment', again);
+        this.scheduleAdjustment(again);
+        return;
+      }
+      this.attempts.delete(id);
+      done('failed', { error: `${sent ? 'failed after sending, not retried: ' : ''}${msg}` });
+    }
+  }
+
+  // One mirror's adjustments and close run one after another.
+  private inLane<T>(mirrorId: string, fn: () => Promise<T>): Promise<T> {
+    const run = (this.lanes.get(mirrorId) ?? Promise.resolve()).catch(() => undefined).then(fn);
+    this.lanes.set(mirrorId, run);
+    void run.catch(() => undefined).finally(() => {
+      if (this.lanes.get(mirrorId) === run) this.lanes.delete(mirrorId);
+    });
+    return run;
+  }
+
   async closeTrade(trade: LeaderTrade) {
     trades.markClosed(trade.id);
     this.emit('tradeClosed', { ...trade, closedAt: Date.now() });
+    // A pending add would buy into a trade that's over; the exit below covers pending reductions.
+    for (const a of adjustments.forTrade(trade.id, ['pending'])) {
+      const updated = adjustments.transition(a.id, 'pending', 'cancelled', { error: 'leader closed' });
+      if (!updated) continue;
+      this.unschedule(`adj:${a.id}`);
+      this.emit('adjustment', updated);
+    }
     const toClose: Mirror[] = [];
     for (const m of mirrors.forTrade(trade.id)) {
       if (m.status === 'pending') {
@@ -331,13 +550,15 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     let sent = false;
     const attempt = (this.attempts.get(m.id) ?? 0) + 1;
     this.attempts.set(m.id, attempt);
+    const factorUsed = sizeFactor(trade);
     try {
       const adapter = this.venue(trade.venue);
       const membership = clans.membership(m.clanId, m.userId);
       if (!membership) throw new NotSized('member is no longer in the clan');
       const sizing = mirrorNotional(
         {
-          leaderMarginFraction: trade.marginFraction,
+          // If the leader added or partly exited during the skip window, size to where they are now.
+          leaderMarginFraction: trade.marginFraction * factorUsed,
           leaderLeverage: trade.leverage / 100,
           marketMaxLeverage: await adapter.maxLeverage(trade.market),
           followerFreeBalanceUsd: await adapter.freeBalanceAusd(m.userId),
@@ -369,7 +590,14 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         openTx: fill.txHash ?? null,
       })!;
       this.emit('mirror', updated);
-      if (trades.get(trade.id)!.closedAt) await this.closeMirror(updated, trade); // leader left while we filled
+      const now = trades.get(trade.id)!;
+      if (now.closedAt) {
+        await this.closeMirror(updated, trade); // leader left while we filled
+      } else if (Math.abs(sizeFactor(now) / factorUsed - 1) > 0.001) {
+        // Leader added or partly exited while this was filling: catch up. Read
+        // in the same step as the flip to open, so leaderResized can't also count it.
+        this.queueAdjustment(now, updated, sizeFactor(now) / factorUsed);
+      }
     } catch (e) {
       const msg = String(e).slice(0, 450);
       if (!sent && !(e instanceof NotSized) && attempt <= MAX_RETRIES) {
@@ -384,7 +612,14 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     }
   }
 
-  private async closeMirror(m: Mirror, trade: LeaderTrade) {
+  private closeMirror(m: Mirror, trade: LeaderTrade) {
+    return this.inLane(m.id, async () => {
+      const now = mirrors.get(m.id);
+      if (now?.status === 'open') await this.closeMirrorNow(now, trade); // an earlier adjustment may have sold it all
+    });
+  }
+
+  private async closeMirrorNow(m: Mirror, trade: LeaderTrade) {
     const adapter = this.venue(trade.venue);
     // If the member already got out on their own, there's nothing to unwind.
     const held = await adapter.holdings(m.userId, [trade.market]).catch(() => null);
@@ -415,6 +650,10 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     for (const m of mirrors.byStatus('submitting')) {
       mirrors.patch(m.id, { error: 'interrupted mid-submit; reconcile against the venue before retrying' });
     }
+    for (const a of adjustments.byStatus('pending')) this.scheduleAdjustment(a);
+    for (const a of adjustments.byStatus('submitting')) {
+      adjustments.patch(a.id, { error: 'interrupted mid-submit; reconcile against the venue before retrying' });
+    }
   }
 
   private log(where: string, e: unknown) {
@@ -428,6 +667,25 @@ const RETRY_BACKOFF_MS = Number(process.env.MIRROR_RETRY_BACKOFF_MS ?? 3000);
 
 // A mirror refused by the rules (too small, disabled, left the clan). Not transient.
 class NotSized extends Error {}
+
+// Cap a follower's add the way a new mirror is capped: the dollar cap per
+// trade, and the margin can't take more than balancePercentCap of what's free.
+export function capAdd(wantNotionalUsd: number, leverage: number, freeUsd: number, policy: { balancePercentCap: number; maxUsdPerTrade: number }, minNotionalUsd: number) {
+  const caps: string[] = [];
+  let notionalUsd = wantNotionalUsd;
+  if (!(notionalUsd > 0)) return { ok: false as const, reason: 'nothing to add', notionalUsd: 0, capsApplied: caps };
+  if (notionalUsd > policy.maxUsdPerTrade) {
+    notionalUsd = policy.maxUsdPerTrade;
+    caps.push('max_usd_per_trade');
+  }
+  const maxMargin = Math.max(0, freeUsd) * (policy.balancePercentCap / 100);
+  if (notionalUsd / leverage > maxMargin) {
+    notionalUsd = maxMargin * leverage;
+    caps.push('balance_percent_cap');
+  }
+  if (notionalUsd < minNotionalUsd) return { ok: false as const, reason: `add of $${notionalUsd.toFixed(2)} is under the $${minNotionalUsd} minimum`, notionalUsd, capsApplied: caps };
+  return { ok: true as const, notionalUsd, capsApplied: caps };
+}
 
 export class MirrorError extends Error {
   constructor(

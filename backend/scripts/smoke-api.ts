@@ -80,6 +80,7 @@ const mk = pc.markers.find((m: any) => m.id === `trade:${perplTrade.id}`);
 console.log('perpl marker tp/sl fields:', JSON.stringify({ takeProfitPrice: mk?.takeProfitPrice, stopLossPrice: mk?.stopLossPrice, suggestions: mk?.suggestions }));
 if (!mk?.suggestions?.[0] || mk.suggestions[0].takeProfitPrice !== 90000) throw new Error('suggestion missing from chart');
 await call('skip with marker-style id', 'POST', `/v1/clans/${clan.id}/mirrors/mirror:does-not-exist/skip`, auth(bob, 'bob'));
+await call('skip an unknown pending add', 'POST', `/v1/clans/${clan.id}/mirrors/adjust:does-not-exist/skip`, auth(bob, 'bob'));
 // Policy change (signed consent) and leaving.
 const newPolicy = { enabled: false, balancePercentCap: 5, maxUsdPerTrade: 20 };
 const polCh = await call('policy change challenge', 'POST', `/v1/clans/${clan.id}/policy/challenge`, auth(bob, 'bob'), { policy: newPolicy });

@@ -1,6 +1,6 @@
 import { getDb } from '../store/db.js';
 
-export type EngineOrderKind = 'mirror_open' | 'mirror_close' | 'stack_open' | 'stack_close';
+export type EngineOrderKind = 'mirror_open' | 'mirror_close' | 'mirror_add' | 'mirror_reduce' | 'stack_open' | 'stack_close';
 
 // Recorded synchronously before the order frame is sent (TradingSession onRq),
 // so the position event for it can never beat the record.
