@@ -668,7 +668,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
 | POST | `/v1/enrollment/perpl` | `{ challengeId, signature }` | `204` |
-| GET | `/v1/usernames/:name` | none | `{ available: boolean, reason? }`. 3-20 letters, digits or `_`, starting with a letter; unique ignoring case; a few names reserved |
+| GET | `/v1/usernames/:name` | none (public, no sign-in needed) | `{ available: boolean, reason? }`. 3-20 letters, digits or `_`, starting with a letter; unique ignoring case; a few names reserved |
 | POST | `/v1/me/username` | `{ username }` | `{ username, name }`. `/v1/me.needsUsername` is true until they pick one: ask **first, at sign-in**. `409` taken, `400` invalid |
 | POST | `/v1/me/avatar` | `{ image: "data:image/png;base64,…" }` | `{ avatarUrl }`. PNG, JPEG or WebP up to 512 KB. Resize in the browser first (256×256 is plenty) |
 | DELETE | `/v1/me/avatar` | none | `204` |
