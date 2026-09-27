@@ -27,7 +27,8 @@
     "e2e:privy-nadfun": "tsx scripts/e2e/privy-nadfun.ts",
     "e2e:phase4-nadfun-privy": "tsx scripts/e2e/phase4-nadfun-privy.ts",
     "spike:perpl-auth-shape": "tsx scripts/spikes/perpl-auth-shape.ts",
-    "e2e:reconcile-read": "tsx scripts/e2e/reconcile-read.ts"
+    "e2e:reconcile-read": "tsx scripts/e2e/reconcile-read.ts",
+    "preflight": "tsx scripts/preflight.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
