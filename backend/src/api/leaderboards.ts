@@ -2,7 +2,7 @@ import { statsFor, type MemberStats } from '../indexer/stats.js';
 import { clans, type Clan } from '../store/clans.js';
 import { members, type Member } from '../store/members.js';
 import { countryName } from './countries.js';
-import { shortName } from './names.js';
+import { displayName, avatarUrl } from './names.js';
 
 // Leaderboards, fantasy-league style: everyone is on Global, everyone who
 // picked a country is on that country's board, and each cult has its own.
@@ -14,6 +14,7 @@ export interface LeaderboardEntry {
   rank: number;
   memberId: string;
   name: string;
+  avatarUrl: string | null;
   address: string;
   country: string | null;
   realizedPnlUsd: number;
@@ -66,7 +67,8 @@ function row(m: Member, s: MemberStats | undefined, period: Period) {
   const f = figures(s, period);
   return {
     memberId: m.userId,
-    name: shortName(m.wallet),
+    name: displayName(m),
+    avatarUrl: avatarUrl(m),
     address: m.wallet,
     country: m.country,
     realizedPnlUsd: f.realizedPnlUsd ?? 0,

@@ -5,6 +5,7 @@ import { members, type Member } from '../store/members.js';
 import { countryName } from './countries.js';
 import { shortName } from './names.js';
 import { marketSymbol } from './symbols.js';
+import { displayName, avatarUrl } from './names.js';
 
 // Profiles and the home feed (the "Account" and "Home" screens).
 // Records are verified by the indexer and count own trades only.
@@ -66,6 +67,8 @@ function resolve(idOrWallet: string, viewerId: string): Member {
 export interface Profile {
   id: string;
   name: string;
+  username: string | null;
+  avatarUrl: string | null;
   address: string;
   country: { code: string; name: string | null } | null;
   memberSince: number;
@@ -84,7 +87,9 @@ export async function profile(idOrWallet: string, viewerId: string): Promise<Pro
     .all(m.userId) as { id: string; venue: 'perpl' | 'nadfun'; market: string; side: string; leverage: number; opened_at: number }[];
   return {
     id: m.userId,
-    name: shortName(m.wallet),
+    name: displayName(m),
+    username: m.username,
+    avatarUrl: avatarUrl(m),
     address: m.wallet,
     country: m.country ? { code: m.country, name: countryName(m.country) } : null,
     memberSince: m.createdAt,
@@ -114,6 +119,7 @@ export interface TopTrade {
   rank: number;
   memberId: string;
   name: string;
+  avatarUrl: string | null;
   venue: string;
   market: string;
   symbol: string;
@@ -151,7 +157,8 @@ export async function home(viewerId: string, limit = 10): Promise<Home> {
       return {
         rank: i + 1,
         memberId: t.member.userId,
-        name: shortName(t.member.wallet),
+        name: displayName(t.member),
+        avatarUrl: avatarUrl(t.member),
         venue: t.venue,
         market: t.market,
         symbol: await displaySymbol(t),
@@ -182,7 +189,7 @@ export async function home(viewerId: string, limit = 10): Promise<Home> {
 export interface TradeView {
   tradeId: string;
   markerId: string;
-  member: { id: string; name: string; address: string };
+  member: { id: string; name: string; avatarUrl: string | null; address: string };
   venue: 'perpl' | 'nadfun';
   market: string;
   symbol: string;
@@ -217,7 +224,7 @@ export async function tradeView(tradeId: string, viewerId: string): Promise<Trad
   return {
     tradeId: t.id,
     markerId: `trade:${t.id}`,
-    member: { id: m.userId, name: shortName(m.wallet), address: m.wallet },
+    member: { id: m.userId, name: displayName(m), avatarUrl: avatarUrl(m), address: m.wallet },
     venue: t.venue,
     market: t.market,
     symbol: await marketSymbol(t.venue, t.market),

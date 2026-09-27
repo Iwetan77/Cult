@@ -46,3 +46,49 @@ export async function balancesFor(userId: string): Promise<Balances> {
     memesPayWith: nadPaysWith(),
   };
 }
+
+// "Deposit": one address, the tokens you can send to it, and what you hold of
+// each. Nothing to sign, no contract addresses to copy: send MON, USDC or
+// AUSD on Monad to your own address. The app converts to dollars when it
+// needs to (USDC -> AUSD through Kuru on mainnet), and the trading account on
+// Perpl is filled from wallet dollars when you trade perps.
+export interface DepositToken {
+  symbol: 'MON' | 'USDC' | 'AUSD';
+  name: string;
+  what: string; // one line for the UI
+  balance: number;
+  balanceUsd: number | null;
+}
+
+export interface DepositInfo {
+  address: string;
+  network: { name: string; chainId: number };
+  tokens: DepositToken[];
+  tradingAccountUsd: number | null; // dollars already in the Perpl account
+  totalUsd: number | null; // everything above, in $
+}
+
+export async function depositInfo(userId: string): Promise<DepositInfo> {
+  const { env } = await import('../config/env.js');
+  const { USDC_MAINNET } = await import('../funding/plan.js');
+  const m = members.get(userId);
+  if (!m) throw new Error('unknown member');
+  const b = await balancesFor(userId);
+  const tokens: DepositToken[] = [
+    { symbol: 'MON', name: 'Monad', what: 'Pays network fees (keep a little). Also buys memes on testnet.', balance: b.mon, balanceUsd: b.monUsd },
+    { symbol: 'AUSD', name: 'Dollars (AUSD)', what: 'Your trading dollars, 1:1 with USD.', balance: b.walletUsd, balanceUsd: b.walletUsd },
+  ];
+  if (env.chainId === 143) {
+    const raw: bigint = await new ethers.Contract(USDC_MAINNET, erc20Abi, rpc()).getFunction('balanceOf')(m.wallet).catch(() => 0n);
+    const usdc = Number(ethers.formatUnits(raw, 6));
+    tokens.splice(1, 0, { symbol: 'USDC', name: 'USD Coin', what: 'Turned into dollars (AUSD) for you when you trade.', balance: usdc, balanceUsd: usdc });
+  }
+  const parts = [...tokens.map((t) => t.balanceUsd), b.perplMarginUsd ?? 0];
+  return {
+    address: ethers.getAddress(m.wallet),
+    network: { name: env.chainId === 143 ? 'Monad' : 'Monad testnet', chainId: env.chainId },
+    tokens,
+    tradingAccountUsd: b.perplMarginUsd,
+    totalUsd: parts.some((x) => x == null) ? null : parts.reduce((a, x) => a! + x!, 0),
+  };
+}

@@ -24,13 +24,15 @@ import { members } from '../store/members.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
 import { UpstreamError } from '../http.js';
-import { balancesFor } from './balances.js';
+import { balancesFor, depositInfo } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
 import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, postSystem, roomsFor, setPin, type ChatMessage } from './chat.js';
 import { countryName } from './countries.js';
+import { avatarUrl, displayName, usernameProblem } from './names.js';
 import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError, parsePeriod } from './leaderboards.js';
 import { home, profile, ProfileError, tradeView } from './profiles.js';
+import { listMarkets, marketDetail, MarketError } from './markets.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
@@ -60,7 +62,7 @@ function consentMessage(cultName: string, inviteCode: string, wallet: string, p:
 export function createApp(engine: MirrorEngine) {
   engine.setMaxListeners(0); // each open clan SSE stream listens; many is normal
   const app = new Hono<Vars>();
-  app.use('*', cors({ origin: env.corsOrigins, allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST'], exposeHeaders: ['Retry-After'] }));
+  app.use('*', cors({ origin: env.corsOrigins, allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'DELETE'], exposeHeaders: ['Retry-After'] }));
 
   // One line per request: method, path, status, time, and who (the member's DID tail).
   if (process.env.LOG_REQUESTS !== '0') {
@@ -82,7 +84,7 @@ export function createApp(engine: MirrorEngine) {
   };
   // Public routes: per IP (the first X-Forwarded-For hop when behind a proxy).
   app.use('/v1/*', async (c, next) => {
-    if (c.req.path !== '/v1/health' && !c.req.header('Authorization') && !c.req.path.startsWith('/v1/indexer/')) {
+    if (c.req.path !== '/v1/health' && !c.req.header('Authorization') && !c.req.path.startsWith('/v1/indexer/') && !c.req.path.startsWith('/v1/avatars/')) {
       const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || remoteAddress(c) || 'unknown';
       limited(c, `ip:${ip}`, PUBLIC_LIMIT);
     }
@@ -97,6 +99,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
     if (err instanceof LeaderboardError) return c.json({ message: err.message }, err.status);
     if (err instanceof ProfileError) return c.json({ message: err.message }, err.status);
+    if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -113,6 +116,14 @@ export function createApp(engine: MirrorEngine) {
   // ---- public ---------------------------------------------------------------
 
   app.get('/v1/health', (c) => c.json({ ok: true }));
+
+  // Profile photos, public (they show next to names in chats and leaderboards).
+  // URLs carry ?v=<last change>, so they can be cached for a long time.
+  app.get('/v1/avatars/:userId', (c) => {
+    const a = members.avatar(c.req.param('userId'));
+    if (!a) return c.json({ message: 'no photo' }, 404);
+    return c.body(new Uint8Array(a.bytes), 200, { 'Content-Type': a.mime, 'Cache-Control': 'public, max-age=31536000, immutable' });
+  });
 
   app.get('/v1/config', async (c) => {
     const ctx = await getContext();
@@ -136,6 +147,19 @@ export function createApp(engine: MirrorEngine) {
   });
 
   // Nad.fun tokens Cult can trade (MON-quoted only), for the market picker.
+  // Every market on both venues, searchable: ?q= (symbol, name, or a token
+  // address), ?venue=perpl|nadfun, ?limit=. Public, like any price list.
+  app.get('/v1/markets', async (c) => {
+    const venue = z.enum(['perpl', 'nadfun']).optional().catch(undefined).parse(c.req.query('venue'));
+    const limit = Number(c.req.query('limit') ?? 50) || 50;
+    return c.json({ markets: await listMarkets({ q: c.req.query('q') ?? undefined, venue, limit }) });
+  });
+  // One market: listing + candles (?resolution= seconds: 60, 300, 900, 3600, 14400, 86400).
+  app.get('/v1/markets/:id', async (c) => {
+    const resolution = z.coerce.number().int().catch(300).parse(c.req.query('resolution') ?? 300);
+    return c.json(await marketDetail(c.req.param('id'), [60, 300, 900, 1800, 3600, 14400, 86400].includes(resolution) ? resolution : 300));
+  });
+
   app.get('/v1/nadfun/markets', async (c) => {
     const order = z.enum(['latest_trade', 'market_cap', 'creation_time']).catch('latest_trade').parse(c.req.query('order'));
     const monPx = await monPriceAusd();
@@ -287,7 +311,10 @@ export function createApp(engine: MirrorEngine) {
     return c.json({
       id: userId,
       address: m.wallet,
-      name: shortName(m.wallet),
+      name: displayName(m),
+      username: m.username,
+      needsUsername: !m.username, // first sign-in: ask for one before anything else
+      avatarUrl: avatarUrl(m),
       country: m.country ? { code: m.country, name: countryName(m.country) } : null,
       rooms: roomsFor(userId),
       clans: clans.forUser(userId).map((cl) => clanView(cl.id, userId)),
@@ -296,6 +323,54 @@ export function createApp(engine: MirrorEngine) {
       // prepared = grant issued; attached/policyCurrent = verified with Privy.
       signer: await backendSignerStatus(userId).catch(() => ({ prepared: !!m.privyPolicyId, attached: null, policyCurrent: null })),
     });
+  });
+
+  // The Deposit screen: your address + what you can send + what you hold.
+  authed.get('/wallet/deposit', async (c) => c.json(await depositInfo(c.get('userId'))));
+
+  // Username: asked once at first sign-in (/v1/me.needsUsername), changeable later.
+  authed.get('/usernames/:name', (c) => {
+    const name = c.req.param('name');
+    const problem = usernameProblem(name);
+    if (problem) return c.json({ available: false, reason: problem });
+    const taken = members.byUsername(name);
+    return c.json(taken && taken.userId !== c.get('userId') ? { available: false, reason: 'taken' } : { available: true });
+  });
+  authed.post('/me/username', async (c) => {
+    const { username } = z.object({ username: z.string().trim() }).parse(await c.req.json());
+    const problem = usernameProblem(username);
+    if (problem) throw bad(400, problem);
+    const taken = members.byUsername(username);
+    if (taken && taken.userId !== c.get('userId')) throw bad(409, 'that username is taken');
+    try {
+      members.setUsername(c.get('userId'), username);
+    } catch {
+      throw bad(409, 'that username is taken'); // lost a race for it
+    }
+    const m = members.get(c.get('userId'))!;
+    return c.json({ username: m.username, name: displayName(m) });
+  });
+
+  // Profile photo: { image: "data:image/png;base64,..." }, resized in the
+  // browser first (256x256 is plenty). PNG, JPEG or WebP, up to 512 KB.
+  authed.post('/me/avatar', async (c) => {
+    const { image } = z.object({ image: z.string().max(800_000) }).parse(await c.req.json());
+    const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(image);
+    if (!m) throw bad(400, 'send a PNG, JPEG or WebP as a data URL');
+    const bytes = Buffer.from(m[2]!, 'base64');
+    if (bytes.length > 512 * 1024) throw bad(400, 'photo is over 512 KB; resize it first');
+    const sniff = bytes.subarray(0, 12);
+    const isPng = sniff[0] === 0x89 && sniff[1] === 0x50 && sniff[2] === 0x4e && sniff[3] === 0x47;
+    const isJpeg = sniff[0] === 0xff && sniff[1] === 0xd8 && sniff[2] === 0xff;
+    const isWebp = sniff.subarray(0, 4).toString('ascii') === 'RIFF' && sniff.subarray(8, 12).toString('ascii') === 'WEBP';
+    const mime = isPng ? 'image/png' : isJpeg ? 'image/jpeg' : isWebp ? 'image/webp' : null;
+    if (!mime || mime !== m[1]) throw bad(400, "that file isn't the image type it says it is");
+    members.setAvatar(c.get('userId'), mime, bytes);
+    return c.json({ avatarUrl: avatarUrl(members.get(c.get('userId'))) });
+  });
+  authed.delete('/me/avatar', (c) => {
+    members.clearAvatar(c.get('userId'));
+    return c.body(null, 204);
   });
 
   // Your country: puts you in its chat room and its leaderboard (like picking

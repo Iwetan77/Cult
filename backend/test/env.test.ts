@@ -25,3 +25,9 @@ test('invite codes are ABC-DEF, and typed codes are forgiven', async () => {
   assert.equal(normalizeInviteCode('ABC-DEF'), 'ABC-DEF');
   assert.equal(normalizeInviteCode('Xy_3kLmN'), 'Xy_3kLmN', 'legacy codes pass through untouched');
 });
+
+test('usernames: 3-20 letters/digits/_ starting with a letter, some reserved', async () => {
+  const { usernameProblem } = await import('../src/api/names.js');
+  for (const ok of ['iwetan', 'Iwetan_77', 'abc']) assert.equal(usernameProblem(ok), null, ok);
+  for (const bad of ['ab', '7abc', 'has space', 'a'.repeat(21), 'emoji😀', 'admin', 'Cult']) assert.ok(usernameProblem(bad), bad);
+});
