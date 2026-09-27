@@ -161,6 +161,18 @@ The testnet API lists 412 tokens (`/order/latest_trade`, `/order/market_cap`,
 `/trade/swap-history/:addr`). `router.getAmountOut(token, 0.01 MON, true)` returns
 live quotes today. Reproduce with `npx tsx scripts/spikes/nadfun.ts`.
 
+**Spike C gate: passed on testnet (2026-09-27).** A fresh wallet `0xBdd5…A98A` did
+the following on token TTT `0x5e2E…7777` (still on the bonding curve):
+
+- Buy `0xe69e2841…8375`: 0.01 MON → 148.4796 TTT.
+- Approve `0x24b123f4…7767`.
+- Sell `0xf5917761…06a8`: 148.4796 TTT → 0.009604 MON.
+
+The token balance went 0 → 148.48 → 0. Both trades appear in Nad.fun's own
+`/trade/swap-history`. **A round trip on the curve cost about 4%** (fees plus curve
+spread at this size). The mirror sizing and the UI should expect that. Reproduce with
+`npm run spike:nadfun-trade`.
+
 **Trading calls (router):**
 
 - `buyWithNative((amountOutMin, token, to, deadline))`: payable. `msg.value` is the MON
