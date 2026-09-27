@@ -12,5 +12,8 @@
   },
   "dependencies": {
     "envio": "^3.12.1"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
