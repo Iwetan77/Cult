@@ -1,0 +1,52 @@
+# Cult indexer on Monad MAINNET (chain 143). Same handlers and schema as
+# config.yaml (testnet). Addresses checked on-chain on 2026-09-27: both have
+# code, and the exchange emits the V2 events in abis/Exchange.json
+# (PositionOpenedV2, PositionIncreasedV2, PositionDecreased, PositionClosed,
+# PositionInverted, PositionLiquidated, MakerOrderFilledV2). Market ids/decimals
+# are in src/helpers.ts. Needs ENVIO_API_TOKEN: HyperSync makes the scan from
+# block 0 quick (the public RPC keeps no history to find the deploy block).
+#   ENVIO_HASURA=false ENVIO_PG_* ... npx envio start --config config.mainnet.yaml
+name: cult-indexer
+description: Verified per-address stats (win rate, realized PnL, trade history) for Perpl + Nad.fun on Monad mainnet.
+address_format: lowercase
+field_selection:
+  transaction_fields:
+    - hash
+contracts:
+  - name: Exchange
+    abi_file_path: ./abis/Exchange.json
+    handler: ./src/EventHandlers.ts
+    events:
+      - event: AccountCreated
+      - event: PositionOpened
+      - event: PositionOpenedV2
+      - event: PositionIncreased
+      - event: PositionIncreasedV2
+      - event: PositionDecreased
+      - event: PositionClosed
+      - event: PositionInverted
+      - event: PositionLiquidated
+      - event: PositionDeleveraged
+      - event: PositionDeleveragedV2
+      - event: PositionUnwound
+      - event: PositionUnwoundV2
+      - event: MakerOrderFilled
+      - event: MakerOrderFilledV2
+  - name: NadFunRouter
+    abi_file_path: ./abis/NadFunRouter.json
+    handler: ./src/NadFunHandlers.ts
+    events:
+      - event: Buy
+      - event: Sell
+chains:
+  - id: 143 # Monad mainnet
+    start_block: 0
+    rpc:
+      - url: https://rpc.monad.xyz
+        for: fallback
+    contracts:
+      - name: Exchange
+        address: "0x34B6552d57a35a1D042CcAe1951BD1C370112a6F" # Perpl exchange (app.perpl.xyz context, instance 1)
+      - name: NadFunRouter
+        address: "0x8986C8fD44eb85294A725a7e61AF35E76bA26F91" # Nad.fun v2 router
+        start_block: 73857231
