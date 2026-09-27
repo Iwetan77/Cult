@@ -35,9 +35,10 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    const monoFont = getComputedStyle(document.body).getPropertyValue('--font-mono').trim() || 'monospace';
     const chart = createChart(host, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#1e2029' }, textColor: '#838b9a', fontFamily: 'Arial, sans-serif', fontSize: 11 },
+      layout: { background: { type: ColorType.Solid, color: '#1e2029' }, textColor: '#838b9a', fontFamily: monoFont, fontSize: 11 },
       grid: { vertLines: { color: '#292d37' }, horzLines: { color: '#292d37' } },
       crosshair: { vertLine: { color: '#657080' }, horzLine: { color: '#657080' } },
       rightPriceScale: { borderColor: '#303541', scaleMargins: { top: 0.12, bottom: 0.12 } },
@@ -90,7 +91,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.scale(dpr, dpr);
-      ctx.font = '12px Arial, sans-serif';
+      ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue('--font-mono').trim() || 'monospace'}`;
       ctx.textBaseline = 'middle';
       const hits: Hit[] = [];
       const guides: GuideHit[] = [];
@@ -153,7 +154,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
           ctx.beginPath(); ctx.moveTo(iconX, markerY - 6); ctx.lineTo(iconX + 6, markerY + 5); ctx.lineTo(iconX - 6, markerY + 5); ctx.closePath(); ctx.fill();
         }
         ctx.fillStyle = '#ecf1f2'; ctx.fillText(badge, x + 29, markerY + 1, badgeWidth - (marker.pendingAdd ? 68 : 35));
-        if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = '10px Arial, sans-serif'; ctx.fillText('ADD', x + badgeWidth - 34, markerY + 1); ctx.font = '12px Arial, sans-serif'; }
+        if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = `10px ${getComputedStyle(document.body).getPropertyValue('--font-mono').trim() || 'monospace'}`; ctx.fillText('ADD', x + badgeWidth - 34, markerY + 1); ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue('--font-mono').trim() || 'monospace'}`; }
         hits.push({ id: marker.id, x, y: markerY - 15, width: badgeWidth, height: 30 });
       });
       setHitRegions(hits);
