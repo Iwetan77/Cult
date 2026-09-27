@@ -14,11 +14,17 @@ export type Member = {
   id: string; name: string; address: string; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
 };
+export type TpslSuggestion = {
+  id: string; markerId: string; tradeId: string; fromMemberId: string; fromName: string;
+  takeProfitPrice: number | null; stopLossPrice: number | null; createdAt: string;
+};
+export type TpslValues = { takeProfit?: number | null; stopLoss?: number | null };
 export type ChartMarker = {
   id: string; tradeId: string; memberId: string; memberName: string; marketId: string;
   venue: Venue; origin: MarkerOrigin; side: TradeSide; entryTime: number;
   entryPrice: number | null; markPrice: number; size: number | null;
   pnlUsd: number | null; valueUsd: number | null; leverage: number | null;
+  takeProfitPrice?: number | null; stopLossPrice?: number | null; suggestions?: TpslSuggestion[];
   isMine: boolean; mirrorStatus?: 'pending' | 'submitted' | 'filled';
   skipUntil?: string; txHash?: string | null;
 };

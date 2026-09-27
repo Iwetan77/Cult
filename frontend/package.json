@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@privy-io/react-auth": "^3.45.0",
     "lightweight-charts": "^5.0.0",
     "lucide-react": "latest",
@@ -18,12 +19,12 @@
     "viem": "^2.0.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
     "@types/node": "latest",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "^15.5.0",
-    "typescript": "^5.9.0",
-    "@eslint/eslintrc": "^3.3.1"
+    "typescript": "^5.9.0"
   }
 }
