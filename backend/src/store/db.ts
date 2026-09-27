@@ -202,6 +202,19 @@ function migrate(d: DatabaseSync) {
       created_at   INTEGER NOT NULL
     );
 
+    -- Clan group chat. Leaders say what they're about to do here, since
+    -- their trades (and adds and partial sells) are mirrored.
+    CREATE TABLE IF NOT EXISTS clan_messages (
+      id          TEXT PRIMARY KEY,
+      clan_id     TEXT NOT NULL REFERENCES clans(id),
+      user_id     TEXT NOT NULL REFERENCES members(user_id),
+      body        TEXT NOT NULL,
+      reply_to    TEXT,
+      marker_id   TEXT,               -- optional chart marker the message is about
+      created_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS clan_messages_clan ON clan_messages(clan_id, created_at);
+
     -- How far the Nad.fun router log watcher has read.
     CREATE TABLE IF NOT EXISTS cursors (
       name  TEXT PRIMARY KEY,
