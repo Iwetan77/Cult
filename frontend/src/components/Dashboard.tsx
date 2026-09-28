@@ -26,6 +26,7 @@ import { Avatar } from './Avatar';
 const venueName = (venue: Venue) => venue === 'perpl' ? 'Perpl' : 'Nad.fun';
 const originName = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? 'Auto mirrored' : origin === 'manual_stack' ? 'Manual stack' : 'Cult position';
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong.';
+const collateralMessage = (minimumRaw: string) => `Add MON, USDC or AUSD to your wallet to open your perps account (about ${dollars(Number(minimumRaw) / 1e6)}).`;
 const validatePolicy = (value: MirrorPolicy) => {
   if (!Number.isFinite(value.balancePercentCap) || value.balancePercentCap <= 0 || value.balancePercentCap > 100 || !Number.isFinite(value.maxUsdPerTrade) || value.maxUsdPerTrade < 1 || value.maxUsdPerTrade > 1_000_000) throw new Error('Enter mirror limits within the allowed range.');
 };
@@ -100,6 +101,7 @@ export function Dashboard() {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [panel, setPanel] = useState<'positions' | 'members' | 'chat' | 'clan'>('positions');
   const [busy, setBusy] = useState<string | null>(null);
+  const [progressText, setProgressText] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -272,8 +274,8 @@ export function Dashboard() {
     if (code) { setInviteCode(formatInviteCode(code)); setFormOpen('join'); }
   }, []);
   const perform = async (label: string, action: () => Promise<void>) => {
-    setBusy(label); setError(null); setNotice(null);
-    try { await action(); } catch (err) { setError(errorText(err)); } finally { setBusy(null); }
+    setBusy(label); setProgressText(null); setError(null); setNotice(null);
+    try { await action(); } catch (err) { setError(errorText(err)); } finally { setBusy(null); setProgressText(null); }
   };
   const sign = async (message: string) => {
     if (!wallet) throw new Error('Connect your wallet first.');
@@ -402,8 +404,9 @@ export function Dashboard() {
       const current = await getPerplSetup(auth);
       setSetup(current);
       if (current.step === 'ready') { setPerpsPrompt(false); setNotice('Perps are enabled.'); return; }
-      if (current.step === 'needs_collateral') throw new Error('Fund your wallet, then continue Perpl setup. Keep MON for gas.');
+      if (current.step === 'needs_collateral') throw new Error(collateralMessage(current.minAccountOpen));
       if (current.step === 'needs_key') {
+        setProgressText('Authorize your perps trading key');
         await wallet.switchChain(config.chainId);
         const challenge = await getEnrollmentChallenge(auth);
         if (Date.parse(challenge.expiresAt) <= Date.now()) throw new Error('Enrollment challenge expired. Try again.');
@@ -413,7 +416,10 @@ export function Dashboard() {
         await enrollPerpl(auth, challenge.challengeId, signature);
       } else {
         if (!current.actions.length) throw new Error('No wallet action is available for this setup step yet.');
-        for (const action of current.actions) await transact(action);
+        for (const action of current.actions) {
+          setProgressText(action.label);
+          await transact(action);
+        }
       }
       const next = await getPerplSetup(auth);
       setSetup(next);
@@ -660,8 +666,8 @@ export function Dashboard() {
     {formOpen && <div className="modal-backdrop"><section className="simple-dialog" role="dialog" aria-modal="true" aria-label={formOpen === 'create' ? 'Create a cult' : 'Join a cult'}><button className="icon-button dialog-close" title="Close" onClick={() => setFormOpen(null)}><X size={16} /></button><span className="eyebrow">{formOpen === 'create' ? 'NEW CULT' : 'INVITATION'}</span><h2>{formOpen === 'create' ? 'Create a cult' : 'Join a cult'}</h2>{formOpen === 'create' ? <><label className="field-label" htmlFor="cult-name">NAME</label><input id="cult-name" value={name} onChange={event => setName(event.target.value)} maxLength={36} placeholder="Name your cult" /><label className="switch-row"><span>Public</span><input type="checkbox" checked={createVisibility === 'public'} onChange={event => setCreateVisibility(event.target.checked ? 'public' : 'private')} /></label><p className="field-note">Auto-follow starts off. Members choose whether to turn it on later.</p><button className="primary full" disabled={!!busy || !name.trim()} onClick={create}>Create cult <ArrowRight size={15} /></button></> : <><label className="field-label" htmlFor="invite-code">INVITE CODE</label><input id="invite-code" value={inviteCode} onChange={event => setInviteCode(formatInviteCode(event.target.value))} autoCapitalize="characters" maxLength={7} placeholder="ABC-DEF" /><p className="field-note">Joining is instant. Auto-follow stays off.</p><button className="primary full" disabled={!!busy || !/^[A-Z]{3}-[A-Z]{3}$/.test(inviteCode)} onClick={join}>Join cult <ArrowRight size={15} /></button></>}</section></div>}
     {depositOpen && <DepositSheet onClose={() => setDepositOpen(false)} signerReady={signerReady} permissionBusy={!!busy} onGrantPermission={() => { void perform('grant-signer', async () => { if (await grantSigner()) setNotice('Trading permission is active.'); }); }} />}
     {permissionOpen && <TradingPermissionDialog onDecision={decidePermission} />}
-    {perpsPrompt && <div className="modal-backdrop"><section className="simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-button dialog-close" title="Close" onClick={() => setPerpsPrompt(false)}><X size={16} /></button><span className="eyebrow">ONE-TIME SETUP</span><h2>Enable perps</h2><p className="field-note">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p><button className="primary full" disabled={!!busy} onClick={enroll}>Enable perps – one time</button>{setup?.step === 'needs_collateral' && <button className="outline full" onClick={() => { setPerpsPrompt(false); setDepositOpen(true); }}>Deposit first</button>}</section></div>}
+    {perpsPrompt && <div className="modal-backdrop"><section className="simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-button dialog-close" title="Close" disabled={busy === 'enroll-perpl'} onClick={() => setPerpsPrompt(false)}><X size={16} /></button><span className="eyebrow">ONE-TIME SETUP</span><h2>Enable perps</h2><p className="field-note">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p>{progressText && busy === 'enroll-perpl' && <p className="field-note" role="status">{progressText}</p>}<button className="primary full" disabled={!!busy} onClick={enroll}>Enable perps – one time</button>{setup?.step === 'needs_collateral' && <><p className="field-note">{collateralMessage(setup.minAccountOpen)}</p><button className="outline full" onClick={() => { setPerpsPrompt(false); setDepositOpen(true); }}>Deposit first</button></>}</section></div>}
     {tradeSheetTarget && <TradeSheet target={tradeSheetTarget} onClose={() => setTradeSheetTarget(null)} onProfile={openAccount} onChart={openTradeChart} />}
-    {busy && <div className="busy-bar"><span>{busy === 'stack' ? 'Authorizing your trade' : busy === 'join' ? 'Signing cult authorization' : 'Working'}…</span></div>}
+    {busy && !permissionOpen && <div className="busy-bar" role="status"><span>{progressText ?? (busy === 'stack' ? 'Authorizing your trade…' : 'Working…')}</span></div>}
   </div>;
 }
