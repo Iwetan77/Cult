@@ -115,7 +115,8 @@ if (simple.autoFollow !== false || simple.myPolicy.enabled !== false) throw new 
 const frank = ethers.Wallet.createRandom();
 const fj = await call('join by code, no signature', 'POST', '/v1/cults/join', auth(frank, 'frank'), { inviteCode: simple.inviteCode });
 if (fj.autoFollow !== false) throw new Error('joining should not turn copying on');
-await call('signer before any Auto-follow', 'GET', '/v1/privy/signer', auth(frank, 'frank'));
+const grant = await call('trading signer without Auto-follow (default cap)', 'GET', '/v1/privy/signer', auth(frank, 'frank'));
+if (!(grant.capAusd >= 1000)) throw new Error('everyone should get the trading signer at the default cap');
 const feed = await call('the cult chat shows who joined', 'GET', `/v1/cults/${simple.id}/messages`, auth(frank, 'frank'));
 if (!feed.messages.some((m: any) => m.kind === 'system' && m.body === 'joined the cult')) throw new Error('join notice missing');
 await call('Auto-follow can not be switched on without signing', 'POST', `/v1/cults/${simple.id}/auto-follow`, auth(frank, 'frank'), { enabled: true });

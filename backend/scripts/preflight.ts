@@ -71,9 +71,21 @@ await check('MON price available (values memes in $)', async () => {
   const px = await monPriceAusd();
   return px > 0 ? ['OK', `$${px}`] : ['FAIL', 'no MON mark on Perpl'];
 });
-await check('Perpl origin header', async () =>
-  mainnet && !env.perplOrigin ? ['WARN', 'PERPL_ORIGIN unset; mainnet may require a whitelisted origin'] : 'OK',
-);
+// Members register their Perpl trading key through us; ask Perpl for a key
+// payload for a throwaway address, sent exactly as enrollment sends it. (With
+// an origin Perpl hasn't whitelisted it answers 400, so leave PERPL_ORIGIN unset
+// unless Perpl has whitelisted ours.)
+await check('Perpl accepts key enrollment from this server', async () => {
+  const { newEd25519Key } = await import('../src/perpl/auth.js');
+  const { SCOPE_TRADE } = await import('../src/perpl/enroll.js');
+  const { ethers } = await import('ethers');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (env.perplOrigin) headers.Origin = env.perplOrigin;
+  const body = { chain_id: env.chainId, address: ethers.Wallet.createRandom().address, public_key: await newEd25519Key().publicKeyHexPromise, scope_mask: SCOPE_TRADE, label: 'cult' };
+  const r = await fetch(`${env.perplApiUrl}/v1/api-key/payload`, { method: 'POST', headers, body: JSON.stringify(body) });
+  if (r.ok) return ['OK', env.perplOrigin ? `with Origin ${env.perplOrigin}` : 'no Origin needed'];
+  return ['FAIL', `payload -> ${r.status}${env.perplOrigin ? '; PERPL_ORIGIN is set but not whitelisted, unset it' : ''}`];
+});
 
 // ---- Nad.fun / Kuru -------------------------------------------------------------
 await check('Nad.fun router deployed on this chain', async () =>

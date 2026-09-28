@@ -67,11 +67,18 @@ export function checkQuoteTx(tx: { to: string; data: string; value: bigint }, wa
 
 export async function quoteSwap(user: string, tokenIn: string, tokenOut: string, amountIn: bigint, slippageBps = 50): Promise<SwapQuote> {
   if (amountIn <= 0n) throw new Error('swap amount must be > 0');
-  const r = await fetch(`${KURU_FLOW_API}/api/quote`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', Authorization: `Bearer ${await jwt(user)}` },
-    body: JSON.stringify({ userAddress: user, tokenIn, tokenOut, amount: amountIn.toString(), slippageTolerance: slippageBps }),
-  });
+  // Quotes are limited to 1 per second per address (429); a USDC conversion
+  // and a trade's top-up for the same member can land together, so wait it out.
+  let r!: Response;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt) await new Promise((ok) => setTimeout(ok, 1_100 * attempt));
+    r = await fetch(`${KURU_FLOW_API}/api/quote`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${await jwt(user)}` },
+      body: JSON.stringify({ userAddress: user, tokenIn, tokenOut, amount: amountIn.toString(), slippageTolerance: slippageBps }),
+    });
+    if (r.status !== 429) break;
+  }
   const j = (await r.json().catch(() => ({}))) as {
     status?: string;
     message?: string;
