@@ -7,7 +7,7 @@
   "scripts": {
     "codegen": "envio codegen",
     "dev": "envio dev",
-    "start": "node scripts/wait-for-db.mjs && envio start",
+    "start": "node scripts/prepare-db.mjs && envio start",
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
