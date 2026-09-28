@@ -26,6 +26,7 @@ async function call(label: string, method: string, path: string, headers: Record
 }
 
 await call('health', 'GET', '/v1/health');
+await call('indexer status (public)', 'GET', '/v1/status');
 const cfg = await call('config', 'GET', '/v1/config');
 await call('me (no auth)', 'GET', '/v1/me');
 await call('me', 'GET', '/v1/me', auth(alice, 'alice'));
