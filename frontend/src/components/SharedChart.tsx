@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { CandlestickSeries, ColorType, createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
+import { CandlestickSeries, ColorType, createChart, type AutoscaleInfo, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
 import type { Candle, ChartMarker, Market } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
 
@@ -28,6 +28,9 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const drawRef = useRef<() => void>(() => {});
   const dragRef = useRef<Drag | null>(null);
+  // Prices the chart must keep in view besides the candles: every visible
+  // position's entry, and the selected one's TP/SL.
+  const levelsRef = useRef<number[]>([]);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hitRegions, setHitRegions] = useState<Hit[]>([]);
   const [guideHits, setGuideHits] = useState<GuideHit[]>([]);
@@ -49,6 +52,12 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
     const series = chart.addSeries(CandlestickSeries, {
       upColor: '#57cfa8', downColor: '#e4777d', borderVisible: false,
       wickUpColor: '#57cfa8', wickDownColor: '#e4777d', priceLineVisible: false,
+      autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => {
+        const base = original();
+        const levels = levelsRef.current;
+        if (!base || !base.priceRange || !levels.length) return base;
+        return { ...base, priceRange: { minValue: Math.min(base.priceRange.minValue, ...levels), maxValue: Math.max(base.priceRange.maxValue, ...levels) } };
+      },
     });
     chartRef.current = chart;
     seriesRef.current = series;
@@ -75,6 +84,13 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
     }
     drawRef.current();
   }, [candles, market.id]);
+
+  useEffect(() => {
+    const onChart = markers.filter(marker => marker.marketId === market.id && marker.venue === market.venue);
+    levelsRef.current = onChart.flatMap(marker => [marker.entryPrice, ...(marker.id === selectedId ? [marker.takeProfitPrice, marker.stopLossPrice] : [])])
+      .filter((price): price is number => typeof price === 'number' && price > 0);
+    chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+  }, [markers, market.id, market.venue, selectedId]);
 
   useEffect(() => {
     drawRef.current = () => {
@@ -131,7 +147,10 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
           const previousY = series.priceToCoordinate(previous.entryPrice ?? previous.markPrice);
           return previousY != null && Math.abs(previousY - y) < 28;
         }).length;
-        const markerY = Math.max(20, Math.min(height - 28, y + offset * 25));
+        // Badges for nearby entries stack below each other, or above when
+        // there's no room below, so they never sit on top of one another.
+        const below = y + offset * 26;
+        const markerY = below > height - 28 ? Math.max(20, y - offset * 26) : Math.max(20, below);
         const color = markerColor(marker.origin);
         ctx.strokeStyle = color;
         ctx.lineWidth = selected ? 2 : 1;
