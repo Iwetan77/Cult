@@ -110,3 +110,84 @@
 .home-card-head{display:flex;align-items:center;justify-content:space-between}.text-link{border:0;background:none;color:var(--green);font-size:11px;font-weight:700;padding:0}
 .trending-row.clickable{width:100%;border:0;border-bottom:1px solid var(--line);background:none;color:var(--text);text-align:left;cursor:pointer}.trending-row.clickable:hover{background:#2a2f39}.trending-price{font-family:var(--font-mono),monospace;font-size:10px}
 @media(max-width:850px){.markets-screen,.market-page{grid-column:2}.market-page-grid{grid-template-columns:1fr}}@media(max-width:650px){.markets-screen,.market-page{padding:24px 16px}.market-chart{height:280px}}
+
+.token-logo{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;overflow:hidden;background:#303844;color:var(--green);font-weight:700;font-size:13px}
+.token-logo img{width:100%;height:100%;object-fit:cover}
+.token-logo.market-icon{width:36px;height:36px}
+.token-logo.deposit-token-icon{width:32px;height:32px}
+.holding-identity{display:flex!important;flex-direction:row!important;align-items:center;gap:9px!important;min-width:0}
+.holding-identity>span:last-child{display:flex;flex-direction:column;gap:3px;min-width:0}
+.trending-row .token-logo{width:28px;height:28px}
+.trending-row small:last-child{margin-left:auto;font-family:var(--font-mono),monospace;font-variant-numeric:tabular-nums}
+
+.account-chip{position:relative;display:flex;align-items:center;gap:3px;border-top:1px solid var(--line)}
+.account-chip-main{display:flex;align-items:center;gap:10px;min-width:0;flex:1;padding:10px 0;border:0;background:none;color:var(--text);text-align:left;cursor:pointer}
+.account-chip-main>.room-avatar{width:38px;height:38px;border-radius:50%;overflow:hidden}
+.account-chip-main>svg{flex:none;color:var(--muted)}
+.account-chip-label{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.account-chip-label strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.account-chip-label small{font-family:var(--font-mono),monospace;font-size:10px;color:var(--muted)}
+.account-copy{flex:none;width:44px;height:44px}
+.profile-avatar-wrap .room-avatar,.profile-avatar-button .room-avatar{width:68px;height:68px;border-radius:50%;font-size:22px;overflow:hidden}
+.profile-avatar-wrap .room-avatar img{width:100%;height:100%;object-fit:cover}
+.profile-avatar-button{position:relative;border:0;background:none;padding:0;cursor:pointer}
+.profile-avatar-button:disabled{opacity:.65;cursor:wait}
+.profile-camera{position:absolute;right:0;bottom:0;width:23px;height:23px;padding:4px;border-radius:50%;background:var(--green);color:#151820}
+.profile-photo-actions{display:flex;align-items:center;gap:12px;margin:0 0 18px}
+
+.mobile-tabs,.mobile-room-tools,.group-panel-backdrop,.group-panel-close{display:none}
+.group-panel-shell{display:contents}
+.mobile-groups{grid-column:2 / 4;grid-row:2;padding:30px 38px;background:var(--surface);min-width:0}
+.mobile-groups-head{margin-bottom:22px}
+.mobile-groups-head h1{font-size:24px;margin:7px 0 17px}
+.mobile-groups-head>div{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:650px){
+  html,body,.app-shell{max-width:100%;overflow-x:clip}
+  .app-shell{min-height:100dvh}
+  .workspace{display:block;min-height:100dvh;padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+  .side-rail{display:none}
+  .content-topbar{height:60px;padding:0 13px}
+  .content-topbar .balance-pill{display:none}
+  .content-topbar .top-search{max-width:none}
+  .content-topbar .primary{min-height:44px;padding:8px 12px}
+  .mobile-tabs{position:fixed;z-index:18;left:0;right:0;bottom:0;height:calc(66px + env(safe-area-inset-bottom));padding:3px 6px env(safe-area-inset-bottom);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#1a1d24;border-top:1px solid var(--line)}
+  .mobile-tabs button{min-width:0;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:0;background:none;color:var(--muted);font-size:10px;font-weight:700}
+  .mobile-tabs button.active{color:var(--green)}
+  .mobile-groups{min-height:calc(100dvh - 130px);padding:24px 16px}
+  .mobile-groups-head .outline{min-height:44px}
+  .home-room{min-height:68px}
+  .room-screen{height:calc(100dvh - 126px - env(safe-area-inset-bottom));min-height:0!important;padding:0!important;display:flex;flex-direction:column;overflow:hidden}
+  .mobile-room-tools{flex:none;display:flex;align-items:center;gap:10px;min-height:52px;padding:4px 12px;border-bottom:1px solid var(--line)}
+  .mobile-room-tools>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:700}
+  .mobile-room-tools .icon-button,.mobile-room-tools .outline{min-width:44px;min-height:44px}
+  .room-screen .chat-panel{flex:1;min-height:0;max-height:100%;padding:10px 14px 12px}
+  .room-screen .chat-room-heading{flex:none}
+  .room-screen .chat-log{height:auto;min-height:0;max-height:none;flex:1;overflow-y:auto}
+  .room-screen .chat-compose{flex:none;margin-top:8px}
+  .room-screen .chat-submit .primary{min-height:44px}
+  .group-panel-shell{display:block;position:fixed;inset:0;z-index:25;pointer-events:none}
+  .group-panel-shell.open{pointer-events:auto}
+  .group-panel-backdrop{display:block;position:absolute;inset:0;width:100%;height:100%;border:0;background:#07090dbb;opacity:0;transition:opacity .2s}
+  .group-panel-shell.open .group-panel-backdrop{opacity:1}
+  .group-panel-shell .group-side{position:absolute;left:0;right:0;top:20dvh;bottom:0;max-height:none;overflow-y:auto;border:1px solid var(--line);border-bottom:0;border-radius:16px 16px 0 0;transform:translateY(105%);transition:transform .22s;background:#1d2028}
+  .group-panel-shell.open .group-side{transform:translateY(0)}
+  .group-panel-close{position:absolute;z-index:2;right:12px;top:calc(20dvh + 8px);display:flex;align-items:center;gap:5px;min-height:44px;border:0;background:transparent;color:var(--text)}
+  .group-side-head{padding-right:92px}
+  .group-side-tabs button{min-height:44px}
+  .group-side-body button,.group-settings button{min-height:44px}
+  .market-page-grid{display:flex;flex-direction:column}
+  .market-page-head{flex-wrap:wrap}
+  .market-page-price{margin-left:auto}
+  .market-chart{height:280px}
+  .trade-ticket{min-width:0}
+  .markets-tabs button,.market-row,.market-page .back-link{min-height:44px}
+  .deposit-backdrop{padding:0}
+  .deposit-sheet{width:100vw;height:100dvh;border-left:0;padding:20px 18px calc(26px + env(safe-area-inset-bottom))}
+  .ranking-table,.ranking-me{min-width:0}
+  .ranking-header,.ranking-row{grid-template-columns:minmax(0,1fr) 82px 48px;gap:5px}
+  .ranking-header>span:last-child,.ranking-row>span:last-child{display:none}
+  .ranking-row{padding:10px 2px}
+  .ranking-row>div{min-width:0}
+  .ranking-row b{font-size:10px}
+  .profile-trade,.market-row{min-width:0}
+}

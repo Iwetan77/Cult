@@ -6,6 +6,7 @@ import { getMarket, getMarkets } from '@/lib/api';
 import type { Market, MarketDetail, MarketListing } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
 import { SharedChart } from './SharedChart';
+import { TokenLogo } from './TokenLogo';
 
 type Tab = 'all' | 'perpl' | 'nadfun';
 type Side = 'long' | 'short' | 'buy';
@@ -32,13 +33,6 @@ function Change({ pct }: { pct: number | null }) {
   return <small className={`market-change ${up ? 'positive' : 'negative'}`}>{up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}{up ? '+' : ''}{pct.toFixed(2)}%</small>;
 }
 
-function MarketIcon({ market }: { market: MarketListing }) {
-  // Token art comes from Nad.fun's CDN at any size; a plain img keeps it simple.
-  // eslint-disable-next-line @next/next/no-img-element
-  if (market.imageUri) return <img className="market-icon" src={market.imageUri} alt="" />;
-  return <span className="market-icon letter">{market.symbol.replace('$', '').slice(0, 1)}</span>;
-}
-
 export function MarketsView({ search, openId, onOpen, busy, onTrade }: Props) {
   const [tab, setTab] = useState<Tab>('all');
   const [list, setList] = useState<MarketListing[] | null>(null);
@@ -63,7 +57,7 @@ export function MarketsView({ search, openId, onOpen, busy, onTrade }: Props) {
     </div>
     {error ? <p className="wallet-warning">{error}</p> : !list ? <p className="field-note">Loading markets...</p> : list.length === 0 ? <p className="field-note">No markets match &ldquo;{search}&rdquo;.</p> :
       <div className="market-list">{list.map((m) => <button key={`${m.venue}:${m.id}`} className="market-row" onClick={() => onOpen(m.id)}>
-        <MarketIcon market={m} />
+        <TokenLogo symbol={m.symbol} imageUri={m.imageUri} className="market-icon" />
         <span className="market-name"><strong>{m.symbol}</strong><small>{m.venue === 'perpl' ? `Perp · up to ${m.maxLeverage}x` : m.name}</small></span>
         <span className="market-price"><strong>{price(m.priceUsd)}</strong><Change pct={m.change24hPct} /></span>
       </button>)}</div>}
@@ -97,7 +91,7 @@ function MarketPage({ id, onBack, busy, onTrade }: { id: string; onBack: () => v
     <button className="back-link" onClick={onBack}><ArrowLeft size={15} /> All markets</button>
     {error ? <p className="wallet-warning">{error}</p> : !m || !chartMarket ? <p className="field-note">Loading market...</p> : <div className="market-page-grid">
       <section className="market-page-main">
-        <div className="market-page-head"><MarketIcon market={m} /><div><h1>{m.symbol}</h1><small>{isPerp ? `Perpetual · up to ${m.maxLeverage}x` : m.name}</small></div>
+        <div className="market-page-head"><TokenLogo symbol={m.symbol} imageUri={m.imageUri} className="market-icon" /><div><h1>{m.symbol}</h1><small>{isPerp ? `Perpetual · up to ${m.maxLeverage}x` : m.name}</small></div>
           <div className="market-page-price"><strong>{price(m.priceUsd)}</strong><Change pct={m.change24hPct} /></div></div>
         <div className="markets-tabs small">{RESOLUTIONS.map((r) => <button key={r.seconds} className={resolution === r.seconds ? 'active' : ''} onClick={() => setResolution(r.seconds)}>{r.label}</button>)}</div>
         <div className="market-chart"><SharedChart candles={detail!.candles} markers={[]} market={chartMarket} selectedId={null} onSelect={() => {}} onGuideDrop={() => {}} guidesDisabled /></div>
