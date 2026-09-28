@@ -15,6 +15,9 @@ import { broadcastSigned, rpc, type Eip712TypedData, type SendOptions, type TxRe
 //   - Nad.fun buyWithNative: router only, MON value <= maxBuyWei, tokens to the member
 //   - Nad.fun sellToNative: router only, MON proceeds to the member
 //   - approve a token to the Nad.fun router (needed before a sell)
+//   - Kuru Flow swaps AUSD <-> MON (memes paid in $, perps funded from MON) and
+//     USDC -> AUSD (deposited USDC is converted), capped, no fees, via executeSwap
+//     only, which always pays the member
 // Backend may NOT:
 //   - withdrawCollateral (explicit DENY on top of default deny)
 //   - transfer AUSD / tokens / MON anywhere
@@ -129,9 +132,14 @@ export interface PolicyScope {
   maxDepositRaw: bigint; // per-tx ceiling on AUSD approve / deposit into Perpl
   nadRouter: string;
   maxBuyWei: bigint; // per-tx ceiling on MON spent on one Nad.fun buy
-  kuruRouter: string; // Kuru Flow entrypoint (AUSD <-> MON for memes)
-  maxSellWei: bigint; // per-tx ceiling on MON swapped back to AUSD after a meme sale
+  kuruRouter: string; // Kuru Flow entrypoint (AUSD <-> MON, USDC -> AUSD)
+  maxSellWei: bigint; // per-tx ceiling on MON swapped to AUSD (meme proceeds, perp margin)
+  usdc?: string | null; // USDC on this chain, if any: USDC -> AUSD conversion
 }
+
+// Names the rule set below. A member whose policy was built with other rules
+// gets a fresh one (and re-approves), the same as after a cap change.
+export const POLICY_RULES = '2026-09-28 usdc';
 
 type Cond = Record<string, unknown>;
 const tx = (field: 'to' | 'value' | 'chain_id', operator: 'eq' | 'lte', value: string): Cond => ({
@@ -154,6 +162,7 @@ export function buildBackendPolicy(s: PolicyScope, name = 'cult-backend') {
   const ausd = s.perplCollateral.toLowerCase();
   const router = s.nadRouter.toLowerCase();
   const kuru = s.kuruRouter.toLowerCase();
+  const usdc = s.usdc?.toLowerCase();
   const native = ethers.ZeroAddress;
   const noFees = [call('executeSwap.feeCollection.feeBps', 'eq', '0', kuruAbi), call('executeSwap.feeCollection.referrerFeeBps', 'eq', '0', kuruAbi)];
   const chain = tx('chain_id', 'eq', String(s.chainId));
@@ -234,6 +243,30 @@ export function buildBackendPolicy(s: PolicyScope, name = 'cult-backend') {
         ...noFees,
       ],
     },
+    ...(usdc
+      ? [
+          {
+            name: `${m}: approve USDC to Kuru, capped`,
+            method,
+            action: 'ALLOW' as const,
+            conditions: [tx('to', 'eq', usdc), chain, noValue, call('approve.spender', 'eq', kuru, approveAbi), call('approve.amount', 'lte', s.maxDepositRaw.toString(), approveAbi)],
+          },
+          {
+            name: `${m}: Kuru USDC->AUSD, capped, no fees`,
+            method,
+            action: 'ALLOW' as const,
+            conditions: [
+              tx('to', 'eq', kuru),
+              chain,
+              noValue,
+              call('executeSwap.swapIntent.tokenUserSells', 'eq', usdc, kuruAbi),
+              call('executeSwap.swapIntent.tokenUserBuys', 'eq', ausd, kuruAbi),
+              call('executeSwap.swapIntent.amountUserSells', 'lte', s.maxDepositRaw.toString(), kuruAbi),
+              ...noFees,
+            ],
+          },
+        ]
+      : []),
     ];
   });
 
@@ -244,6 +277,19 @@ let client: PrivyClient | undefined;
 export function privy(): PrivyClient {
   client ??= new PrivyClient({ appId: required('PRIVY_APP_ID'), appSecret: required('PRIVY_APP_SECRET') });
   return client;
+}
+
+const walletLanes = new Map<string, Promise<unknown>>();
+async function inWalletLane<T>(address: string, fn: () => Promise<T>): Promise<T> {
+  const key = address.toLowerCase();
+  const prev = walletLanes.get(key) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(fn);
+  const tail = run.catch(() => undefined);
+  walletLanes.set(key, tail);
+  void tail.then(() => {
+    if (walletLanes.get(key) === tail) walletLanes.delete(key);
+  });
+  return run;
 }
 
 // WalletSigner backed by a member's Privy wallet, acting as the backend's
@@ -285,8 +331,10 @@ export class PrivyPolicySigner implements WalletSigner {
     return res.signed_transaction;
   }
 
+  // One transaction at a time per wallet: the nonce comes from the pending
+  // count, so a copy, a top-up and a USDC conversion sent at once would collide.
   async sendTransaction(t: TxRequest, opts: SendOptions = {}): Promise<string> {
-    return broadcastSigned(await this.signTransactionOnly(t), opts);
+    return inWalletLane(this.address, async () => broadcastSigned(await this.signTransactionOnly(t), opts));
   }
 
   // By design: the backend never signs typed data for a member. Perpl key
@@ -313,21 +361,35 @@ export async function memberSignerGrant(userId: string, wallet: string, maxUsdPe
   // Meme sale proceeds can outgrow the buy; swapping them back pays the member, so this is generous.
   const maxSellWei = maxBuyWei * 10n;
 
+  const { usdcAddress } = await import('../chain/tokens.js');
+
   const existing = members.privyPolicy(userId);
   let policyId = existing?.id;
   // Any cap change gets a new policy, down as well as up: a member who lowers
   // their cap must not leave the backend authorised for the old, bigger one.
-  if (!existing || existing.capRaw !== capRaw) {
+  // So does a change to the rules themselves (POLICY_RULES).
+  if (!existing || existing.capRaw !== capRaw || existing.rules !== POLICY_RULES) {
     const created = await privy()
       .policies()
       .create(
         buildBackendPolicy(
-          { member: wallet, chainId: env.chainId, perplExchange: exchange, perplCollateral: collateralToken, maxDepositRaw: capRaw, nadRouter: NADFUN.router, maxBuyWei, kuruRouter: KURU_FLOW_ROUTER, maxSellWei },
+          {
+            member: wallet,
+            chainId: env.chainId,
+            perplExchange: exchange,
+            perplCollateral: collateralToken,
+            maxDepositRaw: capRaw,
+            nadRouter: NADFUN.router,
+            maxBuyWei,
+            kuruRouter: KURU_FLOW_ROUTER,
+            maxSellWei,
+            usdc: usdcAddress(),
+          },
           `cult-member-${wallet.slice(2, 10)}-${Date.now()}`,
         ) as never,
       );
     policyId = created.id;
-    members.setPrivyPolicy(userId, created.id, capRaw);
+    members.setPrivyPolicy(userId, created.id, capRaw, POLICY_RULES);
     signerStatusCache.delete(userId);
   }
   return {

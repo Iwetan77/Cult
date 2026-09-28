@@ -190,7 +190,8 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
   const adapter = venue(v);
   const mark = await adapter.markPriceAusd(selected.id).catch(() => 0);
 
-  const here = openTrades.filter((t) => t.venue === v && t.market === selected.id.toLowerCase());
+  // Trades posted to this cult (or to all of the trader's cults).
+  const here = openTrades.filter((t) => t.venue === v && t.market === selected.id.toLowerCase() && (!t.cultIds || t.cultIds.includes(clan.id)));
   const stackRows = getDb()
     .prepare(`SELECT * FROM stacks WHERE clan_id = ? AND venue = ? AND market = ? AND status = 'open' ORDER BY created_at`)
     .all(clan.id, v, selected.id.toLowerCase()) as unknown as StackRow[];

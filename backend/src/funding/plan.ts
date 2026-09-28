@@ -5,9 +5,9 @@ import { erc20Abi, exchangeAbi, getOnChainAccount } from '../chain/exchange.js';
 import { rpc } from '../chain/signer.js';
 import { getExchangeInfo } from '../perpl/context.js';
 import { KURU_FLOW_ROUTER, quoteSwap, SwapUnavailable } from '../swap/kuruFlow.js';
+import { USDC_MAINNET } from '../chain/tokens.js';
 
-// Circle USDC on Monad mainnet.
-export const USDC_MAINNET = '0x754704Bc059F8C67012fEd69BC8A327a5aafb603';
+export { USDC_MAINNET };
 
 // "Pay with USDC": USDC -> AUSD through Kuru Flow (which routes via the deep
 // AUSD/USDC stable pool), then optionally straight into the member's Perpl

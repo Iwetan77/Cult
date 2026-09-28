@@ -58,7 +58,7 @@ funding screen.
 | **Monad** | The chain. Testnet (10143) today; the mainnet (143) addresses are wired and checked. |
 | **Perpl** | Perpetuals. Each member enrolls a delegated **Ed25519 API key**; the owner signs the EIP-712 enrollment in the browser. The backend places orders over Perpl's trading WebSocket with that key. The key can trade but never withdraw. TP/SL are real Perpl trigger orders. |
 | **Nad.fun** | Memes. Buys and sells go through the v2 router (`buyWithNative` / `sellToNative`) from the member's own wallet. Leaders' meme trades are detected from the router's `Buy`/`Sell` logs. |
-| **Kuru Flow** | Swaps. It funds accounts with "pay with USDC", swapping USDC→AUSD. It also lets memes be **paid in dollars**: AUSD→MON before a buy and MON→AUSD after a sell. On mainnet it routes through a deep AUSD/USDC pool. |
+| **Kuru Flow** | Swaps, so members can deposit whatever they have. **USDC** that arrives in a wallet is converted to AUSD automatically. **MON** pays for perps: before a perp trade the Perpl account is topped up from wallet AUSD, then from MON swapped to AUSD. Memes can be **paid in dollars**: AUSD→MON before a buy and MON→AUSD after a sell. On mainnet it routes through a deep AUSD/USDC pool. |
 | **Privy** | Sign-in (Google + wallets), embedded wallets, and the **policy engine**. The backend is an *additional signer* on each member's wallet, scoped by a per-member policy (see Safety). |
 | **Envio HyperIndex** | The indexer behind verified records. It reads Perpl position and fill events and Nad.fun router events per wallet, and builds round trips, win rate, realized PnL and trade history. |
 | **Alchemy** | RPC for on-chain reads and writes (falls back to the public Monad RPC). |
@@ -76,7 +76,8 @@ but back into that member's own positions.
   - buy on Nad.fun, capped per buy, with tokens delivered to the member;
   - sell on Nad.fun, with proceeds to the member;
   - approve tokens to the Nad.fun router;
-  - swap AUSD↔MON on Kuru Flow, capped, with zero fees and output to the member.
+  - swap AUSD↔MON and USDC→AUSD on Kuru Flow, capped, with zero fees and output
+    to the member.
 
   Everything else is refused **by Privy, before anything is signed**: withdrawals,
   transfers out, swaps routed to someone else, account creation, and key enrollment.
@@ -175,7 +176,17 @@ Point the backend at the indexer with `INDEXER_PG_URL` (read-only user) or
   `/indexer`, config file `/indexer/railway.json`, `ENVIO_HASURA=false`,
   `ENVIO_PG_*` taken from the Postgres, and `ENVIO_API_TOKEN`. Then give the backend
   `INDEXER_PG_URL`.
-  - For mainnet, start it with `--config config.mainnet.yaml`.
+  - For mainnet, set `ENVIO_CONFIG=config.mainnet.yaml`. The indexer then starts
+    over on its own.
+
+**Switching to mainnet.** Point the backend at mainnet (`PERPL_API_URL`,
+`PERPL_WS_URL`, `PERPL_CHAIN_ID=143`, a mainnet RPC) and the frontend at chain 143,
+then run `npm run preflight`.
+- On its first start on the new chain, the backend resets trading state: Perpl
+  accounts and keys, signer policies, trades, copies and block cursors.
+- It keeps members, usernames, photos, cults and chats.
+- It turns Auto-follow off, so nobody copies with real money until they turn it
+  on again.
 
 ---
 
@@ -196,5 +207,5 @@ hashes are in the commit messages.
 | Kuru Flow USDC→AUSD and "memes paid in $" | 🟡 simulated on mainnet with real routes (`eth_call`); no real swap yet |
 | Perpl orders through a delegated key, TP/SL, Perpl copy trading, indexer Perpl check | ⏳ built; needs a funded Perpl account to run |
 
-**Tests:** the backend has 76 unit tests plus an API smoke test that covers every
+**Tests:** the backend has 82 unit tests plus an API smoke test that covers every
 route, including the refusals. The indexer has handler tests on simulated events.

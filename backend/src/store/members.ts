@@ -126,15 +126,17 @@ export const members = {
       .run(apiKey, seal(secret), pubkey, userId);
   },
 
-  privyPolicy(userId: string): { id: string; capRaw: bigint } | null {
-    const r = getDb().prepare('SELECT privy_policy_id, privy_policy_cap FROM members WHERE user_id = ?').get(userId) as
-      | { privy_policy_id: string | null; privy_policy_cap: number | null }
+  privyPolicy(userId: string): { id: string; capRaw: bigint; rules: string | null } | null {
+    const r = getDb().prepare('SELECT privy_policy_id, privy_policy_cap, privy_policy_rules FROM members WHERE user_id = ?').get(userId) as
+      | { privy_policy_id: string | null; privy_policy_cap: number | null; privy_policy_rules: string | null }
       | undefined;
-    return r?.privy_policy_id ? { id: r.privy_policy_id, capRaw: BigInt(r.privy_policy_cap ?? 0) } : null;
+    return r?.privy_policy_id ? { id: r.privy_policy_id, capRaw: BigInt(r.privy_policy_cap ?? 0), rules: r.privy_policy_rules } : null;
   },
 
-  setPrivyPolicy(userId: string, id: string, capRaw: bigint) {
-    getDb().prepare('UPDATE members SET privy_policy_id = ?, privy_policy_cap = ? WHERE user_id = ?').run(id, Number(capRaw), userId);
+  setPrivyPolicy(userId: string, id: string, capRaw: bigint, rules: string) {
+    getDb()
+      .prepare('UPDATE members SET privy_policy_id = ?, privy_policy_cap = ?, privy_policy_rules = ? WHERE user_id = ?')
+      .run(id, Number(capRaw), rules, userId);
   },
 
   credentials(userId: string): ApiKeyCredentials | null {

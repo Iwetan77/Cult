@@ -95,7 +95,7 @@ export interface ChatRoom {
   id: string;
   kind: 'global' | 'country' | 'cult';
   name: string;
-  icon: string; // 🌍 for Global, the country's flag, or the cult's first letter
+  icon: string; // G for Global, the country's flag, or the cult's first letter
   memberCount: number;
   lastMessage: ChatMessage | null; // for the "your groups" list: latest line and when
 }
@@ -125,7 +125,7 @@ export function roomsFor(userId: string): ChatRoom[] {
 // Regional-indicator letters make the flag emoji: NG -> 🇳🇬.
 const flag = (cc: string) => String.fromCodePoint(...[...cc.toUpperCase()].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
 function roomIcon(r: { id: string; kind: string; name: string }): string {
-  if (r.kind === 'global') return '🌍';
+  if (r.kind === 'global') return 'G'; // a letter badge like cults, until Global gets its own image
   if (r.kind === 'country') return flag(r.id.slice(8));
   return (r.name.trim()[0] ?? '?').toUpperCase();
 }

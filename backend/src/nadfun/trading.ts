@@ -43,7 +43,20 @@ export interface NadMarket {
 // ones Cult trades (see CONTRACTS.md, decision 2).
 export async function listMonMarkets(order: 'latest_trade' | 'market_cap' | 'creation_time' = 'latest_trade', limit = 50): Promise<NadMarket[]> {
   const body = await getJson<{ tokens: { token_info: any; market_info: any }[] }>(`${NADFUN.apiUrl}/order/${order}?page=1&limit=${limit}`);
-  return body.tokens
+  return toNadMarkets(body.tokens);
+}
+
+// Nad.fun's own search (name, symbol), so any meme can be found, not just the
+// ones in our list. Same token shape as the lists.
+export async function searchMonMarkets(keyword: string): Promise<NadMarket[]> {
+  const body = await getJson<{ token_result?: { tokens?: { token_info: any; market_info: any }[] } }>(
+    `${NADFUN.apiUrl}/search/token?keyword=${encodeURIComponent(keyword)}`,
+  );
+  return toNadMarkets(body.token_result?.tokens ?? []);
+}
+
+function toNadMarkets(tokens: { token_info: any; market_info: any }[]): NadMarket[] {
+  return tokens
     .filter((t) => t.market_info?.quote_info?.quote_id?.toLowerCase() === NADFUN.wmon.toLowerCase())
     .map((t) => ({
       token: ethers.getAddress(t.token_info.token_id),
