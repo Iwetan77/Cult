@@ -75,13 +75,13 @@ export async function depositInfo(userId: string): Promise<DepositInfo> {
   if (!m) throw new Error('unknown member');
   const b = await balancesFor(userId);
   const tokens: DepositToken[] = [
-    { symbol: 'MON', name: 'Monad', what: 'Pays network fees (keep a little). Also buys memes on testnet.', balance: b.mon, balanceUsd: b.monUsd },
+    { symbol: 'MON', name: 'Monad', what: 'Trade with it directly: perps swap it to dollars for you. Keep a little for fees.', balance: b.mon, balanceUsd: b.monUsd },
     { symbol: 'AUSD', name: 'Dollars (AUSD)', what: 'Your trading dollars, 1:1 with USD.', balance: b.walletUsd, balanceUsd: b.walletUsd },
   ];
   if (env.chainId === 143) {
     const raw: bigint = await new ethers.Contract(USDC_MAINNET, erc20Abi, rpc()).getFunction('balanceOf')(m.wallet).catch(() => 0n);
     const usdc = Number(ethers.formatUnits(raw, 6));
-    tokens.splice(1, 0, { symbol: 'USDC', name: 'USD Coin', what: 'Turned into dollars (AUSD) for you when you trade.', balance: usdc, balanceUsd: usdc });
+    tokens.splice(1, 0, { symbol: 'USDC', name: 'USD Coin', what: 'Turned into dollars (AUSD) automatically, within a minute.', balance: usdc, balanceUsd: usdc });
   }
   const parts = [...tokens.map((t) => t.balanceUsd), b.perplMarginUsd ?? 0];
   return {
