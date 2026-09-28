@@ -664,8 +664,8 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/status` | none | Public. `{ indexer: { source: 'none'\|'graphql'\|'postgres', connected: boolean \| null, chains: { chainId, indexedBlock, headBlock, behind, caughtUp, events }[], wallets: number \| null } }`: is the verified-records indexer reachable and caught up (`wallets` = wallets with on-chain history) |
 | GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'USD', monPriceAusd /* $ per MON */, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
 | GET | `/v1/nadfun/markets?order=latest_trade\|market_cap\|creation_time` | none | `{ markets: NadMarket[] }` (MON-quoted tokens only) |
-| GET | `/v1/me` | none | `{ id, address, name, username, needsUsername, avatarUrl, country: { code, name } | null, rooms: ChatRoom[], clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent } }`. `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
-| GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. `409` until the member is in a clan. A new policy is issued whenever the cap **changes** (up or down), and the frontend must `addSigners()` again. `/v1/me.signer` tells you when that's needed |
+| GET | `/v1/me` | none | `{ id, address, name, username, needsUsername, avatarUrl, country: { code, name } | null, rooms: ChatRoom[], clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent }, usdcConverted: { usdc, ausd, tx, at } \| null }`. `usdcConverted` is the member's last automatic USDC→AUSD conversion if it was in the last 10 minutes (show "your 20 USDC is now $19.98"). `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
+| GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. For **every** member (not only Auto-follow): their own trades, perp top-ups and USDC conversions are signed under it. `capAusd` = `TRADING_CAP_USD` ($1,000 default) or a higher Auto-follow limit. A new policy is issued whenever the cap **or the rule set changes**, and the frontend must `addSigners()` again. `/v1/me.signer` tells you when that's needed |
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
 | POST | `/v1/enrollment/perpl` | `{ challengeId, signature }` | `204` |
@@ -711,7 +711,7 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/shares/:id` | none (public) | `PublicShare = { id, traderName, marketSymbol, venue, side, pnlUsd, roiPercent, notionalUsd, entryPrice, markPrice, closedAt, sharedAt, traderRecord: { verified, tradeCount, winRate, realizedPnlUsd, streak }, includeClan, clanName? }`. `traderRecord` is the sharer's verified record (own trades), frozen at share time; show it as the proof behind the card, or show "unverified". **Never** carries clan id, invite code or members; `clanName` only if `includeClan`. Money in $. `pnlUsd`/`roiPercent`/`notionalUsd` can be `null` when no live holding backs the marker; render that honestly |
 | POST | `/v1/funding/usdc/prepare` | `{ amountUsdc: "25.5", depositToPerpl?: true }` | `FundingPlan = { id, expiresAt, requiredUsdc, minAusdOut, expectedAusdOut, depositToPerpl, actions: WalletAction[] }`. The member sends the actions in order: approve USDC → Kuru Flow `executeSwap` → (if `depositToPerpl`) approve AUSD and `createAccount`/`depositCollateral` of the guaranteed amount. With `depositToPerpl: false` the AUSD stays in the wallet, which is what meme buys spend. The plan expires in 5 minutes, because routes go stale. `409` with a plain `message` on testnet or when no route exists |
 | POST | `/v1/funding/usdc/confirm` | `{ planId, hashes: string[] }` | `{ planId, done, steps: [{ label, txHash, ok }], perplAccountId }`. Each hash is checked on-chain against the planned action |
-| POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage? }` | `Fill`. Perpl: side `long`/`short`, notional = margin x leverage. Nad.fun: side `buy`, spends `marginUsd` worth of MON, signed by the backend signer |
+| POST | `/v1/positions/open` | `{ marketId, side, marginUsd, leverage? }` | `Fill`. Perpl: side `long`/`short`, notional = margin x leverage. If the Perpl account is short of margin, the backend tops it up first: wallet AUSD, then MON swapped to AUSD on Kuru (never the 0.25 MON reserve). `409 { message }` when the member doesn't have enough, `503` when no swap route answers. Nad.fun: side `buy`, spends `marginUsd` worth of MON, signed by the backend signer |
 | POST | `/v1/positions/tpsl` | `{ marketId, takeProfit?, stopLoss? }` ($ prices; `null` removes a leg, omitted keeps it) | `{ takeProfit, stopLoss }`. Perpl only. Placed as Perpl trigger orders (reduce-only, fire on mark price, linked to the position so Perpl cancels them when it closes). `400` if a price is on the wrong side of mark. A TP/SL firing closes the leader's position, so their mirrors close too |
 | POST | `/v1/clans/:clanId/markers/:markerId/suggest-tpsl` | `{ takeProfit?, stopLoss? }` | `201 Suggestion`. **Drag-to-suggest** on a clan-mate's Perpl marker. It's stored and pushed as SSE `suggestion`; only the owner can apply it, by sending the same numbers to `/v1/positions/tpsl` |
 | POST | `/v1/positions/close` | `{ marketId, sizeRaw? }` | `Fill`. Nad.fun sells the whole balance unless `sizeRaw` (token wei) is given |
@@ -722,19 +722,27 @@ Notes:
   `{ step, wallet, perplAccountId, collateralBalance, minAccountOpen, actions: WalletAction[] }`,
   where `step` is one of `needs_collateral`, `needs_account`, `needs_key`,
   `needs_forwarding` or `ready`. Send `actions` in order from the member's Privy
-  wallet, then call it again. On `needs_key`, run the enrollment challenge: sign
+  wallet (waiting for each receipt), then call it again. When the wallet has too
+  little AUSD to open the account, `needs_account` starts with a Kuru swap from
+  USDC (mainnet) or MON, labelled "swap … to dollars (AUSD)", then approve and
+  `createAccount`. `needs_collateral` now means AUSD, USDC and MON together
+  can't cover it. On `needs_key`, run the enrollment challenge: sign
   `typedData` with `eth_signTypedData_v4`, exactly as returned, then POST the
   signature. The backend completes the Perpl enrollment.
-- **Backend signer (required).** After the member joins or creates a clan, call
-  `GET /v1/privy/signer`. It returns
+- **Backend signer (required).** Before the member's first trade (any venue),
+  call `GET /v1/privy/signer`. It returns
   `{ signerId, policyIds, capAusd, maxBuyMon, monPriceAusd }`. Then call Privy's
   `useSigners().addSigners({ address, signers: [{ signerId, policyIds }] })`.
   - **Privy's policy lets the backend:** approve and deposit AUSD into Perpl up to
     `capAusd` per tx; make Nad.fun `buyWithNative` calls up to `maxBuyMon` per buy,
     with tokens delivered to the member; make Nad.fun `sellToNative` calls with
     proceeds to the member; and approve tokens to the Nad.fun router. It can also make
-    Kuru Flow `executeSwap` AUSD→MON up to `capAusd` and MON→AUSD, both with zero fees
-    and output to the member, and approve AUSD to Kuru up to `capAusd`.
+    Kuru Flow `executeSwap` AUSD→MON up to `capAusd`, MON→AUSD, and (mainnet)
+    USDC→AUSD up to `capAusd`, all with zero fees and output to the member, and
+    approve AUSD or USDC to Kuru up to `capAusd`.
+  - **What the backend does with it on its own:** converts USDC that arrives in a
+    member's wallet to AUSD (checked every 20s, from $1), and tops up the Perpl
+    account before a perp trade (above).
   - **Privy refuses everything else:** withdrawals, transfers out, a buy, sell or
     swap routed to anyone else (including Kuru's `executeSwapWithReceiver`), swaps
     carrying any fee, `createAccount`, `allowOrderForwarding`, and signing

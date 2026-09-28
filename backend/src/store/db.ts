@@ -11,10 +11,11 @@ export function getDb(path = env.dbPath): DatabaseSync {
   db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
   migrate(db);
+  switchChain(db, env.chainId);
   return db;
 }
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -247,6 +248,12 @@ function migrate(d: DatabaseSync) {
       name  TEXT PRIMARY KEY,
       value INTEGER NOT NULL
     );
+
+    -- Facts about this database itself, e.g. which chain its trading state is for.
+    CREATE TABLE IF NOT EXISTS meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   const hasCol = (table: string, col: string) => (d.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
   // v2 -> v3: leaders' adds and partial exits are mirrored.
@@ -261,9 +268,52 @@ function migrate(d: DatabaseSync) {
   if (!hasCol('members', 'username')) d.exec('ALTER TABLE members ADD COLUMN username TEXT');
   if (!hasCol('members', 'avatar_at')) d.exec('ALTER TABLE members ADD COLUMN avatar_at INTEGER');
   d.exec('CREATE UNIQUE INDEX IF NOT EXISTS members_username ON members(lower(username)) WHERE username IS NOT NULL');
+  // v6 -> v7: which rules a member's signer policy was built with (a rules
+  // change re-issues it, like a cap change does).
+  if (!hasCol('members', 'privy_policy_rules')) d.exec('ALTER TABLE members ADD COLUMN privy_policy_rules TEXT');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);
   }
   d.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+}
+
+// Trading state belongs to one chain. Perpl accounts and keys, signer policies
+// (pinned to a chain id), trades, copies and block cursors from testnet mean
+// nothing on mainnet. When the configured chain changes, reset those and keep
+// the people: members, usernames, photos, countries, cults and chats. Auto-follow
+// is switched off everywhere, so nobody copies with real money until they turn
+// it on again themselves.
+// A database from before this was tracked is a testnet one (10143).
+export function switchChain(d: DatabaseSync, chainId: number): boolean {
+  const row = d.prepare("SELECT value FROM meta WHERE key = 'chain_id'").get() as { value: string } | undefined;
+  const was = Number(row?.value ?? 10143);
+  if (was === chainId) {
+    if (!row) d.prepare("INSERT INTO meta (key, value) VALUES ('chain_id', ?)").run(String(chainId));
+    return false;
+  }
+  d.exec('BEGIN');
+  try {
+    d.exec(`
+      DELETE FROM tpsl_suggestions;
+      DELETE FROM shares;
+      DELETE FROM mirror_adjustments;
+      DELETE FROM mirrors;
+      DELETE FROM stacks;
+      DELETE FROM leader_trades;
+      DELETE FROM engine_orders;
+      DELETE FROM engine_txs;
+      DELETE FROM cursors;
+      UPDATE members SET perpl_account_id = NULL, api_key = NULL, api_key_secret = NULL, api_key_pubkey = NULL,
+        forwarding = 0, privy_policy_id = NULL, privy_policy_cap = NULL, privy_policy_rules = NULL;
+      UPDATE clan_members SET mirror_enabled = 0;
+    `);
+    d.prepare("INSERT INTO meta (key, value) VALUES ('chain_id', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(String(chainId));
+    d.exec('COMMIT');
+  } catch (e) {
+    d.exec('ROLLBACK');
+    throw e;
+  }
+  console.log(`[db] chain ${was} -> ${chainId}: trading state reset; members, cults and chats kept; Auto-follow off`);
+  return true;
 }

@@ -7,7 +7,7 @@ import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { completeEnrollment, setupStatus, startEnrollment } from '../accounts/client-flow.js';
 import { sessionFor } from '../accounts/lifecycle.js';
-import { env } from '../config/env.js';
+import { env, numEnv } from '../config/env.js';
 import { MirrorError, type MirrorEngine } from '../mirror/engine.js';
 import { mirrors, trades } from '../mirror/repo.js';
 import { stackOnTrade } from '../mirror/stack.js';
@@ -37,6 +37,9 @@ import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { indexerStatus } from '../indexer/stats.js';
+import { recentConversion } from '../funding/usdc.js';
+import { FundsError } from '../funding/margin.js';
+import { SwapUnavailable } from '../swap/kuruFlow.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
@@ -102,6 +105,8 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof ProfileError) return c.json({ message: err.message }, err.status);
     if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
+    if (err instanceof FundsError) return c.json({ message: err.message }, 409);
+    if (err instanceof SwapUnavailable) return c.json({ message: `Couldn't swap for this trade right now (${err.message}). Try again shortly.` }, 503);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
     if (err instanceof UpstreamError || (err instanceof TypeError && /fetch failed/.test(err.message)) || (err as { name?: string })?.name === 'TimeoutError') {
@@ -336,6 +341,7 @@ export function createApp(engine: MirrorEngine) {
       balances: await balancesFor(userId).catch(() => null),
       // prepared = grant issued; attached/policyCurrent = verified with Privy.
       signer: await backendSignerStatus(userId).catch(() => ({ prepared: !!m.privyPolicyId, attached: null, policyCurrent: null })),
+      usdcConverted: recentConversion(userId), // last USDC -> AUSD conversion, if in the last 10 min
     });
   });
 
@@ -444,6 +450,9 @@ export function createApp(engine: MirrorEngine) {
 
   // What the frontend passes to Privy's useSigners().addSigners() so the
   // backend can act on this wallet, only within the policy.
+  // Every member's trades, top-ups and USDC conversions are signed by the
+  // backend under this policy, so everyone gets it, not only Auto-follow users.
+  // The per-transaction cap is TRADING_CAP_USD, or a higher Auto-follow limit.
   authed.get('/privy/signer', async (c) => {
     const userId = c.get('userId');
     const caps = clans
@@ -451,8 +460,7 @@ export function createApp(engine: MirrorEngine) {
       .map((cl) => clans.membership(cl.id, userId)!.policy)
       .filter((p) => p.enabled)
       .map((p) => p.maxUsdPerTrade);
-    if (caps.length === 0) throw bad(409, 'turn on Auto-follow in a cult first; the cap comes from your limits there');
-    const grant = await memberSignerGrant(userId, c.get('wallet'), Math.max(...caps));
+    const grant = await memberSignerGrant(userId, c.get('wallet'), Math.max(numEnv('TRADING_CAP_USD', 1000), ...caps));
     forgetSignerStatus(userId); // the frontend is about to (re)attach it; re-check on next read
     return c.json(grant);
   });
