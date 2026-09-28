@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { ethers } from 'ethers';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -124,9 +125,9 @@ export function createApp(engine: MirrorEngine) {
 
   app.get('/v1/health', (c) => c.json({ ok: true }));
 
-  // Is the verified-records indexer connected and caught up? Public, no
-  // member data: block heights and a wallet count.
-  app.get('/v1/status', async (c) => c.json({ indexer: await indexerStatus() }));
+  // Is the verified-records indexer connected and caught up, and is our own
+  // database on a disk that survives deploys? Public, no member data.
+  app.get('/v1/status', async (c) => c.json({ indexer: await indexerStatus(), storage: storageStatus() }));
 
   // Is a username free? Public: the sign-up screen checks as you type, and it
   // reveals nothing a profile page doesn't. (Setting it is signed-in only.)
@@ -840,4 +841,13 @@ function resolveTradeId(markerId: string): string {
   }
   if (trades.get(id!)) return id!;
   throw new MirrorError(404, 'marker not found');
+}
+
+// On Railway a service only keeps files across deploys on an attached volume
+// (RAILWAY_VOLUME_MOUNT_PATH is set when one is). Without it the SQLite file,
+// and every member, cult and chat in it, is wiped on each deploy.
+export function storageStatus(): { host: 'railway' | 'other'; persistent: boolean | null } {
+  if (!process.env.RAILWAY_PROJECT_ID) return { host: 'other', persistent: null };
+  const vol = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  return { host: 'railway', persistent: !!vol && resolve(env.dbPath).startsWith(resolve(vol)) };
 }
