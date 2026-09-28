@@ -7,6 +7,7 @@ import { Copy, RefreshCw, X } from 'lucide-react';
 import { getDeposit } from '@/lib/api';
 import type { DepositInfo } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
+import { TokenLogo } from './TokenLogo';
 
 export function DepositSheet({ onClose }: { onClose: () => void }) {
   const [info, setInfo] = useState<DepositInfo | null>(null);
@@ -47,7 +48,7 @@ export function DepositSheet({ onClose }: { onClose: () => void }) {
         <div className="deposit-address-large">{info.address}</div>
         <button className="outline full" onClick={copy}><Copy size={15} /> {copied ? 'Copied' : 'Copy address'}</button>
         <p className="deposit-instruction">Send MON, USDC or AUSD on {info.network.name} to this address.</p>
-        <div className="deposit-tokens">{info.tokens.map(token => <div className="deposit-token" key={token.symbol}><span className="deposit-token-icon">{token.symbol.slice(0, 1)}</span><span className="deposit-token-name"><strong>{token.name}</strong><small>{token.what}</small></span><span className="deposit-token-balance"><strong>{new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(token.balance)} {token.symbol}</strong><small>{dollars(token.balanceUsd)}</small></span></div>)}</div>
+        <div className="deposit-tokens">{info.tokens.map(token => <div className="deposit-token" key={token.symbol}><TokenLogo symbol={token.symbol} className="deposit-token-icon" /><span className="deposit-token-name"><strong>{token.name}</strong><small>{token.what}</small></span><span className="deposit-token-balance"><strong>{new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(token.balance)} {token.symbol}</strong><small>{dollars(token.balanceUsd)}</small></span></div>)}</div>
         {info.tradingAccountUsd != null && <div className="deposit-total"><span>Trading account</span><strong>{dollars(info.tradingAccountUsd)}</strong></div>}
         <div className="deposit-total grand"><span>Total</span><strong>{dollars(info.totalUsd)}</strong></div>
         {error && <p className="wallet-warning" role="status">{error}</p>}
