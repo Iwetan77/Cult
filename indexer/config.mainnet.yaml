@@ -40,7 +40,10 @@ contracts:
       - event: Sell
 chains:
   - id: 143 # Monad mainnet
-    start_block: 0
+    # Members only (src/members.ts), and a record starts when they join, so no
+    # history before the mainnet switch is scanned. 2026-09-28. (Nad.fun router
+    # deploy block: 73857231.)
+    start_block: 108600000
     rpc:
       - url: https://rpc.monad.xyz
         for: fallback
@@ -49,4 +52,3 @@ chains:
         address: "0x34B6552d57a35a1D042CcAe1951BD1C370112a6F" # Perpl exchange (app.perpl.xyz context, instance 1)
       - name: NadFunRouter
         address: "0x8986C8fD44eb85294A725a7e61AF35E76bA26F91" # Nad.fun v2 router
-        start_block: 73857231
