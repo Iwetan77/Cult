@@ -6,6 +6,7 @@ import { env } from './config/env.js';
 import { MirrorEngine } from './mirror/engine.js';
 import { reconcileStacks } from './mirror/stack.js';
 import { startUsdcConversion } from './funding/usdc.js';
+import { warmMarkets } from './api/markets.js';
 import { getDb } from './store/db.js';
 
 getDb();
@@ -14,6 +15,7 @@ startActivityFeed(engine);
 await engine.start();
 void reconcileStacks().catch((e) => console.error('[stack] reconcile', e));
 const stopUsdc = startUsdcConversion();
+warmMarkets();
 
 const server = serve({ fetch: createApp(engine).fetch, port: env.port }, (info) => {
   console.log(`cult backend on :${info.port} (perpl ${env.perplApiUrl}, chain ${env.chainId}, opt-out ${env.mirrorOptOutSeconds}s)`);
