@@ -100,10 +100,11 @@ export type FundingResult = {
 };
 export type ShareResult = { id: string; url: string };
 export type PublicShare = {
-  id: string; traderName: string; marketSymbol: string; venue: Venue; side: TradeSide;
+  id: string; traderName: string; traderAvatarUrl?: string | null; marketSymbol: string; venue: Venue; side: TradeSide; leverage?: number | null;
   pnlUsd: number | null; roiPercent: number | null; notionalUsd: number | null;
   entryPrice: number | null; markPrice: number | null; closedAt: string | null;
   sharedAt: string; includeClan: boolean; clanName?: string;
+  traderRecord?: { verified: boolean; tradeCount: number; winRate: number | null; realizedPnlUsd: number | null; streak: number };
 };
 export type Home = {
   topTrades: { rank: number; memberId: string; name: string; avatarUrl: string | null; venue: string; market: string; symbol: string; side: string;

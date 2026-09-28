@@ -112,7 +112,8 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       const hits: Hit[] = [];
       const guides: GuideHit[] = [];
       const visible = markers.filter(marker => marker.marketId === market.id && marker.venue === market.venue);
-      visible.forEach((marker, index) => {
+      const placed: number[] = [];
+      visible.forEach(marker => {
         const anchor = marker.entryPrice ?? marker.markPrice;
         const y = series.priceToCoordinate(anchor);
         const selected = marker.id === selectedId;
@@ -143,14 +144,17 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         }
         if (y == null || y < 12 || y > height - 24) return;
         const x = width < 480 ? 16 : Math.max(80, Math.min(width - 260, width * 0.58));
-        const offset = visible.slice(0, index).filter(previous => {
-          const previousY = series.priceToCoordinate(previous.entryPrice ?? previous.markPrice);
-          return previousY != null && Math.abs(previousY - y) < 28;
-        }).length;
-        // Badges for nearby entries stack below each other, or above when
-        // there's no room below, so they never sit on top of one another.
-        const below = y + offset * 26;
-        const markerY = below > height - 28 ? Math.max(20, y - offset * 26) : Math.max(20, below);
+        // Badges never sit on one another: start at the entry and step to the
+        // nearest free slot below or above the badges already placed.
+        const clash = (candidate: number) => placed.some(other => Math.abs(other - candidate) < 28);
+        let markerY = Math.max(20, Math.min(height - 28, y));
+        for (let step = 1; clash(markerY) && step < 14; step++) {
+          const down = markerY + step * 28;
+          const up = markerY - step * 28;
+          if (down <= height - 28 && !clash(down)) { markerY = down; break; }
+          if (up >= 20 && !clash(up)) { markerY = up; break; }
+        }
+        placed.push(markerY);
         const color = markerColor(marker.origin);
         ctx.strokeStyle = color;
         ctx.lineWidth = selected ? 2 : 1;
