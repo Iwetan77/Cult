@@ -35,6 +35,7 @@ export type MarketSocial = {
   onApplySuggestion: (suggestion: TpslSuggestion) => void;
   onSkip: () => void;
   onClosePosition: (marketId: string) => void;
+  onShare: (marker: ChartMarker) => void;
 };
 
 type Props = {
@@ -86,11 +87,11 @@ export function MarketPage({ id, me, config, busy, social, onBack, onTrade, onDe
           <div className="market-page-price"><strong>{price(m.priceUsd)}</strong>{m.change24hPct != null && <small className={`market-change ${m.change24hPct >= 0 ? 'positive' : 'negative'}`}>{m.change24hPct >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}{m.change24hPct >= 0 ? '+' : ''}{m.change24hPct.toFixed(2)}%</small>}</div>
         </div>
 
-        <div className="cult-switch" role="tablist" aria-label="Show positions from">
-          <span className="cult-switch-label"><UsersRound size={14} /> Positions from</span>
+        {social.cults.length > 0 && <div className="cult-switch" role="tablist" aria-label="Friends on chart">
+          <span className="cult-switch-label"><UsersRound size={14} /> Friends on chart</span>
           {social.cults.map(c => <button key={c.id} role="tab" aria-selected={social.cultId === c.id} className={social.cultId === c.id ? 'active' : ''} onClick={() => social.onCult(c.id)}><RoomBadge icon={c.name.trim()[0]?.toUpperCase() ?? 'C'} kind="cult" size="sm" />{c.name}</button>)}
-          <button role="tab" aria-selected={!social.cultId} className={!social.cultId ? 'active' : ''} onClick={() => social.onCult(null)}>Just me</button>
-        </div>
+          <button role="tab" aria-selected={!social.cultId} className={!social.cultId ? 'active' : ''} onClick={() => social.onCult(null)}>Off</button>
+        </div>}
 
         <div className="chart-toolbar">
           <div className="markets-tabs small">{RESOLUTIONS.map(r => <button key={r.seconds} className={resolution === r.seconds ? 'active' : ''} onClick={() => social.onResolution(r.seconds)}>{r.label}</button>)}</div>
@@ -101,7 +102,7 @@ export function MarketPage({ id, me, config, busy, social, onBack, onTrade, onDe
           {selected && <MarkerCard marker={selected} symbol={m.symbol} busy={!!busy} now={social.now} avatarUrl={avatarOf(selected.memberId)}
             stackUsd={social.stackUsd} onStackUsd={social.onStackUsd} onStack={social.onStack}
             tpDraft={social.tpDraft} slDraft={social.slDraft} onTpDraft={social.onTpDraft} onSlDraft={social.onSlDraft} onSaveLevels={social.onSaveLevels}
-            onApplySuggestion={social.onApplySuggestion} onSkip={social.onSkip} onClosePosition={() => social.onClosePosition(m.id)} onDismiss={() => social.onSelect(null)} />}
+            onApplySuggestion={social.onApplySuggestion} onSkip={social.onSkip} onClosePosition={() => social.onClosePosition(m.id)} onShare={() => social.onShare(selected)} onDismiss={() => social.onSelect(null)} />}
         </div>
 
         {cult ? <section className="on-chart">
@@ -111,7 +112,7 @@ export function MarketPage({ id, me, config, busy, social, onBack, onTrade, onDe
             <span className="on-chart-who"><strong>{x.isMine ? 'You' : x.memberName}</strong><small>{x.origin === 'auto_mirror' ? 'Auto copy' : x.origin === 'manual_stack' ? 'Stacked' : 'Own trade'} · {x.side.toUpperCase()}{x.leverage ? ` ${x.leverage}x` : ''}</small></span>
             <b className={x.venue === 'perpl' ? ((x.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative') : ''}>{x.venue === 'perpl' ? (x.pnlUsd == null ? 'Pending' : signedDollars(x.pnlUsd)) : (x.valueUsd == null ? 'Pending' : dollars(x.valueUsd))}</b>
           </button>)}</div> : <p className="field-note">Nobody in {cult.name} has a position on {m.symbol} yet. Open one and it shows here for them.</p>}
-        </section> : social.cults.length ? <p className="field-note on-chart-hint">Pick a cult above to see your cult-mates&apos; positions on this chart.</p> : <p className="field-note on-chart-hint">Join or create a cult to trade alongside friends on this chart.</p>}
+        </section> : social.cults.length ? <p className="field-note on-chart-hint">Pick a cult above to see your friends&apos; positions on this chart.</p> : <p className="field-note on-chart-hint">Join or create a cult and your friends&apos; positions show up on this chart, with their PnL.</p>}
         {m.volume24hUsd != null && <p className="field-note">24h volume {dollars(m.volume24hUsd, 0)}</p>}
       </section>
       <aside className="market-ticket">

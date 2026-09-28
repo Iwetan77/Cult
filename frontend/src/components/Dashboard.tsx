@@ -6,7 +6,7 @@ import { getAccessToken, useCreateWallet, usePrivy, useSendTransaction, useSignM
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
 import { ArrowRight, ArrowLeft, CandlestickChart, Compass, Copy, ExternalLink, Home, Link2, Plus, RefreshCw, Search, ShieldCheck, UserRound, Wallet, X } from 'lucide-react';
-import { createClan, createShare, enrollPerpl, getChart, getMarkets, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getNadMarkets, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl } from '@/lib/api';
+import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getNadMarkets, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl } from '@/lib/api';
 import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Holding, MarketListing, Me, MirrorPolicy, NadMarket, SetupStatus, TpslSuggestion, TpslValues, Venue, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
 import { TokenLogo } from './TokenLogo';
@@ -134,6 +134,24 @@ export function Dashboard() {
   const [liveConnected, setLiveConnected] = useState(false);
   const [now, setNow] = useState(Date.now());
   const seenConversionAt = useRef<Record<string, number>>({});
+  // New members join their country's room straight away, from where they're
+  // connecting (Vercel's IP country). They can change it in Account.
+  const countryTried = useRef(false);
+  useEffect(() => {
+    if (!me || me.country || me.needsUsername || countryTried.current) return;
+    countryTried.current = true;
+    void (async () => {
+      const geo = await fetch('/api/geo').then(r => r.json() as Promise<{ country: string | null }>).catch(() => ({ country: null }));
+      if (!geo.country) return;
+      const accessToken = await getAccessToken();
+      if (!accessToken) return;
+      const joined = await setCountry(accessToken, geo.country).catch(() => null);
+      if (!joined) return;
+      const next = await getMe(accessToken).catch(() => null);
+      if (next) setMe(next);
+      setNotice(`You're in the ${joined.country.name} room. Change it any time in Account.`);
+    })();
+  }, [me]);
   useEffect(() => {
     const conversion = me?.usdcConverted;
     if (!me || !conversion || busy || error) return;
@@ -546,6 +564,19 @@ export function Dashboard() {
     const posted = cultIds?.length === 1 ? me?.clans.find(item => item.id === cultIds[0])?.name : null;
     setNotice(cultIds?.length === 0 ? `Trade placed on ${target.symbol}. Only you see it.` : posted ? `Trade placed on ${target.symbol}, posted to ${posted}.` : `Trade placed on ${target.symbol}, posted to your cults.`);
   });
+  // A public PnL card for one of your positions: the phone's share sheet where
+  // there is one, otherwise the link is copied and the card opens.
+  const shareMarker = (marker: ChartMarker) => perform('share', async () => {
+    const result = await createShare(await token(), marker.id, true);
+    const url = `${window.location.origin}/share/${encodeURIComponent(result.id)}`;
+    if (typeof navigator.share === 'function') {
+      try { await navigator.share({ title: `My ${marker.side} on Cult`, url }); return; }
+      catch (reason) { if (reason instanceof DOMException && reason.name === 'AbortError') return; }
+    }
+    await navigator.clipboard.writeText(url).catch(() => undefined);
+    window.open(url, '_blank', 'noopener');
+    setNotice('PnL card link copied.');
+  });
   const closeMarket = (marketToClose: string) => perform('close', async () => {
     await closePosition(await token(), marketToClose);
     setSelectedId(null);
@@ -700,6 +731,7 @@ export function Dashboard() {
     onApplySuggestion: applySuggestion,
     onSkip: skip,
     onClosePosition: closeMarket,
+    onShare: shareMarker,
   };
 
   if (!ready || !authenticated) return <main className="login-screen"><div className="login-brand">CULT<span>.</span></div><div className="login-main"><p className="eyebrow">CULTS / MONAD</p><h1>Trade together.<br />Own every move.</h1><p>One chart for your cult’s live positions across Perpl and Nad.fun. Your wallet, your funds, your trades.</p><div className="login-actions"><button className="primary large" onClick={() => requestLogin('google')}>Continue with Google {pendingLogin === 'google' && <span className="button-spinner" aria-hidden="true" />}</button><button className="outline large" onClick={() => requestLogin('wallet')}>Connect wallet {pendingLogin === 'wallet' && <span className="button-spinner" aria-hidden="true" />}</button></div></div><div className="login-foot">PUBLIC + PRIVATE CULTS <span>•</span> NO SHARED CUSTODY</div></main>;
