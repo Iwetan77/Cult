@@ -81,6 +81,20 @@ npx envio start
 
 - `ENVIO_API_TOKEN` (HyperSync) is what makes a full sync from the Perpl deploy
   block practical. Over the public RPC it's 100 blocks per request.
+- With `NODE_ENV=production` (Railway sets it), Envio drops its local defaults and
+  crashes on start (`graphqlEndpoint.slice`) unless these are set too, even with
+  Hasura off:
+  ```bash
+  HASURA_GRAPHQL_ENDPOINT=http://localhost:8080/v1/metadata
+  HASURA_GRAPHQL_ROLE=admin
+  HASURA_GRAPHQL_ADMIN_SECRET=unused
+  ENVIO_PG_SSL_MODE=false
+  ENVIO_THROTTLE_CHAIN_METADATA_INTERVAL_MILLIS=500
+  ENVIO_THROTTLE_PRUNE_STALE_DATA_INTERVAL_MILLIS=30000
+  ```
+- `npm start` first waits for Postgres to accept queries (up to 5 minutes,
+  `WAIT_FOR_DB_SECONDS`), so a database that is restarting doesn't use up the
+  host's restart budget.
 - Give the backend a **read-only** Postgres user for `INDEXER_PG_URL`.
 - Run a single process. Add `-r` only to wipe and re-index.
 - A short, token-free check over a fixed block range: `npx envio start --config
