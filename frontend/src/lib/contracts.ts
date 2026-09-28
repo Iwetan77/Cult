@@ -63,6 +63,7 @@ export type Me = {
     gasReserveMon: number; lowGas: boolean; memesPayWith: 'ausd' | 'mon';
   } | null;
   signer: { prepared: boolean; attached: boolean | null; policyCurrent: boolean | null };
+  usdcConverted: { usdc: number; ausd: number; tx: string; at: number } | null;
 };
 export type PrivySignerGrant = {
   signerId: string; policyIds: string[]; capAusd: number; maxBuyMon: number; monPriceAusd: number;

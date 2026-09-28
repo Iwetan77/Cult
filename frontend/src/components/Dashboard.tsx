@@ -20,6 +20,7 @@ import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
 import { MarketsView } from './MarketsView';
 import { DepositSheet } from './DepositSheet';
+import { ApiError } from '@/lib/api';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
 
@@ -107,6 +108,22 @@ export function Dashboard() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [liveConnected, setLiveConnected] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const seenConversionAt = useRef<Record<string, number>>({});
+  useEffect(() => {
+    const conversion = me?.usdcConverted;
+    if (!me || !conversion || busy || error) return;
+    const key = `cult:conversion-seen:${me.id}`;
+    let seen = seenConversionAt.current[me.id] ?? 0;
+    try {
+      const stored = Number(window.localStorage.getItem(key));
+      if (Number.isFinite(stored)) seen = Math.max(seen, stored);
+    } catch { /* In-memory tracking still prevents duplicate notifications. */ }
+    if (conversion.at <= seen) return;
+    seenConversionAt.current[me.id] = conversion.at;
+    try { window.localStorage.setItem(key, String(conversion.at)); } catch { /* Storage is optional. */ }
+    const usdc = new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(conversion.usdc);
+    setNotice(`Your ${usdc} USDC is now ${dollars(conversion.ausd)} to trade with.`);
+  }, [me, busy, error]);
   const clan = me?.clans.find(item => item.id === clanId) ?? snapshot?.clan;
   const activeRoom = me?.rooms.find(item => item.id === roomId);
   const selected = snapshot?.markers.find(item => item.id === selectedId) ?? null;
@@ -167,6 +184,19 @@ export function Dashboard() {
     setMarketId(result.selectedMarket.id);
     setLastRefresh(new Date());
   }, []);
+  useEffect(() => {
+    if (!authenticated || !ready) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      void loadMe().catch(reason => {
+        if (reason instanceof ApiError && reason.status === 429) {
+          window.clearInterval(interval);
+          setError(reason.message);
+        }
+      });
+    }, 20000);
+    return () => window.clearInterval(interval);
+  }, [authenticated, ready, loadMe]);
   useEffect(() => {
     if (!authenticated || !ready) return;
     let active = true;
