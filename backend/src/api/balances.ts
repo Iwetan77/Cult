@@ -5,7 +5,7 @@ import { getExchangeInfo } from '../perpl/context.js';
 import { monPriceAusd } from '../prices.js';
 import { members } from '../store/members.js';
 import { restFor } from '../accounts/lifecycle.js';
-import { GAS_RESERVE_WEI, nadPaysWith } from '../venues/nadfun.js';
+import { GAS_RESERVE_WEI, memesPayWithFor, nadPaysWith } from '../venues/nadfun.js';
 
 // A member's dollars sit in two pockets: Perpl margin (perps) and wallet AUSD
 // (memes, when they're paid in dollars). Plus MON for gas. All values in $;
@@ -43,7 +43,7 @@ export async function balancesFor(userId: string): Promise<Balances> {
     monUsd: monPx != null ? mon * monPx : null,
     gasReserveMon: Number(ethers.formatEther(GAS_RESERVE_WEI)),
     lowGas: monWei < GAS_RESERVE_WEI,
-    memesPayWith: nadPaysWith(),
+    memesPayWith: await memesPayWithFor(userId).catch(() => nadPaysWith()),
   };
 }
 

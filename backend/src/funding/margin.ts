@@ -10,6 +10,7 @@ import { members } from '../store/members.js';
 import { monPriceAusd } from '../prices.js';
 import { NATIVE, swap } from '../swap/kuruFlow.js';
 import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
+import { FundsError } from './errors.js';
 
 // Perps paid from whatever the member holds. Before a Perpl order the member's
 // Perpl account is topped up to cover its margin: from AUSD in the wallet
@@ -18,7 +19,7 @@ import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
 // paying the member, AUSD approve + deposit into their own Perpl account, each
 // capped), so manual trades and Auto-follow copies are funded the same way.
 
-export class FundsError extends Error {}
+export { FundsError };
 
 // Gas for the swap, approve and deposit, on top of the reserve (Monad charges
 // the whole gas limit).
