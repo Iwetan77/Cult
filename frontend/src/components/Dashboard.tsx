@@ -468,7 +468,9 @@ export function Dashboard() {
     if (market.venue === 'perpl' && !await ensurePerps()) return;
     const leverage = market.venue === 'perpl' ? Number(tradeLeverage) : undefined;
     if (leverage !== undefined && (!Number.isFinite(leverage) || leverage < 1 || leverage > market.maxLeverage)) throw new Error('Leverage is outside this market\'s limit.');
+    setProgressText(market.venue === 'perpl' ? 'Moving funds into your trading account…' : 'Placing your trade…');
     await openPosition(await token(), market.id, market.venue === 'nadfun' ? 'buy' : tradeSide, amount, leverage);
+    setProgressText('Refreshing your positions…');
     await loadChart(clanId, marketId ?? undefined);
     setHoldings((await getHoldings(await token())).positions);
     await loadMe();
@@ -481,7 +483,9 @@ export function Dashboard() {
     if (!signerReady && !await grantSigner()) return;
     if (target.venue === 'nadfun') requireNadFunds(amountUsd);
     if (target.venue === 'perpl' && !await ensurePerps()) return;
+    setProgressText(target.venue === 'perpl' ? 'Moving funds into your trading account…' : 'Placing your trade…');
     await openPosition(await token(), target.id, target.venue === 'nadfun' ? 'buy' : side, amountUsd, leverage);
+    setProgressText('Refreshing your positions…');
     setHoldings((await getHoldings(await token())).positions);
     await loadMe();
     setNotice(`Trade placed on ${target.symbol}. Cult-mates on Auto-follow will copy it.`);

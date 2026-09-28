@@ -20,6 +20,9 @@ export async function api<T>(path: string, token: string | null, options: Reques
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string };
     const message = body.message ?? `Request failed (${response.status})`;
+    if (response.status === 503 && path === '/v1/positions/open') {
+      throw new ApiError("Couldn't swap for this trade right now. Try again shortly.", 503);
+    }
     if (response.status === 429) {
       const retryAfter = Number(response.headers.get('Retry-After'));
       const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : null;
