@@ -6,8 +6,8 @@ import { getAccessToken, useCreateWallet, usePrivy, useSendTransaction, useSignM
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
 import { ArrowRight, ArrowLeft, CandlestickChart, ChevronRight, Compass, Copy, ExternalLink, Home, Link2, Plus, RefreshCw, Search, ShieldCheck, UserRound, Wallet, X } from 'lucide-react';
-import { createClan, createShare, enrollPerpl, getChart, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getNadMarkets, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl } from '@/lib/api';
-import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Holding, Me, MirrorPolicy, NadMarket, SetupStatus, TpslSuggestion, TpslValues, Venue, WalletAction, MarketListing } from '@/lib/contracts';
+import { createClan, createShare, enrollPerpl, getChart, getMarkets, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getNadMarkets, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl } from '@/lib/api';
+import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Holding, Me, MirrorPolicy, NadMarket, SetupStatus, TpslSuggestion, TpslValues, Venue, WalletAction } from '@/lib/contracts';
 import { dollars, percent, shortAddress, signedDollars, signedMon } from '@/lib/format';
 import { SharedChart } from './SharedChart';
 import { ClanChat } from './ClanChat';
@@ -19,6 +19,9 @@ import { AccountView } from './AccountView';
 import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
 import { MarketsView } from './MarketsView';
+import { MarketPage, type MarketSocial } from './MarketPage';
+import { TradeTicket, type TicketMarket } from './TradeTicket';
+import { RoomBadge } from './RoomBadge';
 import { DepositSheet } from './DepositSheet';
 import { ApiError } from '@/lib/api';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
@@ -55,9 +58,10 @@ export function Dashboard() {
   const [monBalance, setMonBalance] = useState<number | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [nadMarkets, setNadMarkets] = useState<NadMarket[]>([]);
-  const [tradeSide, setTradeSide] = useState<'long' | 'short'>('long');
-  const [tradeAusd, setTradeAusd] = useState('50');
-  const [tradeLeverage, setTradeLeverage] = useState('2');
+  // The chart's candle size, shared by the cult view and the market page.
+  const [chartResolution, setChartResolution] = useState(300);
+  // The market page shows a cult's positions (clanId) unless you pick "Just me".
+  const [marketSolo, setMarketSolo] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const permissionResolve = useRef<((allowed: boolean) => void) | null>(null);
@@ -71,7 +75,11 @@ export function Dashboard() {
   const [view, setView] = useState<'home' | 'cult' | 'discover' | 'chat' | 'account' | 'leaderboards' | 'markets' | 'groups'>('home');
   const [marketPage, setMarketPage] = useState<string | null>(null);
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
-  const openMarket = (id: string | null) => { setMarketPage(id || null); setView('markets'); };
+  const openMarket = (id: string | null) => {
+    setMarketPage(id || null);
+    setView('markets');
+    if (id) { setMarketId(id); setSelectedId(null); }
+  };
   const [profileId, setProfileId] = useState('me');
   const [tradeSheetTarget, setTradeSheetTarget] = useState<TradeSheetTarget | null>(null);
   const [formOpen, setFormOpen] = useState<'create' | 'join' | null>(null);
@@ -179,11 +187,11 @@ export function Dashboard() {
     } catch { /* Fresh account data will replace the cache. */ }
   }, [authenticated, wallet?.address]);
   const loadChart = useCallback(async (id: string, market?: string) => {
-    const result = await getChart(await token(), id, market);
+    const result = await getChart(await token(), id, market, chartResolution);
     setSnapshot(result);
     setMarketId(result.selectedMarket.id);
     setLastRefresh(new Date());
-  }, []);
+  }, [chartResolution]);
   useEffect(() => {
     if (!authenticated || !ready) return;
     const interval = window.setInterval(() => {
@@ -297,6 +305,8 @@ export function Dashboard() {
     if (!authenticated) return;
     let active = true;
     token().then(getNadMarkets).then(value => { if (active) setNadMarkets(value.markets); }).catch(() => {});
+    // Warm the markets list so Markets, search and trending draw instantly.
+    void getMarkets().catch(() => {});
     return () => { active = false; };
   }, [authenticated]);  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
@@ -480,45 +490,38 @@ export function Dashboard() {
     const balances = me?.balances;
     if (!balances && config?.chainId === 143) throw new Error('Wallet balance data is unavailable. Refresh before buying.');
     if (lowGas) throw new Error('MON is too low for gas. Top up your wallet first.');
-    if (balances?.memesPayWith === 'ausd') {
-      if (balances.walletUsd < amountUsd) throw new Error('Not enough dollars in your wallet for this buy.');
-      return;
-    }
+    // Paid from wallet dollars when they cover it (mainnet), else from MON
+    // above the gas reserve, the same rule the backend uses.
     const price = config?.monPriceAusd;
     const mon = balances?.mon ?? monBalance;
     if (mon == null || !price || price <= 0) throw new Error('MON balance or price is unavailable. Wait for it before buying.');
-    if (mon < amountUsd / price + gasReserveMon) throw new Error('Not enough MON for this buy plus gas reserve.');
+    const dollarsUsable = config?.chainId === 143 ? balances?.walletUsd ?? 0 : 0;
+    const monUsable = Math.max(0, mon - gasReserveMon) * price;
+    if (Math.max(dollarsUsable, monUsable) < amountUsd) throw new Error(`Not enough funds for this buy (about ${dollars(Math.max(dollarsUsable, monUsable))} available, keeping ${gasReserveMon} MON for fees).`);
   };
-  const openTrade = () => perform('open', async () => {
-    if (!market || !clanId) throw new Error('Select a market first.');
-    const amount = Number(tradeAusd);
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid dollar amount.');
+  // A trade from a ticket (market page or cult view): funds, gas and the
+  // one-time perps setup are checked first. cultIds is "Post to": the cults
+  // that see it on their chart and copy it (omitted = all, [] = just you).
+  const placeMarketTrade = (target: TicketMarket, side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined) => perform('open', async () => {
     if (!signerReady && !await grantSigner()) return;
-    if (market.venue === 'nadfun') requireNadFunds(amount);
-    if (market.venue === 'perpl' && !await ensurePerps()) return;
-    const leverage = market.venue === 'perpl' ? Number(tradeLeverage) : undefined;
-    if (leverage !== undefined && (!Number.isFinite(leverage) || leverage < 1 || leverage > market.maxLeverage)) throw new Error('Leverage is outside this market\'s limit.');
-    setProgressText(market.venue === 'perpl' ? 'Moving funds into your trading account…' : 'Placing your trade…');
-    await openPosition(await token(), market.id, market.venue === 'nadfun' ? 'buy' : tradeSide, amount, leverage);
-    setProgressText('Refreshing your positions…');
-    await loadChart(clanId, marketId ?? undefined);
-    setHoldings((await getHoldings(await token())).positions);
-    await loadMe();
-    setNotice('Your own trade is open on the cult chart.');
-  });
-  // A trade from the Markets page: same checks as the cult ticket (funds, gas,
-  // one-time perps setup), then it's the member's own trade and cult-mates on
-  // Auto-follow copy it.
-  const placeMarketTrade = (target: MarketListing, side: 'long' | 'short' | 'buy', amountUsd: number, leverage?: number) => perform('open', async () => {
-    if (!signerReady && !await grantSigner()) return;
-    if (target.venue === 'nadfun') requireNadFunds(amountUsd);
+    if (target.venue === 'nadfun') requireNadFunds(marginUsd);
     if (target.venue === 'perpl' && !await ensurePerps()) return;
     setProgressText(target.venue === 'perpl' ? 'Moving funds into your trading account…' : 'Placing your trade…');
-    await openPosition(await token(), target.id, target.venue === 'nadfun' ? 'buy' : side, amountUsd, leverage);
+    await openPosition(await token(), target.id, target.venue === 'nadfun' ? 'buy' : side, marginUsd, leverage, cultIds);
     setProgressText('Refreshing your positions…');
+    if (clanId) await loadChart(clanId, target.id).catch(() => undefined);
     setHoldings((await getHoldings(await token())).positions);
     await loadMe();
-    setNotice(`Trade placed on ${target.symbol}. Cult-mates on Auto-follow will copy it.`);
+    const posted = cultIds?.length === 1 ? me?.clans.find(item => item.id === cultIds[0])?.name : null;
+    setNotice(cultIds?.length === 0 ? `Trade placed on ${target.symbol}. Only you see it.` : posted ? `Trade placed on ${target.symbol}, posted to ${posted}.` : `Trade placed on ${target.symbol}, posted to your cults.`);
+  });
+  const closeMarket = (marketToClose: string) => perform('close', async () => {
+    await closePosition(await token(), marketToClose);
+    setSelectedId(null);
+    if (clanId) await loadChart(clanId, marketToClose).catch(() => undefined);
+    setHoldings((await getHoldings(await token())).positions);
+    await loadMe();
+    setNotice('Position close submitted.');
   });
   const closeTrade = (holding: Holding) => perform('close', async () => {
     await closePosition(await token(), holding.market);
@@ -551,9 +554,15 @@ export function Dashboard() {
     setShareUrl(null);
     setPanel('positions');
   };
+  const showOnMarketPage = (marker: ChartMarker) => {
+    setMarketSolo(false);
+    setMarketPage(marker.marketId);
+    setView('markets');
+    selectMarker(marker);
+  };
   const openLinkedMarker = (id: string) => perform('open-linked', async () => {
     const onThisChart = snapshot?.markers.find(item => item.id === id);
-    if (onThisChart) { selectMarker(onThisChart); return; }
+    if (onThisChart) { showOnMarketPage(onThisChart); return; }
     if (!clanId || !snapshot) throw new Error('Open a cult chart to view this trade.');
     const auth = await token();
     for (const candidate of snapshot.markets) {
@@ -564,7 +573,7 @@ export function Dashboard() {
       setSnapshot(result);
       setMarketId(result.selectedMarket.id);
       setLastRefresh(new Date());
-      selectMarker(linked);
+      showOnMarketPage(linked);
       return;
     }
     throw new Error('This linked trade is no longer open on the cult chart.');
@@ -587,7 +596,7 @@ export function Dashboard() {
       if (kind === 'takeProfit') setTpDraft(String(price)); else setSlDraft(String(price));
     }
     await loadChart(clanId, marketId ?? undefined);
-    setNotice(marker.isMine ? 'Trigger order updated.' : 'Price suggestion sent to the position owner.');
+    setNotice(marker.isMine ? `${kind === 'takeProfit' ? 'TP' : 'SL'} set on Perpl.` : `Suggestion sent to ${marker.memberName}.`);
   });
   const saveLevels = () => perform('tpsl', async () => {
     if (!clanId || !selected || selected.venue !== 'perpl' || selected.entryPrice == null) throw new Error('Select an open Perpl position.');
@@ -601,7 +610,7 @@ export function Dashboard() {
     if (selected.isMine) await setPositionTpsl(auth, selected.marketId, values);
     else await suggestMarkerTpsl(auth, clanId, selected.id, values);
     await loadChart(clanId, marketId ?? undefined);
-    setNotice(selected.isMine ? 'Trigger orders updated.' : 'Price suggestion sent to the position owner.');
+    setNotice(selected.isMine ? 'TP/SL set on Perpl.' : `Suggestion sent to ${selected.memberName}.`);
   });
   const applySuggestion = (suggestion: TpslSuggestion) => perform('apply-tpsl', async () => {
     if (!selected?.isMine || selected.venue !== 'perpl' || !clanId) throw new Error('Only the position owner can apply a suggestion.');
@@ -621,21 +630,45 @@ export function Dashboard() {
   };
   const openAccount = (id = 'me') => { setProfileId(id); setView('account'); };
   const openTradeChart = (cultId: string, markerId: string, tradeMarket: string) => perform('open-chart', async () => {
-    const result = await getChart(await token(), cultId, tradeMarket);
+    const result = await getChart(await token(), cultId, tradeMarket, chartResolution);
     const marker = result.markers.find(item => item.id === markerId);
     if (!marker) throw new Error('This trade is no longer open on the Cult chart.');
     setClanId(cultId);
-    setRoomId(`cult:${cultId}`);
     setSnapshot(result);
     setMarketId(result.selectedMarket.id);
-    selectMarker(marker);
     setTradeSheetTarget(null);
-    setView(me?.clans.some(item => item.id === cultId) ? 'chat' : 'cult');
+    showOnMarketPage(marker);
   });
+  const pickMarketCult = (id: string | null) => {
+    setSelectedId(null);
+    if (!id) { setMarketSolo(true); return; }
+    setMarketSolo(false);
+    if (id !== clanId) { setClanId(id); setSnapshot(null); }
+  };
   const copyInvite = async () => {
     if (!clan) return;
     await navigator.clipboard.writeText(`${window.location.origin}/?invite=${encodeURIComponent(clan.inviteCode)}`);
     setNotice('Invite link copied.');
+  };
+
+  const cultTicketMarket: TicketMarket | null = market ? { venue: market.venue, id: market.id, symbol: market.symbol, maxLeverage: market.maxLeverage, priceUsd: snapshot?.candles.at(-1)?.close ?? null } : null;
+  const marketSocial: MarketSocial = {
+    cults: me?.clans ?? [],
+    cultId: marketSolo ? null : clanId,
+    onCult: pickMarketCult,
+    snapshot,
+    live: liveConnected,
+    selected,
+    onSelect: marker => { if (marker) selectMarker(marker); else setSelectedId(null); },
+    onGuideDrop: (marker, kind, price) => { void submitGuide(marker, kind, price); },
+    resolution: chartResolution,
+    onResolution: setChartResolution,
+    now,
+    stackUsd, onStackUsd: setStackUsd, onStack: stack,
+    tpDraft, slDraft, onTpDraft: setTpDraft, onSlDraft: setSlDraft, onSaveLevels: saveLevels,
+    onApplySuggestion: applySuggestion,
+    onSkip: skip,
+    onClosePosition: closeMarket,
   };
 
   if (!ready || !authenticated) return <main className="login-screen"><div className="login-brand">CULT<span>.</span></div><div className="login-main"><p className="eyebrow">CULTS / MONAD</p><h1>Trade together.<br />Own every move.</h1><p>One chart for your cult’s live positions across Perpl and Nad.fun. Your wallet, your funds, your trades.</p><div className="login-actions"><button className="primary large" onClick={() => requestLogin('google')}>Continue with Google {pendingLogin === 'google' && <span className="button-spinner" aria-hidden="true" />}</button><button className="outline large" onClick={() => requestLogin('wallet')}>Connect wallet {pendingLogin === 'wallet' && <span className="button-spinner" aria-hidden="true" />}</button></div></div><div className="login-foot">PUBLIC + PRIVATE CULTS <span>•</span> NO SHARED CUSTODY</div></main>;
@@ -653,7 +686,7 @@ export function Dashboard() {
         </nav>
         <div className="rail-heading">YOUR GROUPS <button className="icon-button compact" title="Create a cult" onClick={() => setFormOpen('create')}><Plus size={15} /></button></div>
         <div className="room-nav">{me?.rooms.filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <button key={room.id} className={view === 'chat' && roomId === room.id ? 'active' : ''} onClick={() => openRoom(room.id)}>
-          <span className={`room-avatar ${room.kind}`}>{room.icon}</span>
+          <RoomBadge icon={room.icon} kind={room.kind} />
           <span className="room-lines"><strong>{room.name}</strong><small>{room.lastMessage?.text ?? 'No messages yet'}</small></span>
           <time>{room.lastMessage ? new Date(room.lastMessage.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</time>
         </button>)}</div>
@@ -663,15 +696,15 @@ export function Dashboard() {
       <div className="content-topbar"><label className="top-search"><Search size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search groups or markets" aria-label="Search groups or markets" /></label><div className="topbar-right"><span className="balance-pill">{me?.balances ? dollars(me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0)) : '—'}</span><button className="primary" onClick={() => setDepositOpen(true)}><Wallet size={15} /> Deposit</button></div></div>
     {!me ? <main className="home-layout shell-loading"><div className="home-main"><div className="skeleton-line wide" /><div className="skeleton-line" /><div className="skeleton-line" /><div className="skeleton-line short" /></div><aside className="home-right"><div className="skeleton-card" /><div className="skeleton-card" /></aside></main>
       : view === 'home' ? <HomeView me={me} holdings={holdings} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} />
-      : view === 'markets' ? <MarketsView search={search} openId={marketPage} onOpen={openMarket} busy={busy === 'open'} onTrade={placeMarketTrade} />
+      : view === 'markets' ? (marketPage ? <MarketPage key={marketPage} id={marketPage} me={me} config={config} busy={busy} social={marketSocial} onBack={() => openMarket(null)} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} /> : <MarketsView search={search} onOpen={openMarket} />)
       : view === 'groups' ? <main className="full-workspace mobile-groups"><div className="mobile-groups-head"><span className="eyebrow">YOUR GROUPS</span><h1>Groups</h1><div><button className="outline" onClick={() => setFormOpen('create')}><Plus size={16} /> Create a cult</button><button className="outline" onClick={() => setFormOpen('join')}><Link2 size={16} /> Invite code</button></div></div><div className="home-rooms">{me.rooms.filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} onOpen={() => openRoom(room.id)} />)}</div></main>
       : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me?.country ?? null} cultId={clanId} onProfile={openAccount} search={search} />
       : view === 'leaderboards' ? <Leaderboards country={me?.country ?? null} cultId={clanId} />
       : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onSignOut={logout} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} />
       : view === 'chat' ? <main className="full-workspace room-screen"><div className="mobile-room-tools"><button className="icon-button" title="Back to groups" onClick={() => setView('groups')}><ArrowLeft size={20} /></button><span>{activeRoom?.name ?? 'Group'}</span><button className="outline" onClick={() => setGroupPanelOpen(true)}>{activeRoom?.kind === 'cult' ? 'Positions' : 'Rankings'}</button></div>{activeRoom ? <ClanChat key={activeRoom.id} room={activeRoom} liveMessage={activeRoom.kind === 'cult' ? liveMessage : null} selectedMarker={activeRoom.kind === 'cult' ? selected : null} onOpenMarker={openLinkedMarker} onMember={openAccount} onActivity={loadMe} onInvite={activeRoom.kind === 'cult' ? copyInvite : undefined} canPin={!!clan?.isOwner && activeRoom.kind === 'cult'} /> : <p className="field-note">This room is unavailable. Refresh your account or choose a country.</p>}</main>
       : !clanId ? <main className="full-workspace"><p className="field-note">Choose a Cult from your groups.</p></main> : <main className="main"><div className="main-head"><div><div className="eyebrow">CULT / {clan?.memberCount ?? 0} MEMBERS</div><h1>{clan?.name ?? 'Cult'}</h1></div><button className="outline" onClick={copyInvite}><Link2 size={15} /> Invite</button></div><div className="market-head"><div className="market-tabs">{snapshot?.markets.map(item => <button key={`${item.venue}:${item.id}`} className={item.id === market?.id && item.venue === market.venue ? 'active' : ''} onClick={() => { setMarketId(item.id); setSelectedId(null); }}><span>{item.symbol}</span><small>{venueName(item.venue)}</small></button>)}</div><select className="nad-market-picker" aria-label="Nad.fun token" value={market?.venue === 'nadfun' ? market.id : ''} onChange={event => { if (event.target.value) { setMarketId(event.target.value); setSelectedId(null); } }}><option value="">Nad.fun token</option>{nadMarkets.map(item => <option key={item.id} value={item.id}>{item.symbol}</option>)}</select><button className="icon-button" title="Refresh chart" onClick={() => loadChart(clanId, marketId ?? undefined).catch(err => setError(errorText(err)))}><RefreshCw size={16} /></button></div><section className="chart-section"><div className="chart-title"><div><span className="market-symbol">{market?.symbol ?? 'MARKET'}</span><span className="venue-badge">{market ? venueName(market.venue) : 'LIVE'}</span></div><span className="chart-updated">{lastRefresh ? `${liveConnected ? 'LIVE' : 'UPDATED'} ${lastRefresh.toLocaleTimeString()}` : 'CONNECTING'}</span></div><SharedChart candles={snapshot?.candles ?? []} markers={visibleMarkers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null }} selectedId={selectedId} onSelect={selectMarker} onGuideDrop={(marker, kind, price) => { void submitGuide(marker, kind, price); }} guidesDisabled={!!busy} /><div className="chart-legend"><span><i className="legend-triangle" /> Cult position</span><span><i className="legend-circle" /> Auto mirrored</span><span><i className="legend-square" /> Manual stack</span><span className="chart-legend-right">{visibleMarkers.length} LIVE MARKERS</span></div></section><div className="positions-strip"><div className="strip-heading"><h2>On this chart</h2><span>{visibleMarkers.length} positions</span></div><div className="position-list">{visibleMarkers.length ? visibleMarkers.map(item => <button key={item.id} className={`position-row ${item.id === selectedId ? 'selected' : ''}`} onClick={() => selectMarker(item)}><i className={`origin-icon ${item.origin}`} /><span className="position-person">{item.memberName}{item.isMine && <small>YOU</small>}</span><span className="position-meta">{originName(item.origin)} · {item.side.toUpperCase()}{item.mirrorStatus === 'pending' && mirrorRetries[item.id] ? ' · RETRYING' : ''}{item.pendingAdd ? ` · ADD x${item.pendingAdd.ratio.toFixed(2)}` : ''}</span><strong className={(item.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{item.venue === 'perpl' ? item.pnlUsd == null ? 'Pending' : signedDollars(item.pnlUsd) : item.valueUsd == null ? 'Pending' : dollars(item.valueUsd)}</strong></button>) : <p className="empty-line">No open cult positions on this market yet.</p>}</div></div></main>}
-    {view === 'chat' && activeRoom && <div className={`group-panel-shell ${groupPanelOpen ? 'open' : ''}`}><button className="group-panel-backdrop" aria-label="Close group details" onClick={() => setGroupPanelOpen(false)} /><button className="group-panel-close" onClick={() => setGroupPanelOpen(false)}><X size={18} /> Close</button><GroupPanel room={activeRoom} cult={activeRoom.kind === 'cult' ? clan ?? null : null} config={config} snapshot={activeRoom.kind === 'cult' ? snapshot : null} selected={activeRoom.kind === 'cult' ? selected : null} busy={!!busy} signerPrompt={signerPrompt} onGrantSigner={() => { void perform('grant-signer', async () => { const confirmed = await grantSigner(); setNotice(confirmed ? 'Trading signer is active.' : 'Signer approval is awaiting Privy verification.'); }); }} onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker} onOpenTrade={() => { setView('cult'); setPanel('positions'); }} onGuideDrop={(marker, kind, price) => { void submitGuide(marker, kind, price); }} onInvite={copyInvite} onVisibility={changeVisibility} onLeave={leave} onProfile={openAccount} /></div>}
-    {wallet && view === 'cult' && <aside className="detail"><div className="detail-tabs"><button className={panel === 'positions' ? 'active' : ''} onClick={() => setPanel('positions')}>Trade</button><button className={panel === 'members' ? 'active' : ''} onClick={() => setPanel('members')}>Members</button><button className={panel === 'chat' ? 'active' : ''} onClick={() => setPanel('chat')}>Chat</button><button className={panel === 'clan' ? 'active' : ''} onClick={() => setPanel('clan')}>Cult</button></div>{panel === 'positions' ? <div className="detail-body">{selected ? <><div className="detail-heading"><span className={`origin-tag ${selected.origin}`}>{originName(selected.origin)}</span><button className="icon-button compact" title="Close position details" onClick={() => setSelectedId(null)}><X size={15} /></button></div><h2>{selected.memberName} {selected.side === 'buy' ? 'holds' : selected.side}</h2><p className="detail-sub">{market?.symbol} on {venueName(selected.venue)}</p>{selected.mirrorStatus === 'pending' && mirrorRetries[selected.id] && <p className="wallet-warning">{mirrorRetries[selected.id]}</p>}<div className="stat-pair"><span>ENTRY</span><strong>{selected.entryPrice == null ? 'Pending' : dollars(selected.entryPrice, selected.entryPrice < 1 ? 6 : 2)}</strong></div><div className="stat-pair"><span>CURRENT</span><strong>{dollars(selected.markPrice, selected.markPrice < 1 ? 6 : 2)}</strong></div>{selected.venue === 'perpl' && selected.entryPrice != null && <><div className="stat-pair"><span>TAKE PROFIT</span><strong>{dollars(selected.takeProfitPrice)}</strong></div><div className="stat-pair"><span>STOP LOSS</span><strong>{dollars(selected.stopLossPrice)}</strong></div></>}<div className="pnl-block"><span>{selected.venue === 'perpl' ? 'LIVE PNL' : 'CURRENT VALUE'}</span><strong className={(selected.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{selected.venue === 'perpl' ? selected.pnlUsd == null ? 'Pending' : signedDollars(selected.pnlUsd) : selected.valueUsd == null ? 'Pending' : dollars(selected.valueUsd)}</strong></div>{selected.venue === 'perpl' && selected.entryPrice != null && <><div className="trade-divider" /><h3>{selected.isMine ? 'Manage TP / SL' : 'Suggest TP / SL'}</h3><div className="level-fields"><label><span className="field-label">TAKE PROFIT / $</span><input type="number" step="any" value={tpDraft} onChange={event => setTpDraft(event.target.value)} /></label><label><span className="field-label">STOP LOSS / $</span><input type="number" step="any" value={slDraft} onChange={event => setSlDraft(event.target.value)} /></label></div><button className="outline full" disabled={!!busy} onClick={saveLevels}>{selected.isMine ? 'Save trigger orders' : 'Send suggestion'}</button></>}{!selected.isMine ? <><div className="trade-divider" /><h3>Stack this trade</h3><p className="field-note">A new position in your account. This is your choice, separate from automatic mirroring.</p><label className="field-label" htmlFor="stack-size">YOUR SIZE / $</label><input id="stack-size" type="number" min="1" value={stackUsd} onChange={event => setStackUsd(event.target.value)} /><button className="primary full" disabled={!!busy} onClick={stack}>{selected.venue === 'perpl' ? 'Open my position' : 'Buy in my account'} <ArrowRight size={16} /></button></> : <>{selected.origin === 'auto_mirror' && selected.mirrorStatus === 'pending' && selected.skipUntil && Date.parse(selected.skipUntil) > now && <><div className="trade-divider" /><h3>Pending auto mirror</h3><p className="field-note">You can skip this trade for {Math.max(0, Math.ceil((Date.parse(selected.skipUntil) - now) / 1000))} more seconds.</p><button className="outline full" disabled={!!busy} onClick={skip}>Skip this mirror</button></>}{selected.pendingAdd && <><div className="trade-divider" /><h3>Leader is adding (x{selected.pendingAdd.ratio.toFixed(2)})</h3><p className="field-note">Your open copy will add the same share after the skip window. {Date.parse(selected.pendingAdd.skipUntil) > now ? `Skip within ${Math.max(0, Math.ceil((Date.parse(selected.pendingAdd.skipUntil) - now) / 1000))} seconds.` : 'The add is processing.'}</p>{Date.parse(selected.pendingAdd.skipUntil) > now && <button className="outline full" disabled={!!busy} onClick={skipAdd}>Skip this add</button>}</>}{selected.venue === 'perpl' && !!selected.suggestions?.length && <><div className="trade-divider" /><h3>Cult suggestions</h3><div className="suggestion-list">{selected.suggestions.map(suggestion => <div className="suggestion-row" key={suggestion.id}><div><strong>{suggestion.fromName}</strong><span>TP {dollars(suggestion.takeProfitPrice)} · SL {dollars(suggestion.stopLossPrice)}</span><small>{new Date(suggestion.createdAt).toLocaleString()}</small></div><button className="outline" disabled={!!busy} onClick={() => applySuggestion(suggestion)}>Apply</button></div>)}</div></>}<div className="trade-divider" /><h3>Share this result</h3><label className="switch-row"><span>Show cult name</span><input type="checkbox" checked={shareWithClan} onChange={event => setShareWithClan(event.target.checked)} /></label><button className="outline full" disabled={!!busy} onClick={share}><ExternalLink size={15} /> Create public card</button>{shareUrl && <a className="share-link" href={shareUrl} target="_blank" rel="noreferrer">Open public result <ExternalLink size={14} /></a>}</>}</> : <div className="trade-ticket"><div className="detail-section-label">YOUR OWN TRADE</div><h2>{market?.symbol ?? 'Select a market'}</h2><p className="detail-sub">{market ? venueName(market.venue) : 'Your account'}</p>{market?.venue === 'perpl' && <div className="funding-modes"><button className={tradeSide === 'long' ? 'active' : ''} onClick={() => setTradeSide('long')}>Long</button><button className={tradeSide === 'short' ? 'active' : ''} onClick={() => setTradeSide('short')}>Short</button></div>}<label className="field-label" htmlFor="trade-amount">{market?.venue === 'nadfun' ? 'BUY SIZE / $' : 'MARGIN / $'}</label><input id="trade-amount" type="number" min="1" value={tradeAusd} onChange={event => setTradeAusd(event.target.value)} />{market?.venue === 'perpl' && <><label className="field-label" htmlFor="trade-leverage">LEVERAGE</label><input id="trade-leverage" type="number" min="1" max={market.maxLeverage} value={tradeLeverage} onChange={event => setTradeLeverage(event.target.value)} /></>}{market?.venue === 'nadfun' && <p className="field-note">{me?.balances?.memesPayWith === 'ausd' ? 'Paid from wallet dollars. Keep MON for gas.' : 'Paid in MON from your wallet.'} {config?.monPriceAusd ? `1 MON = ${dollars(config.monPriceAusd)}` : 'MON price unavailable.'}</p>}<button className="primary full" disabled={!!busy || !market} onClick={openTrade}>{market?.venue === 'nadfun' ? 'Buy token' : 'Open position'} <ArrowRight size={16} /></button><div className="trade-divider" /><h3>Cult positions</h3><p className="field-note">Select a marker on the chart to inspect or stack it manually.</p></div>}</div> : panel === 'members' ? <div className="detail-body"><div className="detail-section-label">CULT TRACK RECORD</div><h2>Cult members</h2><div className="member-list">
+    {view === 'chat' && activeRoom && <div className={`group-panel-shell ${groupPanelOpen ? 'open' : ''}`}><button className="group-panel-backdrop" aria-label="Close group details" onClick={() => setGroupPanelOpen(false)} /><button className="group-panel-close" onClick={() => setGroupPanelOpen(false)}><X size={18} /> Close</button><GroupPanel room={activeRoom} cult={activeRoom.kind === 'cult' ? clan ?? null : null} config={config} snapshot={activeRoom.kind === 'cult' ? snapshot : null} selected={activeRoom.kind === 'cult' ? selected : null} busy={!!busy} signerPrompt={signerPrompt} onGrantSigner={() => { void perform('grant-signer', async () => { const confirmed = await grantSigner(); setNotice(confirmed ? 'Trading signer is active.' : 'Signer approval is awaiting Privy verification.'); }); }} onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker} onOpenTrade={() => { if (market) { setMarketSolo(false); setMarketPage(market.id); setView('markets'); } }} onGuideDrop={(marker, kind, price) => { void submitGuide(marker, kind, price); }} onInvite={copyInvite} onVisibility={changeVisibility} onLeave={leave} onProfile={openAccount} /></div>}
+    {wallet && view === 'cult' && <aside className="detail"><div className="detail-tabs"><button className={panel === 'positions' ? 'active' : ''} onClick={() => setPanel('positions')}>Trade</button><button className={panel === 'members' ? 'active' : ''} onClick={() => setPanel('members')}>Members</button><button className={panel === 'chat' ? 'active' : ''} onClick={() => setPanel('chat')}>Chat</button><button className={panel === 'clan' ? 'active' : ''} onClick={() => setPanel('clan')}>Cult</button></div>{panel === 'positions' ? <div className="detail-body">{selected ? <><div className="detail-heading"><span className={`origin-tag ${selected.origin}`}>{originName(selected.origin)}</span><button className="icon-button compact" title="Close position details" onClick={() => setSelectedId(null)}><X size={15} /></button></div><h2>{selected.memberName} {selected.side === 'buy' ? 'holds' : selected.side}</h2><p className="detail-sub">{market?.symbol} on {venueName(selected.venue)}</p>{selected.mirrorStatus === 'pending' && mirrorRetries[selected.id] && <p className="wallet-warning">{mirrorRetries[selected.id]}</p>}<div className="stat-pair"><span>ENTRY</span><strong>{selected.entryPrice == null ? 'Pending' : dollars(selected.entryPrice, selected.entryPrice < 1 ? 6 : 2)}</strong></div><div className="stat-pair"><span>CURRENT</span><strong>{dollars(selected.markPrice, selected.markPrice < 1 ? 6 : 2)}</strong></div>{selected.venue === 'perpl' && selected.entryPrice != null && <><div className="stat-pair"><span>TAKE PROFIT</span><strong>{dollars(selected.takeProfitPrice)}</strong></div><div className="stat-pair"><span>STOP LOSS</span><strong>{dollars(selected.stopLossPrice)}</strong></div></>}<div className="pnl-block"><span>{selected.venue === 'perpl' ? 'LIVE PNL' : 'CURRENT VALUE'}</span><strong className={(selected.pnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{selected.venue === 'perpl' ? selected.pnlUsd == null ? 'Pending' : signedDollars(selected.pnlUsd) : selected.valueUsd == null ? 'Pending' : dollars(selected.valueUsd)}</strong></div>{selected.venue === 'perpl' && selected.entryPrice != null && <><div className="trade-divider" /><h3>{selected.isMine ? 'Manage TP / SL' : 'Suggest TP / SL'}</h3><div className="level-fields"><label><span className="field-label">TAKE PROFIT / $</span><input type="number" step="any" value={tpDraft} onChange={event => setTpDraft(event.target.value)} /></label><label><span className="field-label">STOP LOSS / $</span><input type="number" step="any" value={slDraft} onChange={event => setSlDraft(event.target.value)} /></label></div><button className="outline full" disabled={!!busy} onClick={saveLevels}>{selected.isMine ? 'Save trigger orders' : 'Send suggestion'}</button></>}{!selected.isMine ? <><div className="trade-divider" /><h3>Stack this trade</h3><p className="field-note">A new position in your account. This is your choice, separate from automatic mirroring.</p><label className="field-label" htmlFor="stack-size">YOUR SIZE / $</label><input id="stack-size" type="number" min="1" value={stackUsd} onChange={event => setStackUsd(event.target.value)} /><button className="primary full" disabled={!!busy} onClick={stack}>{selected.venue === 'perpl' ? 'Open my position' : 'Buy in my account'} <ArrowRight size={16} /></button></> : <>{selected.origin === 'auto_mirror' && selected.mirrorStatus === 'pending' && selected.skipUntil && Date.parse(selected.skipUntil) > now && <><div className="trade-divider" /><h3>Pending auto mirror</h3><p className="field-note">You can skip this trade for {Math.max(0, Math.ceil((Date.parse(selected.skipUntil) - now) / 1000))} more seconds.</p><button className="outline full" disabled={!!busy} onClick={skip}>Skip this mirror</button></>}{selected.pendingAdd && <><div className="trade-divider" /><h3>Leader is adding (x{selected.pendingAdd.ratio.toFixed(2)})</h3><p className="field-note">Your open copy will add the same share after the skip window. {Date.parse(selected.pendingAdd.skipUntil) > now ? `Skip within ${Math.max(0, Math.ceil((Date.parse(selected.pendingAdd.skipUntil) - now) / 1000))} seconds.` : 'The add is processing.'}</p>{Date.parse(selected.pendingAdd.skipUntil) > now && <button className="outline full" disabled={!!busy} onClick={skipAdd}>Skip this add</button>}</>}{selected.venue === 'perpl' && !!selected.suggestions?.length && <><div className="trade-divider" /><h3>Cult suggestions</h3><div className="suggestion-list">{selected.suggestions.map(suggestion => <div className="suggestion-row" key={suggestion.id}><div><strong>{suggestion.fromName}</strong><span>TP {dollars(suggestion.takeProfitPrice)} · SL {dollars(suggestion.stopLossPrice)}</span><small>{new Date(suggestion.createdAt).toLocaleString()}</small></div><button className="outline" disabled={!!busy} onClick={() => applySuggestion(suggestion)}>Apply</button></div>)}</div></>}<div className="trade-divider" /><h3>Share this result</h3><label className="switch-row"><span>Show cult name</span><input type="checkbox" checked={shareWithClan} onChange={event => setShareWithClan(event.target.checked)} /></label><button className="outline full" disabled={!!busy} onClick={share}><ExternalLink size={15} /> Create public card</button>{shareUrl && <a className="share-link" href={shareUrl} target="_blank" rel="noreferrer">Open public result <ExternalLink size={14} /></a>}</>}</> : <div className="trade-ticket-panel"><div className="detail-section-label">YOUR OWN TRADE</div><h2>{market?.symbol ?? 'Select a market'}</h2><p className="detail-sub">{market ? venueName(market.venue) : 'Your account'}</p>{market && <TradeTicket market={cultTicketMarket!} balances={me?.balances ?? null} monPriceUsd={config?.monPriceAusd ?? null} cults={me?.clans ?? []} defaultPostTo={clanId ?? 'all'} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds) => placeMarketTrade(cultTicketMarket!, side, margin, lev, cultIds)} onDeposit={() => setDepositOpen(true)} />}<div className="trade-divider" /><h3>Cult positions</h3><p className="field-note">Select a marker on the chart to inspect or stack it manually.</p></div>}</div> : panel === 'members' ? <div className="detail-body"><div className="detail-section-label">CULT TRACK RECORD</div><h2>Cult members</h2><div className="member-list">
         {snapshot?.members.map(member => <div className="member-row" key={member.id}>
           <div className="member-top"><span className="member-avatar">{member.name.slice(0, 1).toUpperCase()}</span><div><strong>{member.name}</strong><small>{shortAddress(member.address)}</small></div>{member.verified ? <ShieldCheck size={15} className="verified" /> : <small className="unverified">UNVERIFIED</small>}</div>
           <div className="member-stats"><span>WIN RATE<strong>{member.verified ? percent(member.winRate == null ? null : member.winRate * 100) : '—'}</strong></span><span>OWN TRADES<strong>{member.verified ? member.tradeCount : '—'}</strong></span><span>REALIZED PNL<strong className={(member.realizedPnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{member.verified && member.realizedPnlUsd != null ? signedDollars(member.realizedPnlUsd) : '—'}</strong></span></div>
