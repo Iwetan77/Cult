@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createTestIndexer } from 'envio';
 
 const OWNER = '0x00000000000000000000000000000000000000aa';
-const blk = (n: number) => ({ number: 100_000 + n, timestamp: 1_790_000_000 + n });
+const blk = (n: number) => ({ number: 66_310_000 + n, timestamp: 1_790_000_000 + n });
 const tx = (n: number) => ({ hash: '0x' + n.toString(16).padStart(64, '0') });
 
 test('open, add at a higher price, close: averaged entry, funding from the add, one round trip', async () => {
@@ -15,8 +15,8 @@ test('open, add at a higher price, close: averaged entry, funding from the add, 
   await t.process({
     chains: {
       10143: {
-        startBlock: 100_001,
-        endBlock: 100_005,
+        startBlock: 66_310_001,
+        endBlock: 66_310_005,
         simulate: [
           { contract: 'Exchange', event: 'AccountCreated', block: blk(1), transaction: tx(1), params: { account: OWNER, id: 7n } },
           // BTC (priceDecimals 1, sizeDecimals 5): open 1.00000 at 100000.0
