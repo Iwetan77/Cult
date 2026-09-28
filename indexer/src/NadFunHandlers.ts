@@ -1,5 +1,6 @@
 import { indexer } from "envio";
 import { monWeiToMon, ensureTrader } from "./helpers";
+import { isMember } from "./members";
 
 // Nad.fun is native-MON quoted. The router's Buy/Sell events carry the trader's
 // wallet directly (indexed), so no account-id indirection is needed.
@@ -120,6 +121,7 @@ indexer.onEvent(
   { contract: "NadFunRouter", event: "Buy" },
   async ({ event, context }) => {
     const buyer = String(event.params.buyer).toLowerCase();
+    if (!(await isMember(buyer))) return;
     const token = String(event.params.token).toLowerCase();
     const amountIn = BigInt(event.params.amountIn);   // MON wei
     const amountOut = BigInt(event.params.amountOut); // tokens
@@ -167,6 +169,7 @@ indexer.onEvent(
   { contract: "NadFunRouter", event: "Sell" },
   async ({ event, context }) => {
     const seller = String(event.params.seller).toLowerCase();
+    if (!(await isMember(seller))) return;
     const token = String(event.params.token).toLowerCase();
     const amountIn = BigInt(event.params.amountIn);   // tokens
     const amountOut = BigInt(event.params.amountOut); // MON wei
