@@ -445,3 +445,13 @@
 .search-drop-price{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-family:var(--font-mono),monospace;font-size:12px}
 .search-drop-empty{margin:0;padding:12px 10px;color:var(--muted);font-size:12.5px}
 @media(max-width:650px){.search-drop{position:fixed;left:10px;right:10px;top:58px}}
+
+/* ---- Account chip: one row, a small card ---- */
+.rail-footer.account-chip{flex-direction:row;align-items:center;gap:2px;margin:14px 2px 0;padding:6px 4px 6px 10px;border:1px solid #333a45;border-radius:12px;background:#20242d}
+.rail-footer.account-chip:hover{border-color:#434b58}
+.account-chip .account-chip-main{padding:4px 0;gap:10px}
+.account-chip .account-chip-main>.room-avatar{width:36px;height:36px}
+.account-chip .account-chip-label strong{font-size:13px}
+.account-chip .account-chip-label small{font-size:10.5px}
+.account-chip .account-copy{width:34px;height:34px;border-radius:8px;color:var(--muted)}
+.account-chip .account-copy:hover{color:var(--text);background:#2a303b}
