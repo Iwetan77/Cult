@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, GripHorizontal, X } from 'lucide-react';
+import { ArrowRight, GripHorizontal, Share2, X } from 'lucide-react';
 import type { ChartMarker, TpslSuggestion } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
 import { Avatar } from './Avatar';
@@ -27,6 +27,7 @@ type Props = {
   onApplySuggestion: (suggestion: TpslSuggestion) => void;
   onSkip: () => void;
   onClosePosition: () => void;
+  onShare: () => void;
   onDismiss: () => void;
 };
 
@@ -80,6 +81,9 @@ export function MarkerCard(p: Props) {
       <small>Opens the same {perp ? 'position' : 'buy'} in your own account.</small>
     </div>}
 
-    {m.isMine && m.origin !== 'auto_mirror' && <button className="outline full danger-button" disabled={p.busy} onClick={p.onClosePosition}>Close position</button>}
+    {m.isMine && <div className="marker-card-own">
+      <button className="outline" disabled={p.busy} onClick={p.onShare}><Share2 size={14} /> Share PnL card</button>
+      {m.origin !== 'auto_mirror' && <button className="outline danger-button" disabled={p.busy} onClick={p.onClosePosition}>Close position</button>}
+    </div>}
   </section>;
 }
