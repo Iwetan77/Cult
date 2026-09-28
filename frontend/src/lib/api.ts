@@ -1,4 +1,5 @@
 import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
+import { rememberList, rememberMarket } from './marketCache';
 
 const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
@@ -20,6 +21,9 @@ export async function api<T>(path: string, token: string | null, options: Reques
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string };
     const message = body.message ?? `Request failed (${response.status})`;
+    if (response.status === 503 && path === '/v1/positions/open') {
+      throw new ApiError("Couldn't swap for this trade right now. Try again shortly.", 503);
+    }
     if (response.status === 429) {
       const retryAfter = Number(response.headers.get('Retry-After'));
       const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : null;
@@ -37,7 +41,8 @@ export const getMe = (token: string) => api<Me>('/v1/me', token);
 export const getPrivySigner = (token: string) => api<PrivySignerGrant>('/v1/privy/signer', token);
 export const getNadMarkets = (token: string) => api<{ markets: NadMarket[] }>('/v1/nadfun/markets?order=latest_trade', token);
 export const getHoldings = (token: string) => api<{ positions: Holding[] }>('/v1/positions', token);
-export const openPosition = (token: string, marketId: string, side: 'long' | 'short' | 'buy', marginUsd: number, leverage?: number) => api<Fill>('/v1/positions/open', token, { method: 'POST', body: json({ marketId, side, marginUsd, ...(leverage ? { leverage } : {}) }) });
+// cultIds is "Post to": omitted = all your cults, [] = just you.
+export const openPosition = (token: string, marketId: string, side: 'long' | 'short' | 'buy', marginUsd: number, leverage?: number, cultIds?: string[]) => api<Fill>('/v1/positions/open', token, { method: 'POST', body: json({ marketId, side, marginUsd, ...(leverage ? { leverage } : {}), ...(cultIds ? { cultIds } : {}) }) });
 export const closePosition = (token: string, marketId: string) => api<Fill>('/v1/positions/close', token, { method: 'POST', body: json({ marketId }) });
 export const createClan = (token: string, name: string, visibility: 'private' | 'public') => api<Clan>('/v1/cults', token, { method: 'POST', body: json({ name, visibility }) });
 export const getJoinChallenge = (token: string, target: { inviteCode: string } | { cultId: string }, policy: MirrorPolicy) => api<SignedChallenge>('/v1/cults/join/challenge', token, { method: 'POST', body: json({ ...target, policy }) });
@@ -47,7 +52,7 @@ export const updateClanPolicy = (token: string, clanId: string, challengeId: str
 export const leaveClan = (token: string, clanId: string) => api<void>(`/v1/cults/${encodeURIComponent(clanId)}/leave`, token, { method: 'POST' });
 export const getClanMessages = (token: string, clanId: string, before?: string) => api<ChatPage>(`/v1/cults/${encodeURIComponent(clanId)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : ''}`, token);
 export const sendClanMessage = (token: string, clanId: string, body: string, replyTo?: string, markerId?: string) => api<ChatMessage>(`/v1/cults/${encodeURIComponent(clanId)}/messages`, token, { method: 'POST', body: json({ body, ...(replyTo ? { replyTo } : {}), ...(markerId ? { markerId } : {}) }) });
-export const getChart = (token: string, clanId: string, marketId?: string) => api<ChartSnapshot>(`/v1/cults/${encodeURIComponent(clanId)}/chart${marketId ? `?marketId=${encodeURIComponent(marketId)}` : ''}`, token);
+export const getChart = (token: string, clanId: string, marketId?: string, resolutionSec?: number) => api<ChartSnapshot>(`/v1/cults/${encodeURIComponent(clanId)}/chart?${new URLSearchParams({ ...(marketId ? { marketId } : {}), ...(resolutionSec ? { resolution: String(resolutionSec) } : {}) })}`, token);
 export const getClanEventUrl = (clanId: string) => {
   if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
   return `${BASE.replace(/\/$/, '')}/v1/cults/${encodeURIComponent(clanId)}/events`;
@@ -88,5 +93,7 @@ export const setUsername = (token: string, username: string) => api<{ username: 
 export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: string }>('/v1/me/avatar', token, { method: 'POST', body: json({ image }) });
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
 export const getDeposit = (token: string) => api<DepositInfo>('/v1/wallet/deposit', token);
-export const getMarkets = (query = '', venue?: Venue) => api<{ markets: MarketListing[] }>(`/v1/markets?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(venue ? { venue } : {}), limit: '100' })}`, null);
-export const getMarket = (id: string, resolutionSec = 3600) => api<MarketDetail>(`/v1/markets/${encodeURIComponent(id)}?resolution=${resolutionSec}`, null);
+export const getMarkets = (query = '', venue?: Venue) => api<{ markets: MarketListing[] }>(`/v1/markets?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(venue ? { venue } : {}), limit: '100' })}`, null)
+  .then(r => { rememberList(query, venue, r.markets); return r; });
+export const getMarket = (id: string, resolutionSec = 3600) => api<MarketDetail>(`/v1/markets/${encodeURIComponent(id)}?resolution=${resolutionSec}`, null)
+  .then(d => { rememberMarket(d); return d; });

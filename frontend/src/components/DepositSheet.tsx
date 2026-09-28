@@ -9,7 +9,9 @@ import type { DepositInfo } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
 import { TokenLogo } from './TokenLogo';
 
-export function DepositSheet({ onClose }: { onClose: () => void }) {
+type Props = { onClose: () => void; signerReady: boolean; permissionBusy: boolean; onGrantPermission: () => void };
+
+export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPermission }: Props) {
   const [info, setInfo] = useState<DepositInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
@@ -43,6 +45,7 @@ export function DepositSheet({ onClose }: { onClose: () => void }) {
     <section className="deposit-sheet" role="dialog" aria-modal="true" aria-label="Deposit">
       <div className="trade-sheet-head"><span className="eyebrow">YOUR WALLET</span><button className="icon-button" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
       <h2>Deposit</h2>
+      {!signerReady && <div className="deposit-permission"><strong>Allow Cult to place your trades</strong><p className="field-note">Needed to convert USDC and fund trades automatically</p><button className="outline full" disabled={permissionBusy} onClick={onGrantPermission}>Allow</button></div>}
       {loading ? <p className="field-note">Loading your wallet...</p> : error && !info ? <><p className="wallet-warning">{error}</p><button className="outline" onClick={() => { setLoading(true); setRevision(value => value + 1); }}><RefreshCw size={14} /> Retry</button></> : info && <>
         <div className="deposit-qr"><QRCodeSVG value={info.address} size={184} level="M" bgColor="#ffffff" fgColor="#151820" /></div>
         <div className="deposit-address-large">{info.address}</div>
