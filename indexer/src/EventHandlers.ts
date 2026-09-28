@@ -8,6 +8,7 @@ import {
   sideLabel,
   ensureTrader,
 } from "./helpers";
+import { isMember, memberOfPerplAccount } from "./members";
 
 const ZERO = 0n;
 
@@ -30,6 +31,20 @@ interface PosState {
 
 function eventId(tx: string, logIndex: number): string {
   return `${tx}-${logIndex}`;
+}
+
+// The wallet behind a Perpl account we track, or undefined. Known from its
+// AccountCreated, or (for an account created before the start block) from the
+// backend's member list. Every position and fill hangs off this, so non-member
+// accounts leave nothing behind.
+async function perplOwner(context: any, accountId: bigint): Promise<string | undefined> {
+  const acct = await context.PerplAccount.get(accountId);
+  if (acct) return acct.owner;
+  const owner = await memberOfPerplAccount(accountId);
+  if (!owner) return undefined;
+  context.PerplAccount.set({ id: accountId, owner });
+  await ensureTrader(context, owner);
+  return owner;
 }
 
 async function getPosition(context: any, perpId: bigint, accountId: bigint): Promise<PosState | undefined> {
@@ -141,6 +156,7 @@ indexer.onEvent(
   async ({ event, context }) => {
     const accountId = BigInt(event.params.id);
     const owner = String(event.params.account).toLowerCase();
+    if (!(await isMember(owner))) return;
     context.PerplAccount.set({ id: accountId, owner });
     await ensureTrader(context, owner);
   },
@@ -158,9 +174,8 @@ async function handleOpened(context: any, event: any, isV2: boolean) {
   const block = BigInt(event.block.number);
   const ts = BigInt(event.block.timestamp) * 1000n // block timestamp is seconds; store ms;
 
-  const acct = await context.PerplAccount.get(accountId);
-  if (!acct) return;
-  const owner = acct.owner;
+  const owner = await perplOwner(context, accountId);
+  if (!owner) return;
 
   const existing = await getPosition(context, perpId, accountId);
   if (existing && existing.status === "OPEN" && existing.sizeLNS > 0n) {
@@ -495,13 +510,13 @@ indexer.onEvent(
 async function handleMakerFill(context: any, event: any) {
   const perpId = BigInt(event.params.perpId);
   const accountId = BigInt(event.params.accountId);
-  const acct = await context.PerplAccount.get(accountId);
-  if (!acct) return; // an account created before our start block
+  const owner = await perplOwner(context, accountId);
+  if (!owner) return; // not a member's account
   const cfg = market(perpId);
-  await ensureTrader(context, acct.owner);
+  await ensureTrader(context, owner);
   context.PerplFill.set({
     id: `${event.transaction.hash}-${event.logIndex}`,
-    trader_id: acct.owner,
+    trader_id: owner,
     accountId,
     marketId: perpId,
     symbol: cfg.symbol,

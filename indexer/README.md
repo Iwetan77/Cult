@@ -13,9 +13,26 @@ Venues:
 - **Nad.fun** — Monad-native memes (spot, bonding curve -> DEX). The router's
   `Buy`/`Sell` events carry the trader's wallet directly. PnL in MON.
 
+## Who it tracks: Cult members only
+
+With `CULT_API_URL` set, only wallets on the backend's member list are indexed
+(`GET /v1/indexer/accounts`, header `X-Indexer-Key: $INDEXER_API_KEY`, see
+`src/members.ts`). Everyone else's events are read and dropped.
+
+- Why: Perpl testnet alone emits about 150,000 position events a day, almost all
+  from market-making bots. Storing everyone filled a 500 MB database in minutes,
+  and nothing reads it.
+- A member's Perpl account is matched by its id from the backend, so an account
+  created before the start block still counts.
+- A record starts when the member is on the list. Earlier trades aren't counted.
+- If the backend can't be reached, the indexer waits and retries instead of
+  guessing, and crashes after 5 minutes so the host restarts it.
+- Without `CULT_API_URL`, every wallet is indexed. Local runs and the handler
+  tests work this way.
+
 ## What it computes
 
-For every wallet:
+For every tracked wallet:
 
 - **Win rate** — profitable closed trades / total closed trades, combined across
   both venues. A "trade" is a round trip (a Perpl position opened then fully
@@ -76,11 +93,12 @@ and the Cult backend can read the `Trader` table directly instead
 ENVIO_HASURA=false ENVIO_TUI=false \
 ENVIO_PG_HOST=... ENVIO_PG_PORT=5432 ENVIO_PG_USER=... ENVIO_PG_PASSWORD=... ENVIO_PG_DATABASE=... \
 ENVIO_API_TOKEN=... \
-npx envio start
+CULT_API_URL=https://<backend> INDEXER_API_KEY=... \
+npm start
 ```
 
-- `ENVIO_API_TOKEN` (HyperSync) is what makes a full sync from the Perpl deploy
-  block practical. Over the public RPC it's 100 blocks per request.
+- `ENVIO_API_TOKEN` (HyperSync) is the fast data source. Over the public RPC
+  it's 100 blocks per request.
 - With `NODE_ENV=production` (Railway sets it), Envio drops its local defaults and
   crashes on start (`graphqlEndpoint.slice`) unless these are set too, even with
   Hasura off:
@@ -92,9 +110,13 @@ npx envio start
   ENVIO_THROTTLE_CHAIN_METADATA_INTERVAL_MILLIS=500
   ENVIO_THROTTLE_PRUNE_STALE_DATA_INTERVAL_MILLIS=30000
   ```
-- `npm start` first waits for Postgres to accept queries (up to 5 minutes,
-  `WAIT_FOR_DB_SECONDS`), so a database that is restarting doesn't use up the
-  host's restart budget.
+- `npm start` runs `scripts/prepare-db.mjs` before Envio:
+  - It waits for Postgres to accept queries (up to 5 minutes,
+    `WAIT_FOR_DB_SECONDS`), so a database that is restarting doesn't use up the
+    host's restart budget.
+  - When the indexing rules change (`INDEX_VERSION` in the script, or a different
+    `ENVIO_CONFIG`), it drops the schema so Envio re-indexes from the start
+    block. The version is kept in `cult_meta.index_version`.
 - Give the backend a **read-only** Postgres user for `INDEXER_PG_URL`.
 - Run a single process. Add `-r` only to wipe and re-index.
 - A short, token-free check over a fixed block range: `npx envio start --config
@@ -108,10 +130,12 @@ npx envio start
   RPC is `fallback`. Note the public Monad RPC caps `eth_getLogs` at a 100-block
   range, so an RPC-only sync needs `initial_block_interval: 100` (see `API.md`
   for how the gate was run).
+- Start block `66270000` (2026-09-28, when the hosted indexer went live).
+  Members only and records from joining on, so older history isn't scanned.
+  The contracts' deploy blocks were `62953` (Perpl) and `30418626` (Nad.fun).
 - Two contracts on that chain:
-  - `Exchange` `0x1964C32f0bE608E7D29302AFF5E61268E72080cc`, start block `62953`.
-  - `NadFunRouter` `0x75588668999cA0557b78046b8a5E86b47b9234ec`, start block
-    `30418626`.
+  - `Exchange` `0x1964C32f0bE608E7D29302AFF5E61268E72080cc`
+  - `NadFunRouter` `0x75588668999cA0557b78046b8a5E86b47b9234ec`
 - Perpl events: `AccountCreated` + the full `Position*` lifecycle (incl. `V2`s).
 - Nad.fun events: router `Buy` and `Sell` (the router emits on both the curve and
   DEX paths; `graduated` tells them apart).
