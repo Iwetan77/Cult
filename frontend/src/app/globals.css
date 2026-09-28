@@ -135,6 +135,7 @@
 .profile-camera{position:absolute;right:0;bottom:0;width:23px;height:23px;padding:4px;border-radius:50%;background:var(--green);color:#151820}
 .profile-photo-actions{display:flex;align-items:center;gap:12px;margin:0 0 18px}
 
+.permission-backdrop{z-index:40}.deposit-permission{padding:16px 0 22px;border-bottom:1px solid var(--line);margin-bottom:22px}.deposit-permission strong{font-size:13px}.deposit-permission .field-note{margin:8px 0}.toast{z-index:45}
 .mobile-tabs,.mobile-room-tools,.group-panel-backdrop,.group-panel-close{display:none}
 .group-panel-shell{display:contents}
 .mobile-groups{grid-column:2 / 4;grid-row:2;padding:30px 38px;background:var(--surface);min-width:0}

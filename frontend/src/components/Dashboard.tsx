@@ -20,6 +20,7 @@ import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
 import { MarketsView } from './MarketsView';
 import { DepositSheet } from './DepositSheet';
+import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
 
 const venueName = (venue: Venue) => venue === 'perpl' ? 'Perpl' : 'Nad.fun';
@@ -56,6 +57,14 @@ export function Dashboard() {
   const [tradeAusd, setTradeAusd] = useState('50');
   const [tradeLeverage, setTradeLeverage] = useState('2');
   const [depositOpen, setDepositOpen] = useState(false);
+  const [permissionOpen, setPermissionOpen] = useState(false);
+  const permissionResolve = useRef<((allowed: boolean) => void) | null>(null);
+  const decidePermission = (allowed: boolean) => {
+    setPermissionOpen(false);
+    permissionResolve.current?.(allowed);
+    permissionResolve.current = null;
+  };
+  useEffect(() => () => { permissionResolve.current?.(false); }, []);
   const [createVisibility, setCreateVisibility] = useState<'private' | 'public'>('private');
   const [view, setView] = useState<'home' | 'cult' | 'discover' | 'chat' | 'account' | 'leaderboards' | 'markets' | 'groups'>('home');
   const [marketPage, setMarketPage] = useState<string | null>(null);
@@ -104,7 +113,7 @@ export function Dashboard() {
   const gasReserveMon = me?.balances?.gasReserveMon ?? 0.25;
   const lowGas = me?.balances?.lowGas ?? (balanceMon != null && balanceMon < gasReserveMon);
   const signerReady = me?.signer.attached === true && me.signer.policyCurrent === true;
-  const signerPrompt = !clanId || signerReady ? null : me?.signer.attached === false ? 'Allow Cult to copy trades for you' : me?.signer.policyCurrent === false ? 'Re-approve your new limits' : 'Signer status unavailable. Retry shortly.';
+  const signerPrompt = !clanId || signerReady ? null : 'Allow Cult to place your trades';
   useEffect(() => {
     if (!ready || !pendingLogin || authenticated) return;
     const method = pendingLogin;
@@ -284,10 +293,16 @@ export function Dashboard() {
   };
   const grantSigner = async () => {
     if (!wallet) throw new Error('Create your Privy wallet first.');
+    const allowed = await new Promise<boolean>(resolve => {
+      permissionResolve.current = resolve;
+      setPermissionOpen(true);
+    });
+    if (!allowed) return false;
     const value = await getPrivySigner(await token());
     await addSigners({ address: wallet.address, signers: [{ signerId: value.signerId, policyIds: value.policyIds }] });
     const current = await loadMe();
-    return current.signer.attached === true && current.signer.policyCurrent === true;
+    if (current.signer.attached !== true || current.signer.policyCurrent !== true) throw new Error('Trading permission is awaiting verification. Try again shortly.');
+    return true;
   };  const enterCult = async (joined: Me['clans'][number]) => {
     await loadMe();
     setClanId(joined.id);
@@ -442,6 +457,7 @@ export function Dashboard() {
     if (!market || !clanId) throw new Error('Select a market first.');
     const amount = Number(tradeAusd);
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid dollar amount.');
+    if (!signerReady && !await grantSigner()) return;
     if (market.venue === 'nadfun') requireNadFunds(amount);
     if (market.venue === 'perpl' && !await ensurePerps()) return;
     const leverage = market.venue === 'perpl' ? Number(tradeLeverage) : undefined;
@@ -456,6 +472,7 @@ export function Dashboard() {
   // one-time perps setup), then it's the member's own trade and cult-mates on
   // Auto-follow copy it.
   const placeMarketTrade = (target: MarketListing, side: 'long' | 'short' | 'buy', amountUsd: number, leverage?: number) => perform('open', async () => {
+    if (!signerReady && !await grantSigner()) return;
     if (target.venue === 'nadfun') requireNadFunds(amountUsd);
     if (target.venue === 'perpl' && !await ensurePerps()) return;
     await openPosition(await token(), target.id, target.venue === 'nadfun' ? 'buy' : side, amountUsd, leverage);
@@ -474,6 +491,7 @@ export function Dashboard() {
     if (selected.isMine) throw new Error('Choose a cult-mate position to stack.');
     const amount = Number(stackUsd);
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid amount.');
+    if (!signerReady && !await grantSigner()) return;
     if (selected.venue === 'nadfun') requireNadFunds(amount);
     if (selected.venue === 'perpl' && !await ensurePerps()) return;
     const result = await stackPosition(await token(), clanId, selected.id, amount);
@@ -640,7 +658,8 @@ export function Dashboard() {
     <nav className="mobile-tabs" aria-label="Mobile navigation"><button className={view === 'home' ? 'active' : ''} onClick={() => setView('home')}><Home size={20} /><span>Home</span></button><button className={view === 'markets' ? 'active' : ''} onClick={() => openMarket(null)}><CandlestickChart size={20} /><span>Markets</span></button><button className={['groups', 'chat', 'cult'].includes(view) ? 'active' : ''} onClick={() => { setGroupPanelOpen(false); setView('groups'); }}><Compass size={20} /><span>Groups</span></button><button className={view === 'account' ? 'active' : ''} onClick={() => openAccount()}><UserRound size={20} /><span>Account</span></button></nav>
     {(error || notice) && <div className={`toast ${error ? 'error' : ''}`} role="status">{error ?? notice}<button className="icon-button compact" title="Dismiss" onClick={() => { setError(null); setNotice(null); }}><X size={14} /></button></div>}
     {formOpen && <div className="modal-backdrop"><section className="simple-dialog" role="dialog" aria-modal="true" aria-label={formOpen === 'create' ? 'Create a cult' : 'Join a cult'}><button className="icon-button dialog-close" title="Close" onClick={() => setFormOpen(null)}><X size={16} /></button><span className="eyebrow">{formOpen === 'create' ? 'NEW CULT' : 'INVITATION'}</span><h2>{formOpen === 'create' ? 'Create a cult' : 'Join a cult'}</h2>{formOpen === 'create' ? <><label className="field-label" htmlFor="cult-name">NAME</label><input id="cult-name" value={name} onChange={event => setName(event.target.value)} maxLength={36} placeholder="Name your cult" /><label className="switch-row"><span>Public</span><input type="checkbox" checked={createVisibility === 'public'} onChange={event => setCreateVisibility(event.target.checked ? 'public' : 'private')} /></label><p className="field-note">Auto-follow starts off. Members choose whether to turn it on later.</p><button className="primary full" disabled={!!busy || !name.trim()} onClick={create}>Create cult <ArrowRight size={15} /></button></> : <><label className="field-label" htmlFor="invite-code">INVITE CODE</label><input id="invite-code" value={inviteCode} onChange={event => setInviteCode(formatInviteCode(event.target.value))} autoCapitalize="characters" maxLength={7} placeholder="ABC-DEF" /><p className="field-note">Joining is instant. Auto-follow stays off.</p><button className="primary full" disabled={!!busy || !/^[A-Z]{3}-[A-Z]{3}$/.test(inviteCode)} onClick={join}>Join cult <ArrowRight size={15} /></button></>}</section></div>}
-    {depositOpen && <DepositSheet onClose={() => setDepositOpen(false)} />}
+    {depositOpen && <DepositSheet onClose={() => setDepositOpen(false)} signerReady={signerReady} permissionBusy={!!busy} onGrantPermission={() => { void perform('grant-signer', async () => { if (await grantSigner()) setNotice('Trading permission is active.'); }); }} />}
+    {permissionOpen && <TradingPermissionDialog onDecision={decidePermission} />}
     {perpsPrompt && <div className="modal-backdrop"><section className="simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-button dialog-close" title="Close" onClick={() => setPerpsPrompt(false)}><X size={16} /></button><span className="eyebrow">ONE-TIME SETUP</span><h2>Enable perps</h2><p className="field-note">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p><button className="primary full" disabled={!!busy} onClick={enroll}>Enable perps – one time</button>{setup?.step === 'needs_collateral' && <button className="outline full" onClick={() => { setPerpsPrompt(false); setDepositOpen(true); }}>Deposit first</button>}</section></div>}
     {tradeSheetTarget && <TradeSheet target={tradeSheetTarget} onClose={() => setTradeSheetTarget(null)} onProfile={openAccount} onChart={openTradeChart} />}
     {busy && <div className="busy-bar"><span>{busy === 'stack' ? 'Authorizing your trade' : busy === 'join' ? 'Signing cult authorization' : 'Working'}…</span></div>}
