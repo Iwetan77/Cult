@@ -1,11 +1,12 @@
 import type { MirrorEngine } from '../mirror/engine.js';
-import type { LeaderTrade } from '../mirror/repo.js';
+import { tradeCults, type LeaderTrade } from '../mirror/repo.js';
 import { clans } from '../store/clans.js';
 import { cultRoom, postSystem } from './chat.js';
 import { marketSymbol } from './symbols.js';
 
 // A cult's chat is also its activity feed: when a member opens, adds to,
-// trims or closes a trade, a one-line notice goes into every cult they're in,
+// trims or closes a trade, a one-line notice goes into every cult it was posted
+// to (all of theirs unless they picked),
 // pointing at that trade's chart marker.
 
 const label = (t: LeaderTrade) => marketSymbol(t.venue, t.market);
@@ -22,7 +23,7 @@ export function describeTrade(t: LeaderTrade, what: 'opened' | 'changed' | 'clos
 
 async function announce(t: LeaderTrade, what: 'opened' | 'changed' | 'closed', ratio?: number) {
   const body = describeTrade(t, what, await label(t), ratio);
-  for (const c of clans.forUser(t.userId)) postSystem(cultRoom(c.id), t.userId, body, `trade:${t.id}`);
+  for (const id of tradeCults(t, clans.forUser(t.userId).map((c) => c.id))) postSystem(cultRoom(id), t.userId, body, `trade:${t.id}`);
 }
 
 export function startActivityFeed(engine: MirrorEngine) {

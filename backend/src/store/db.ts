@@ -271,6 +271,9 @@ function migrate(d: DatabaseSync) {
   // v6 -> v7: which rules a member's signer policy was built with (a rules
   // change re-issues it, like a cap change does).
   if (!hasCol('members', 'privy_policy_rules')) d.exec('ALTER TABLE members ADD COLUMN privy_policy_rules TEXT');
+  // ...and which of the member's cults a trade was posted to (JSON array of ids;
+  // NULL = every cult they're in).
+  if (!hasCol('leader_trades', 'cult_ids')) d.exec('ALTER TABLE leader_trades ADD COLUMN cult_ids TEXT');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);
