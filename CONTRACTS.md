@@ -477,7 +477,7 @@ type Adjustment = {
 
 type ChatRoom = {                    // ids: "global" | "country:NG" | "cult:<id>"
   id: string; kind: 'global' | 'country' | 'cult'; name: string;
-  icon: string;                       // "🌍" | the country's flag emoji | the cult's first letter; don't derive it from id
+  icon: string;                       // "G" (Global) | the country's flag emoji | the cult's first letter; don't derive it from id
   memberCount: number;
   lastMessage: ChatMessage | null;    // the 'your groups' list line + time
 };
