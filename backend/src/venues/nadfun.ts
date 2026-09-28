@@ -8,6 +8,7 @@ import { getExchangeInfo } from '../perpl/context.js';
 import { monPriceAusd } from '../prices.js';
 import { NATIVE, swap } from '../swap/kuruFlow.js';
 import { members } from '../store/members.js';
+import { FundsError } from '../funding/errors.js';
 import type { CloseInput, Fill, Holding, OpenInput, VenueAdapter } from './types.js';
 
 // Nad.fun: every buy/sell is a tx from the member's own wallet, signed by
@@ -48,6 +49,34 @@ async function symbolOf(token: string) {
   return symbols.get(k)!;
 }
 
+// The two things a meme buy can be paid from, in $: wallet AUSD (only where
+// memes are paid in dollars) and MON above the gas reserve.
+async function memePockets(userId: string, monPx: number): Promise<{ ausdUsd: number; monUsd: number }> {
+  const wallet = walletOf(userId);
+  const [ausdRaw, bal] = await Promise.all([
+    nadPaysWith() === 'ausd' ? (new ethers.Contract(await ausdToken(), erc20Abi, rpc()).getFunction('balanceOf')(wallet) as Promise<bigint>) : Promise.resolve(0n),
+    rpc().getBalance(wallet),
+  ]);
+  const spareMon = bal > GAS_RESERVE_WEI ? bal - GAS_RESERVE_WEI : 0n;
+  return { ausdUsd: Number(ethers.formatUnits(ausdRaw, 6)), monUsd: toNum(spareMon) * monPx };
+}
+
+// Dollars first, when they cover the buy; else MON.
+async function payWithFor(userId: string, usd: number, monPx: number): Promise<PayWith> {
+  const { ausdUsd, monUsd } = await memePockets(userId, monPx);
+  if (ausdUsd >= usd) return 'ausd';
+  if (monUsd >= usd) return 'mon';
+  const have = Math.max(ausdUsd, monUsd);
+  throw new FundsError(`Not enough funds for a $${usd.toFixed(2)} buy: you have about $${have.toFixed(2)} to spend (keeping ${ethers.formatEther(GAS_RESERVE_WEI)} MON for fees)`);
+}
+
+// Which pocket memes are bought from for this member right now: the bigger one.
+export async function memesPayWithFor(userId: string): Promise<PayWith> {
+  if (nadPaysWith() === 'mon') return 'mon';
+  const { ausdUsd, monUsd } = await memePockets(userId, await monPriceAusd().catch(() => 0));
+  return ausdUsd >= monUsd ? 'ausd' : 'mon';
+}
+
 function walletOf(userId: string) {
   const w = members.get(userId)?.wallet;
   if (!w) throw new Error(`unknown member ${userId}`);
@@ -65,7 +94,10 @@ export const nadfun: VenueAdapter = {
     let monIn: bigint;
     let spentAusd: number;
     const extraTxs: string[] = [];
-    if (nadPaysWith() === 'ausd') {
+    // Paid in dollars when there are enough of them; otherwise straight from
+    // MON, so a member who only deposited MON can still buy.
+    const payWith = await payWithFor(i.userId, i.notionalAusd, monPx);
+    if (payWith === 'ausd') {
       const ausdIn = toAusdRaw(i.notionalAusd);
       if (ausdIn <= 0n) throw new Error('buy rounds to $0');
       const sw = await swap(signer, await ausdToken(), NATIVE, ausdIn, { onHash: tag });
@@ -85,7 +117,7 @@ export const nadfun: VenueAdapter = {
       if (extraTxs.length) throw new Error(`swapped to MON (${extraTxs.at(-1)}) but the meme buy failed; the MON is still in the member's wallet: ${String(e)}`);
       throw e;
     }
-    if (nadPaysWith() === 'mon') spentAusd = toNum(fill.monAmount) * monPx;
+    if (payWith === 'mon') spentAusd = toNum(fill.monAmount) * monPx;
     const tokens = toNum(fill.tokenAmount);
     return {
       venue: 'nadfun',
@@ -162,16 +194,11 @@ export const nadfun: VenueAdapter = {
     return out;
   },
 
-  // What a meme mirror may spend: wallet AUSD (pay-with ausd) or MON above the
-  // gas reserve (pay-with mon), in dollars.
+  // What a meme mirror may spend, in dollars: the bigger of wallet AUSD
+  // (pay-with ausd) and MON above the gas reserve. A buy draws on one of them.
   async freeBalanceAusd(userId: string): Promise<number> {
-    if (nadPaysWith() === 'ausd') {
-      const raw: bigint = await new ethers.Contract(await ausdToken(), erc20Abi, rpc()).getFunction('balanceOf')(walletOf(userId));
-      return Number(ethers.formatUnits(raw, 6));
-    }
-    const bal = await rpc().getBalance(walletOf(userId));
-    const spendable = bal > GAS_RESERVE_WEI ? bal - GAS_RESERVE_WEI : 0n;
-    return toNum(spendable) * (await monPriceAusd());
+    const { ausdUsd, monUsd } = await memePockets(userId, await monPriceAusd());
+    return Math.max(ausdUsd, monUsd);
   },
 
   // AUSD per whole token, from what selling one token returns right now.

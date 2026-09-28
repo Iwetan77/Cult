@@ -1,6 +1,7 @@
 import { restFor, sessionFor } from '../accounts/lifecycle.js';
 import { getExchangeInfo, getMarket, getTicker, maxLeverageHundredths, scale } from '../perpl/context.js';
 import { members } from '../store/members.js';
+import { ensurePerplMargin, perplFreeAusd, walletSpendableAusd } from '../funding/margin.js';
 import { closePosition, openPosition, viewPositions } from '../trading/positions.js';
 import { readTpSl, type TpSl } from '../trading/tpsl.js';
 import type { CloseInput, Fill, Holding, OpenInput, VenueAdapter } from './types.js';
@@ -51,6 +52,10 @@ export const perpl: VenueAdapter = {
     const step = 10 ** m.config.size_decimals;
     const size = Math.floor((i.notionalAusd / px) * step) / step;
     if (size <= 0) throw new Error(`$${i.notionalAusd} rounds to 0 ${m.symbol}`);
+    // Margin for this order plus a little for fees and price moves, moved in
+    // from the wallet (AUSD, then MON via Kuru) if the Perpl account is short.
+    const notional = size * px;
+    await ensurePerplMargin(i.userId, (notional / (i.leverage ?? 1)) * 1.02 + notional * 0.001);
     const order = await openPosition(await sessionFor(i.userId), {
       accountId,
       marketId: m.id,
@@ -125,12 +130,11 @@ export const perpl: VenueAdapter = {
     });
   },
 
+  // What a Perpl trade can draw on: free margin in the Perpl account plus what
+  // open() can move in from the wallet (AUSD, and MON above the gas reserve).
   async freeBalanceAusd(userId: string): Promise<number> {
-    const accountId = accountOf(userId);
-    const acct = (await sessionFor(userId)).accounts.get(accountId);
-    if (!acct) throw new Error(`Perpl session has no account ${accountId}`);
-    const { collateralDecimals } = await getExchangeInfo();
-    return (Number(acct.b) - Number(acct.lb)) / 10 ** collateralDecimals;
+    const [account, wallet] = await Promise.all([perplFreeAusd(userId), walletSpendableAusd(userId)]);
+    return account + wallet;
   },
 
   async markPriceAusd(market: string) {

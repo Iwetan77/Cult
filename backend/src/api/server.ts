@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { ethers } from 'ethers';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -7,10 +8,11 @@ import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { completeEnrollment, setupStatus, startEnrollment } from '../accounts/client-flow.js';
 import { sessionFor } from '../accounts/lifecycle.js';
-import { env } from '../config/env.js';
+import { env, numEnv } from '../config/env.js';
 import { MirrorError, type MirrorEngine } from '../mirror/engine.js';
 import { mirrors, trades } from '../mirror/repo.js';
 import { stackOnTrade } from '../mirror/stack.js';
+import { clearAudience, setAudience } from '../mirror/audience.js';
 import { getContext, getMarket } from '../perpl/context.js';
 import { listMonMarkets } from '../nadfun/trading.js';
 import { monPriceAusd } from '../prices.js';
@@ -37,6 +39,9 @@ import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { indexerStatus } from '../indexer/stats.js';
+import { recentConversion } from '../funding/usdc.js';
+import { FundsError } from '../funding/margin.js';
+import { SwapUnavailable } from '../swap/kuruFlow.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
@@ -102,6 +107,8 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof ProfileError) return c.json({ message: err.message }, err.status);
     if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
+    if (err instanceof FundsError) return c.json({ message: err.message }, 409);
+    if (err instanceof SwapUnavailable) return c.json({ message: `Couldn't swap for this trade right now (${err.message}). Try again shortly.` }, 503);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
     if (err instanceof UpstreamError || (err instanceof TypeError && /fetch failed/.test(err.message)) || (err as { name?: string })?.name === 'TimeoutError') {
@@ -118,9 +125,9 @@ export function createApp(engine: MirrorEngine) {
 
   app.get('/v1/health', (c) => c.json({ ok: true }));
 
-  // Is the verified-records indexer connected and caught up? Public, no
-  // member data: block heights and a wallet count.
-  app.get('/v1/status', async (c) => c.json({ indexer: await indexerStatus() }));
+  // Is the verified-records indexer connected and caught up, and is our own
+  // database on a disk that survives deploys? Public, no member data.
+  app.get('/v1/status', async (c) => c.json({ indexer: await indexerStatus(), storage: storageStatus() }));
 
   // Is a username free? Public: the sign-up screen checks as you type, and it
   // reveals nothing a profile page doesn't. (Setting it is signed-in only.)
@@ -336,6 +343,7 @@ export function createApp(engine: MirrorEngine) {
       balances: await balancesFor(userId).catch(() => null),
       // prepared = grant issued; attached/policyCurrent = verified with Privy.
       signer: await backendSignerStatus(userId).catch(() => ({ prepared: !!m.privyPolicyId, attached: null, policyCurrent: null })),
+      usdcConverted: recentConversion(userId), // last USDC -> AUSD conversion, if in the last 10 min
     });
   });
 
@@ -444,6 +452,9 @@ export function createApp(engine: MirrorEngine) {
 
   // What the frontend passes to Privy's useSigners().addSigners() so the
   // backend can act on this wallet, only within the policy.
+  // Every member's trades, top-ups and USDC conversions are signed by the
+  // backend under this policy, so everyone gets it, not only Auto-follow users.
+  // The per-transaction cap is TRADING_CAP_USD, or a higher Auto-follow limit.
   authed.get('/privy/signer', async (c) => {
     const userId = c.get('userId');
     const caps = clans
@@ -451,8 +462,7 @@ export function createApp(engine: MirrorEngine) {
       .map((cl) => clans.membership(cl.id, userId)!.policy)
       .filter((p) => p.enabled)
       .map((p) => p.maxUsdPerTrade);
-    if (caps.length === 0) throw bad(409, 'turn on Auto-follow in a cult first; the cap comes from your limits there');
-    const grant = await memberSignerGrant(userId, c.get('wallet'), Math.max(...caps));
+    const grant = await memberSignerGrant(userId, c.get('wallet'), Math.max(numEnv('TRADING_CAP_USD', 1000), ...caps));
     forgetSignerStatus(userId); // the frontend is about to (re)attach it; re-check on next read
     return c.json(grant);
   });
@@ -490,17 +500,31 @@ export function createApp(engine: MirrorEngine) {
         side: z.enum(['long', 'short', 'buy']),
         marginUsd: z.number().positive(),
         leverage: z.number().min(1).default(1),
+        // "Post to": which of your cults see and copy this trade. Omitted = all
+        // of them; [] = just you (no notices, no copies).
+        cultIds: z.array(z.string()).max(50).optional(),
       })
       .parse(await c.req.json());
     const userId = c.get('userId');
     const m = members.get(userId)!;
     const v = venueOf(body.marketId);
+    if (body.cultIds) {
+      const mine = new Set(clans.forUser(userId).map((cl) => cl.id));
+      const notMine = body.cultIds.find((id) => !mine.has(id));
+      if (notMine) throw bad(400, `you're not in cult ${notMine}`);
+      setAudience(userId, v, body.marketId, body.cultIds);
+    }
     if (v === 'perpl') {
       if (!m.perplAccountId || !m.forwarding) throw bad(409, 'finish Perpl setup first');
       if (body.side === 'buy') throw bad(400, 'perpl side must be long or short');
       await getMarket(Number(body.marketId));
     } else if (body.side !== 'buy') throw bad(400, 'nad.fun side must be buy');
-    const fill = await venue(v).open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage });
+    const fill = await venue(v)
+      .open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage })
+      .catch((e) => {
+        clearAudience(userId, v, body.marketId); // nothing opened: the pick mustn't apply to a later trade
+        throw e;
+      });
     return c.json(fill);
   });
 
@@ -817,4 +841,13 @@ function resolveTradeId(markerId: string): string {
   }
   if (trades.get(id!)) return id!;
   throw new MirrorError(404, 'marker not found');
+}
+
+// On Railway a service only keeps files across deploys on an attached volume
+// (RAILWAY_VOLUME_MOUNT_PATH is set when one is). Without it the SQLite file,
+// and every member, cult and chat in it, is wiped on each deploy.
+export function storageStatus(): { host: 'railway' | 'other'; persistent: boolean | null } {
+  if (!process.env.RAILWAY_PROJECT_ID) return { host: 'other', persistent: null };
+  const vol = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  return { host: 'railway', persistent: !!vol && resolve(env.dbPath).startsWith(resolve(vol)) };
 }

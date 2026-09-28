@@ -9,6 +9,10 @@ import { getExchangeInfo } from '../perpl/context.js';
 import { SCOPE_TRADE } from '../perpl/enroll.js';
 import { PerplRest } from '../perpl/rest.js';
 import { members } from '../store/members.js';
+import { usdcAddress } from '../chain/tokens.js';
+import { monPriceAusd } from '../prices.js';
+import { KURU_FLOW_ROUTER, NATIVE, quoteSwap } from '../swap/kuruFlow.js';
+import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
 
 // The browser-side version of onboardMember: the member's Privy embedded wallet
 // signs in the client, the backend only prepares what to sign and finishes the
@@ -47,9 +51,15 @@ export async function setupStatus(userId: string, depositRaw?: bigint): Promise<
 
   if (!onchain) {
     const amount = depositRaw && depositRaw > info.minAccountOpen ? depositRaw : info.minAccountOpen;
-    if (bal < amount) return { ...base, step: 'needs_collateral', actions: [] };
-    const allowance: bigint = await new ethers.Contract(info.collateralToken, erc20Abi, rpc()).getFunction('allowance')(m.wallet, info.exchange);
     const actions: WalletAction[] = [];
+    if (bal < amount) {
+      // Not enough AUSD: swap the rest from USDC or MON first, in the same
+      // list the member signs.
+      const swapIn = await swapActionsFor(m.wallet, amount - bal).catch(() => null);
+      if (!swapIn) return { ...base, step: 'needs_collateral', actions: [] };
+      actions.push(...swapIn);
+    }
+    const allowance: bigint = await new ethers.Contract(info.collateralToken, erc20Abi, rpc()).getFunction('allowance')(m.wallet, info.exchange);
     if (allowance < amount) {
       actions.push({
         to: info.collateralToken,
@@ -152,3 +162,33 @@ setInterval(() => {
   const now = Date.now();
   for (const [id, p] of pendingEnrollments) if (now > p.expires) pendingEnrollments.delete(id);
 }, 60_000).unref();
+
+// Wallet actions that turn USDC (mainnet) or MON into at least `shortRaw` AUSD
+// through Kuru Flow, for the member to sign before opening their Perpl account.
+// USDC first, since it's already dollars; MON never below the gas reserve.
+// Null when neither covers it.
+async function swapActionsFor(wallet: string, shortRaw: bigint): Promise<WalletAction[] | null> {
+  const { collateralToken, collateralDecimals } = await getExchangeInfo();
+  const want = (shortRaw * 102n) / 100n; // a little over, for slippage
+  const usdc = usdcAddress();
+  if (usdc) {
+    const have: bigint = await new ethers.Contract(usdc, erc20Abi, rpc()).getFunction('balanceOf')(wallet);
+    if (have >= want) {
+      const q = await quoteSwap(wallet, usdc, collateralToken, want, 30);
+      if (q.minOut >= shortRaw) {
+        const actions: WalletAction[] = [];
+        const allowance: bigint = await new ethers.Contract(usdc, erc20Abi, rpc()).getFunction('allowance')(wallet, KURU_FLOW_ROUTER);
+        if (allowance < want) actions.push({ to: usdc, data: erc20Abi.encodeFunctionData('approve', [KURU_FLOW_ROUTER, want]), chainId: env.chainId, label: 'approve USDC' });
+        actions.push({ to: q.tx.to, data: q.tx.data, chainId: env.chainId, label: 'swap USDC to dollars (AUSD)' });
+        return actions;
+      }
+    }
+  }
+  const px = await monPriceAusd();
+  const monWei = ethers.parseEther(((Number(want) / 10 ** collateralDecimals / px) * 1.02).toFixed(18));
+  const spare = (await rpc().getBalance(wallet)) - GAS_RESERVE_WEI - ethers.parseEther('0.1');
+  if (spare < monWei) return null;
+  const q = await quoteSwap(wallet, NATIVE, collateralToken, monWei, 100);
+  if (q.minOut < shortRaw) return null;
+  return [{ to: q.tx.to, data: q.tx.data, value: ethers.toQuantity(q.tx.value), chainId: env.chainId, label: 'swap MON to dollars (AUSD)' }];
+}

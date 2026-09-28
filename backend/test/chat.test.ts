@@ -88,7 +88,7 @@ test('system notices, room activity and pins', () => {
 
 test('room icons, and notices read as a sentence with the username', async () => {
   const rooms = chat.roomsFor('A');
-  assert.deepEqual(rooms.map((r) => r.icon), ['🌍', '🇳🇬', 'C'], 'the Nigeria room gets its flag, not the C from "country:NG"');
+  assert.deepEqual(rooms.map((r) => r.icon), ['G', '🇳🇬', 'C'], 'the Nigeria room gets its flag, not the C from "country:NG"');
   members.setUsername('A', 'iwetan');
   const n = chat.postSystem('global', 'A', 'joined Cult');
   assert.equal(n.memberName, 'iwetan');

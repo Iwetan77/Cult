@@ -14,7 +14,8 @@ import { clans } from '../store/clans.js';
 import { members } from '../store/members.js';
 import { venue as defaultVenue, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
 import { isEngineOrder, isEngineTx, recordRef } from './origin.js';
-import { adjustments, mirrors, sizeFactor, trades, type Adjustment, type LeaderTrade, type Mirror } from './repo.js';
+import { adjustments, mirrors, sizeFactor, tradeCults, trades, type Adjustment, type LeaderTrade, type Mirror } from './repo.js';
+import { takeAudience } from './audience.js';
 import { leaderDollarFraction, mirrorNotional } from './sizing.js';
 import { landed as defaultLanded, type Landed, type LandedLookup } from './reconcile.js';
 import { erc20Abi } from '../chain/exchange.js';
@@ -248,7 +249,9 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   // ---- shared pipeline ---------------------------------------------------------
 
   async leaderOpened(e: LeaderOpen): Promise<LeaderTrade | null> {
-    const clanIds = clans.forUser(e.userId).map((c) => c.id);
+    // Every cult the trader is in, or only the ones they posted this trade to.
+    const picked = takeAudience(e.userId, e.venue, e.market);
+    const clanIds = tradeCults({ cultIds: picked ?? null }, clans.forUser(e.userId).map((c) => c.id));
     if (clanIds.length === 0) return null;
     const trade = trades.insert({
       id: randomUUID(),
@@ -264,6 +267,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       marginFraction: e.marginFraction,
       openTx: e.openTx ?? null,
       openedAt: Date.now(),
+      cultIds: picked ?? null,
     });
     this.emit('trade', trade);
 
