@@ -11,6 +11,7 @@ import { env, numEnv } from '../config/env.js';
 import { MirrorError, type MirrorEngine } from '../mirror/engine.js';
 import { mirrors, trades } from '../mirror/repo.js';
 import { stackOnTrade } from '../mirror/stack.js';
+import { clearAudience, setAudience } from '../mirror/audience.js';
 import { getContext, getMarket } from '../perpl/context.js';
 import { listMonMarkets } from '../nadfun/trading.js';
 import { monPriceAusd } from '../prices.js';
@@ -498,17 +499,31 @@ export function createApp(engine: MirrorEngine) {
         side: z.enum(['long', 'short', 'buy']),
         marginUsd: z.number().positive(),
         leverage: z.number().min(1).default(1),
+        // "Post to": which of your cults see and copy this trade. Omitted = all
+        // of them; [] = just you (no notices, no copies).
+        cultIds: z.array(z.string()).max(50).optional(),
       })
       .parse(await c.req.json());
     const userId = c.get('userId');
     const m = members.get(userId)!;
     const v = venueOf(body.marketId);
+    if (body.cultIds) {
+      const mine = new Set(clans.forUser(userId).map((cl) => cl.id));
+      const notMine = body.cultIds.find((id) => !mine.has(id));
+      if (notMine) throw bad(400, `you're not in cult ${notMine}`);
+      setAudience(userId, v, body.marketId, body.cultIds);
+    }
     if (v === 'perpl') {
       if (!m.perplAccountId || !m.forwarding) throw bad(409, 'finish Perpl setup first');
       if (body.side === 'buy') throw bad(400, 'perpl side must be long or short');
       await getMarket(Number(body.marketId));
     } else if (body.side !== 'buy') throw bad(400, 'nad.fun side must be buy');
-    const fill = await venue(v).open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage });
+    const fill = await venue(v)
+      .open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage })
+      .catch((e) => {
+        clearAudience(userId, v, body.marketId); // nothing opened: the pick mustn't apply to a later trade
+        throw e;
+      });
     return c.json(fill);
   });
 

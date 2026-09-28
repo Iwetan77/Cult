@@ -18,6 +18,7 @@ export interface LeaderTrade {
   openTx: string | null;
   openedAt: number;
   closedAt: number | null;
+  cultIds: string[] | null; // the cults it was posted to; null = every cult the member is in
 }
 
 export type AdjustmentKind = 'add' | 'reduce';
@@ -84,6 +85,7 @@ const TRADE_COLS: Record<keyof LeaderTrade, string> = {
   openTx: 'open_tx',
   openedAt: 'opened_at',
   closedAt: 'closed_at',
+  cultIds: 'cult_ids',
 };
 
 const MIRROR_COLS: Record<keyof Mirror, string> = {
@@ -135,17 +137,22 @@ function fromRow<T>(cols: Record<string, string>, row: Record<string, unknown> |
   return out as T;
 }
 
-const tradeFrom = (r: unknown) => fromRow<LeaderTrade>(TRADE_COLS, r as Record<string, unknown>);
+const tradeFrom = (r: unknown) => {
+  const t = fromRow<LeaderTrade>(TRADE_COLS, r as Record<string, unknown>);
+  if (t) t.cultIds = t.cultIds ? (JSON.parse(t.cultIds as unknown as string) as string[]) : null;
+  return t;
+};
 const mirrorFrom = (r: unknown) => fromRow<Mirror>(MIRROR_COLS, r as Record<string, unknown>);
 const adjFrom = (r: unknown) => fromRow<Adjustment>(ADJ_COLS, r as Record<string, unknown>);
 
 export const trades = {
-  insert(t: Omit<LeaderTrade, 'closedAt' | 'openSize'>): LeaderTrade {
-    const row: Omit<LeaderTrade, 'closedAt'> = { ...t, market: t.market.toLowerCase(), openSize: t.size };
+  insert(t: Omit<LeaderTrade, 'closedAt' | 'openSize' | 'cultIds'> & { cultIds?: string[] | null }): LeaderTrade {
+    const row: Omit<LeaderTrade, 'closedAt'> = { ...t, market: t.market.toLowerCase(), openSize: t.size, cultIds: t.cultIds ?? null };
     const keys = Object.keys(row) as (keyof typeof row)[];
+    const value = (k: keyof typeof row) => (k === 'cultIds' ? (row.cultIds ? JSON.stringify(row.cultIds) : null) : (row[k] as string | number | null));
     getDb()
       .prepare(`INSERT INTO leader_trades (${keys.map((k) => TRADE_COLS[k]).join(',')}) VALUES (${keys.map(() => '?').join(',')})`)
-      .run(...keys.map((k) => row[k] as string | number | null));
+      .run(...keys.map(value));
     return this.get(row.id)!;
   },
   get(id: string) {
@@ -279,3 +286,9 @@ export const adjustments = {
     return this.get(id);
   },
 };
+
+// Which of the trader's cults a trade reaches: the ones it was posted to that
+// they're still in, or all of them.
+export function tradeCults(t: Pick<LeaderTrade, 'cultIds'>, memberCults: string[]): string[] {
+  return t.cultIds ? memberCults.filter((id) => t.cultIds!.includes(id)) : memberCults;
+}
