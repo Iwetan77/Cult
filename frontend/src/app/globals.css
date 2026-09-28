@@ -119,3 +119,18 @@
 .holding-identity>span:last-child{display:flex;flex-direction:column;gap:3px;min-width:0}
 .trending-row .token-logo{width:28px;height:28px}
 .trending-row small:last-child{margin-left:auto;font-family:var(--font-mono),monospace;font-variant-numeric:tabular-nums}
+
+.account-chip{position:relative;display:flex;align-items:center;gap:3px;border-top:1px solid var(--line)}
+.account-chip-main{display:flex;align-items:center;gap:10px;min-width:0;flex:1;padding:10px 0;border:0;background:none;color:var(--text);text-align:left;cursor:pointer}
+.account-chip-main>.room-avatar{width:38px;height:38px;border-radius:50%;overflow:hidden}
+.account-chip-main>svg{flex:none;color:var(--muted)}
+.account-chip-label{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.account-chip-label strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.account-chip-label small{font-family:var(--font-mono),monospace;font-size:10px;color:var(--muted)}
+.account-copy{flex:none;width:44px;height:44px}
+.profile-avatar-wrap .room-avatar,.profile-avatar-button .room-avatar{width:68px;height:68px;border-radius:50%;font-size:22px;overflow:hidden}
+.profile-avatar-wrap .room-avatar img{width:100%;height:100%;object-fit:cover}
+.profile-avatar-button{position:relative;border:0;background:none;padding:0;cursor:pointer}
+.profile-avatar-button:disabled{opacity:.65;cursor:wait}
+.profile-camera{position:absolute;right:0;bottom:0;width:23px;height:23px;padding:4px;border-radius:50%;background:var(--green);color:#151820}
+.profile-photo-actions{display:flex;align-items:center;gap:12px;margin:0 0 18px}
