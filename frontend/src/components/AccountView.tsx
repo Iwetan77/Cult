@@ -1,21 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getAccessToken } from '@privy-io/react-auth';
-import { ArrowRight, ShieldCheck } from 'lucide-react';
-import { getProfile } from '@/lib/api';
+import { ArrowRight, Camera, ShieldCheck } from 'lucide-react';
+import { deleteAvatar, getProfile, uploadAvatar } from '@/lib/api';
 import type { Holding, Profile } from '@/lib/contracts';
 import { percent, shortAddress, signedDollars } from '@/lib/format';
 import { CountryPicker } from './CountryPicker';
+import { Avatar } from './Avatar';
 import type { TradeSheetTarget } from './TradeSheet';
 
 type Props = {
   id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onCountrySaved: () => Promise<unknown>; onDeposit: () => void;
-  onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void;
+  onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void; onAvatarSaved: () => Promise<unknown>;
 };
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onSignOut, onTrade }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onSignOut, onTrade, onAvatarSaved }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [tab, setTab] = useState<'open' | 'closed'>('open');
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -30,12 +33,49 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
     return () => { active = false; };
   }, [id]);
 
-  if (error) return <main className={`full-workspace profile-screen ${id === 'me' ? 'own-profile' : ''}`}><p className="wallet-warning">{error}</p></main>;
+  const changePhoto = async (file: File) => {
+    setPhotoBusy(true); setError(null);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new window.Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read this image.')); };
+        img.src = url;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 256;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Photo editing is unavailable in this browser.');
+      const size = Math.min(image.naturalWidth, image.naturalHeight);
+      context.drawImage(image, (image.naturalWidth - size) / 2, (image.naturalHeight - size) / 2, size, size, 0, 0, 256, 256);
+      const token = await getAccessToken();
+      if (!token) throw new Error('Sign in again to update your photo.');
+      await uploadAvatar(token, canvas.toDataURL('image/jpeg', 0.85));
+      setProfile(await getProfile(token, 'me'));
+      await onAvatarSaved();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Photo upload failed.'); }
+    finally { setPhotoBusy(false); if (fileInput.current) fileInput.current.value = ''; }
+  };
+  const removePhoto = async () => {
+    setPhotoBusy(true); setError(null);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error('Sign in again to remove your photo.');
+      await deleteAvatar(token);
+      setProfile(await getProfile(token, 'me'));
+      await onAvatarSaved();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Photo removal failed.'); }
+    finally { setPhotoBusy(false); }
+  };
+
+  if (error && !profile) return <main className={`full-workspace profile-screen ${id === 'me' ? 'own-profile' : ''}`}><p className="wallet-warning">{error}</p></main>;
   if (!profile) return <main className={`full-workspace profile-screen ${id === 'me' ? 'own-profile' : ''}`}><p className="field-note">Loading profile...</p></main>;
   const record = profile.record;
 
   return <main className={`full-workspace profile-screen ${id === 'me' ? 'own-profile' : ''}`}>
-    <header className="profile-head"><span className="room-avatar">{profile.name.slice(0, 1).toUpperCase()}</span><div><span className="eyebrow">{profile.isMe ? 'ACCOUNT' : 'TRADER PROFILE'}</span><h1>{profile.name}</h1><p>{shortAddress(profile.address)} · {profile.country?.name ?? 'Country not set'} · Member since {new Date(profile.memberSince).toLocaleDateString()}</p></div></header>
+    <header className="profile-head"><div className="profile-avatar-wrap">{profile.isMe ? <><button className="profile-avatar-button" type="button" title="Change photo" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Avatar name={profile.name} url={profile.avatarUrl} /><Camera size={14} className="profile-camera" /></button><input ref={fileInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; if (file) void changePhoto(file); }} /></> : <Avatar name={profile.name} url={profile.avatarUrl} />}</div><div><span className="eyebrow">{profile.isMe ? 'ACCOUNT' : 'TRADER PROFILE'}</span><h1>{profile.name}</h1><p>{shortAddress(profile.address)} · {profile.country?.name ?? 'Country not set'} · Member since {new Date(profile.memberSince).toLocaleDateString()}</p></div></header>
+    {profile.isMe && <div className="profile-photo-actions">{profile.avatarUrl && <button className="text-link" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}{photoBusy && <span className="field-note">Updating photo...</span>}{error && <span className="wallet-warning">{error}</span>}</div>}
     <div className="profile-content">
       <section className="profile-record"><div className="home-section-head"><h2>Track record</h2>{record.verified ? <ShieldCheck size={16} className="positive" /> : <span className="unverified">UNVERIFIED</span>}</div><div className="record-grid">
         <div><span>REALIZED PNL</span><strong className={(record.realizedPnlUsd ?? 0) >= 0 ? 'positive' : 'negative'}>{record.realizedPnlUsd == null ? '—' : signedDollars(record.realizedPnlUsd)}</strong></div>

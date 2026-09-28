@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@privy-io/react-auth';
-import { ArrowRight, TrendingUp } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { getHome, getMarkets } from '@/lib/api';
 import type { ChatRoom, Holding, Home, MarketListing, Me } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
 import { Avatar } from './Avatar';
+import { TokenLogo } from './TokenLogo';
 
 type Props = {
   me: Me; holdings: Holding[]; search: string; onMarket: (id: string) => void;
@@ -75,8 +76,8 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
     </div>
     <aside className="home-right">
       <section className="home-card"><span className="eyebrow">PORTFOLIO</span><div className="portfolio-total">{dollars(total)}</div><div className="portfolio-lines"><div><span>Wallet cash</span><strong>{dollars(cash)}</strong></div><div><span>Perpl margin</span><strong>{dollars(margin)}</strong></div><div><span>Spot holdings</span><strong>{dollars(spotValue)}</strong></div></div><button className="primary full" onClick={onDeposit}>Deposit</button></section>
-      <section className="home-card"><span className="eyebrow">ACTIVE POSITIONS</span>{holdings.length ? holdings.slice(0, 4).map(item => <div className="home-holding" key={`${item.venue}:${item.market}`}><div><strong>{item.symbol}</strong><small>{item.side.toUpperCase()} · {item.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}</small></div><span className={(item.pnlAusd ?? 0) >= 0 ? 'positive' : 'negative'}>{item.pnlAusd == null ? 'Pending' : signedDollars(item.pnlAusd)}</span></div>) : <p className="field-note">No open positions.</p>}</section>
-      <section className="home-card"><div className="home-card-head"><span className="eyebrow">{search.trim() ? 'MARKETS' : 'TRENDING MARKETS'}</span><button className="text-link" onClick={() => onMarket('')}>See all</button></div>{trending.length ? trending.map(item => <button className="trending-row clickable" key={`${item.venue}:${item.id}`} onClick={() => onMarket(item.id)}><TrendingUp size={15} /><strong>{item.symbol}</strong><span className="trending-price">{item.priceUsd == null ? '' : item.priceUsd >= 1 ? dollars(item.priceUsd) : `$${item.priceUsd.toPrecision(3)}`}</span>{item.change24hPct != null && <small className={item.change24hPct >= 0 ? 'positive' : 'negative'}>{item.change24hPct >= 0 ? '+' : ''}{item.change24hPct.toFixed(1)}%</small>}</button>) : <p className="field-note">{search.trim() ? 'No markets match your search.' : 'Markets are loading…'}</p>}</section>
+      <section className="home-card"><span className="eyebrow">ACTIVE POSITIONS</span>{holdings.length ? holdings.slice(0, 4).map(item => <div className="home-holding" key={`${item.venue}:${item.market}`}><div className="holding-identity"><TokenLogo symbol={item.symbol} /><span><strong>{item.symbol}</strong><small>{item.side.toUpperCase()} · {item.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}</small></span></div><span className={(item.pnlAusd ?? 0) >= 0 ? 'positive' : 'negative'}>{item.pnlAusd == null ? 'Pending' : signedDollars(item.pnlAusd)}</span></div>) : <p className="field-note">No open positions.</p>}</section>
+      <section className="home-card"><div className="home-card-head"><span className="eyebrow">{search.trim() ? 'MARKETS' : 'TRENDING MARKETS'}</span><button className="text-link" onClick={() => onMarket('')}>See all</button></div>{trending.length ? trending.map(item => <button className="trending-row clickable" key={`${item.venue}:${item.id}`} onClick={() => onMarket(item.id)}><TokenLogo symbol={item.symbol} imageUri={item.imageUri} /><strong>{item.symbol}</strong><small className={item.change24hPct == null ? '' : item.change24hPct >= 0 ? 'positive' : 'negative'}>{item.change24hPct == null ? '—' : `${item.change24hPct >= 0 ? '+' : ''}${item.change24hPct.toFixed(1)}%`}</small></button>) : <p className="field-note">{search.trim() ? 'No markets match your search.' : 'Markets are loading…'}</p>}</section>
     </aside>
   </main>;
 }
