@@ -6,7 +6,7 @@ import { clans } from '../store/clans.js';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
 import { buildChart, shortName } from './chart.js';
-import { displayName } from './names.js';
+import { avatarOf, displayName } from './names.js';
 
 // Shareable result card: public by design, the clan isn't. The snapshot is
 // frozen at share time from the same live numbers the chart shows, and the
@@ -19,6 +19,8 @@ export interface PublicShare {
   marketSymbol: string;
   venue: 'perpl' | 'nadfun';
   side: string;
+  leverage: number | null; // x; null on cards shared before it was recorded
+  traderAvatarUrl: string | null; // their photo when shared, if any
   pnlUsd: number | null; // AUSD
   roiPercent: number | null;
   notionalUsd: number | null; // AUSD
@@ -79,6 +81,8 @@ export async function createShare(userId: string, markerId: string, includeClan:
     marketSymbol: chart.selectedMarket.symbol,
     venue: marker.venue,
     side: marker.side,
+    leverage: marker.venue === 'perpl' ? marker.leverage : null,
+    traderAvatarUrl: avatarOf(userId),
     pnlUsd: marker.pnlUsd,
     roiPercent: marker.pnlUsd != null && cost ? (marker.pnlUsd / cost) * 100 : null,
     notionalUsd: marker.valueUsd,
@@ -102,5 +106,5 @@ export function getShare(id: string): PublicShare | null {
     | undefined;
   if (!r) return null;
   const snap = JSON.parse(r.snapshot);
-  return { id: r.id, ...snap, includeClan: r.include_clan === 1, ...(r.include_clan === 1 && r.clan_name ? { clanName: r.clan_name } : {}) };
+  return { id: r.id, leverage: null, traderAvatarUrl: null, ...snap, includeClan: r.include_clan === 1, ...(r.include_clan === 1 && r.clan_name ? { clanName: r.clan_name } : {}) };
 }
