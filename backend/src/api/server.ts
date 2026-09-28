@@ -36,6 +36,7 @@ import { listMarkets, marketDetail, MarketError } from './markets.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
+import { indexerStatus } from '../indexer/stats.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
@@ -116,6 +117,10 @@ export function createApp(engine: MirrorEngine) {
   // ---- public ---------------------------------------------------------------
 
   app.get('/v1/health', (c) => c.json({ ok: true }));
+
+  // Is the verified-records indexer connected and caught up? Public, no
+  // member data: block heights and a wallet count.
+  app.get('/v1/status', async (c) => c.json({ indexer: await indexerStatus() }));
 
   // Is a username free? Public: the sign-up screen checks as you type, and it
   // reveals nothing a profile page doesn't. (Setting it is signed-in only.)

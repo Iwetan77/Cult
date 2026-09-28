@@ -206,6 +206,40 @@ function pgPool(url: string) {
   return pool;
 }
 
+export interface IndexerStatus {
+  source: 'none' | 'graphql' | 'postgres';
+  connected: boolean | null; // null: not checked (GraphQL)
+  chains: { chainId: number; indexedBlock: number; headBlock: number; behind: number; caughtUp: boolean; events: number }[];
+  wallets: number | null; // wallets with on-chain history
+}
+
+// Is the indexer reachable and caught up? Read from Envio's own _meta view.
+export async function indexerStatus(): Promise<IndexerStatus> {
+  if (process.env.INDEXER_GRAPHQL_URL) return { source: 'graphql', connected: null, chains: [], wallets: null };
+  const url = process.env.INDEXER_PG_URL;
+  if (!url) return { source: 'none', connected: false, chains: [], wallets: null };
+  const schema = (process.env.INDEXER_PG_SCHEMA || 'public').replace(/"/g, '');
+  try {
+    const [meta, traders] = await Promise.all([
+      pgPool(url).query(`SELECT "chainId", "progressBlock", "sourceBlock", "eventsProcessed", "isReady" FROM "${schema}"."_meta"`),
+      pgPool(url).query(`SELECT count(*)::int AS n FROM "${schema}"."Trader"`),
+    ]);
+    return {
+      source: 'postgres',
+      connected: true,
+      chains: meta.rows.map((m) => {
+        const indexedBlock = Number(m.progressBlock);
+        const headBlock = Number(m.sourceBlock);
+        return { chainId: Number(m.chainId), indexedBlock, headBlock, behind: Math.max(headBlock - indexedBlock, 0), caughtUp: Boolean(m.isReady), events: Number(m.eventsProcessed) };
+      }),
+      wallets: traders.rows[0]?.n ?? 0,
+    };
+  } catch (e) {
+    console.warn('[indexer] status unavailable:', (e as Error).message);
+    return { source: 'postgres', connected: false, chains: [], wallets: null };
+  }
+}
+
 async function viaGraphql(url: string, ids: string[]): Promise<TraderRow[]> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (process.env.INDEXER_GRAPHQL_SECRET) headers['x-hasura-admin-secret'] = process.env.INDEXER_GRAPHQL_SECRET;
