@@ -303,13 +303,13 @@ export function Landing({ onLogin, pendingLogin }: Props) {
           <p className="lp-join__lead">Your wallet, your funds, your trades. Pick a cult or start your own on Monad.</p>
         </div>
         <div className="lp-join__ctas">
-          <button type="button" className="lp-btn lp-btn--primary" onClick={() => onLogin('google')}>Continue with google {pendingLogin === 'google' ? spinner('google') : <span className="lp-btn__icon"><img src={`${A}/arrow.svg`} width={10} height={10} alt="" /></span>}</button>
+          <button type="button" className="lp-btn lp-btn--primary" onClick={() => onLogin('google')}>Continue with google {spinner('google')}</button>
           <button type="button" className="lp-btn lp-btn--ghost" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
         </div>
       </div>
       <footer className="lp-footer">
         <img src={`${A}/cult-logo.svg`} width={65.399} height={34.3401} alt="Cult" />
-        <p>© 2026 murmo. All rights reserved.</p>
+        <p>© 2026 CULT. All rights reserved.</p>
       </footer>
     </section>
   </div>;
