@@ -105,9 +105,44 @@
 .lp-leaders__who { display: flex; align-items: center; gap: 7px; font-size: 16px; letter-spacing: -0.32px; line-height: 20px; }
 
 /* ---------- markets ---------- */
-.lp-markets {
-  min-height: 786px; background: var(--lp-mint); color: var(--lp-ink);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; text-align: center;
+/* The section is the scroll track: one screen for the pinned stage plus 240% of a screen to scroll
+   through while it stays stuck and the cards come in (see MarketsScroll in Landing.tsx). */
+.lp-section.lp-markets { position: relative; height: 340vh; height: 340svh; padding: 0; background: var(--lp-mint); color: var(--lp-ink); }
+.lp-markets__stage {
+  position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+  padding: 0 var(--lp-gutter); text-align: center;
+}
+.lp-markets__cards { position: absolute; inset: 0; pointer-events: none; }
+.lp-markets__card {
+  /* --size is px on a 1440 x 900 screen; scale with whichever side is tighter, never below 84px. */
+  --w: max(84px, calc(var(--size) * min(0.06944vw, 0.1111vh)));
+  --h: calc(var(--w) * 290 / 306);
+  position: absolute; width: var(--w);
+  left: calc(var(--x) * (100% - var(--w)));
+  top: calc(var(--y) * (100% - var(--h)));
+  transform: translate3d(0, 100vh, 0); /* below the stage until the script places it */
+  will-change: transform;
+}
+.lp-markets__card img { width: 100%; height: auto; }
+/* Up to 900px wide: settle in a band above the text (--band: 0) or below it (--band: 1), 16px in
+   from the screen edges and 12px clear of the text. --text-top / --text-bottom come from the script;
+   the fallbacks assume the text is centred and 300px tall. */
+@media (max-width: 900px) {
+  .lp-markets__stage { --pad: 16px; --gap: 12px; }
+  .lp-markets__card {
+    --w: clamp(72px, 12.5vw, 112px);
+    --band-h: calc(var(--text-top, calc(50% - 150px)) - var(--gap) - var(--pad));
+    left: calc(var(--pad) + var(--mx) * (100% - 2 * var(--pad) - var(--w)));
+    top: calc(
+      (1 - var(--band)) * var(--pad)
+      + var(--band) * (var(--text-bottom, calc(50% + 150px)) + var(--gap))
+      + var(--my) * (var(--band-h) - var(--h)));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-section.lp-markets { height: 100vh; height: 100svh; }
+  .lp-markets__card { transform: none; will-change: auto; }
 }
 
 /* ---------- how it works ---------- */
@@ -210,7 +245,6 @@
   .lp-nav .lp-btn--primary { display: none; }
   .lp-hero__body { padding-top: 64px; gap: 40px; }
   .lp-hero__title { font-size: clamp(48px, 15vw, 64px); }
-  .lp-markets { min-height: 0; }
   .lp-chart__panel { height: auto; width: 100%; padding: 31px 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
   .lp-chart__head, .lp-chart__graph, .lp-leaders { position: static; transform: none; }
   .lp-chart__head { width: auto; }
