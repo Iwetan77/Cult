@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import './landing.css';
 
 type LoginMethod = 'google' | 'wallet';
@@ -128,9 +128,9 @@ function MarketsScroll() {
   }, []);
 
   return <section className="lp-section lp-markets" ref={trackRef}>
-    <div className="lp-markets__stage">
-      <h2 className="lp-display lp-display--88">Perps, memes, and next-block meta.</h2>
-      <p className="lp-lead lp-lead--dark">Scalp MON perps and snipe fresh Nad.fun runners.<br />When the cult spots the rotation, you’re already in position.</p>
+    <div className="lp-markets__stage" data-reveal>
+      <h2 className="lp-display lp-display--88"><Words text="Perps, memes, and next-block meta." /></h2>
+      <p className="lp-lead lp-lead--dark lp-a lp-a--rise" style={{ '--d': '0.4s' } as CSSProperties}>Scalp MON perps and snipe fresh Nad.fun runners.<br />When the cult spots the rotation, you’re already in position.</p>
       <ul className="lp-markets__cards">
         {MARKET_CARDS.map((card, i) =>
           <li key={card.src} className="lp-markets__card" ref={el => { cardRefs.current[i] = el; }} style={{ '--x': card.x, '--y': card.y, '--size': card.size, '--band': card.band, '--mx': card.mx, '--my': card.my } as CSSProperties}>
@@ -164,6 +164,72 @@ function useReveal<T extends Element>() {
   return [ref, phase] as const;
 }
 
+// Splits a headline into words that stagger in (.lp-a--word), --step seconds apart from --delay.
+// Spaces stay real text and hyphenated words are split after each hyphen ("next-" + "block"), so the
+// line can still break wherever the plain string would: wrapping is unchanged.
+function Words({ text, delay = 0, step = 0.07 }: { text: string; delay?: number; step?: number }) {
+  return <>{text.split(' ').map((word, i) => {
+    const style = { '--d': `${(delay + i * step).toFixed(2)}s` } as CSSProperties;
+    const parts = word.split('-').map((part, j, all) => j < all.length - 1 ? `${part}-` : part).filter(Boolean);
+    return <Fragment key={i}>{i > 0 && ' '}{parts.map((part, j) => <span key={j} className="lp-word lp-a lp-a--word" style={style}>{part}</span>)}</Fragment>;
+  })}</>;
+}
+
+const motionAllowed = () => typeof IntersectionObserver !== 'undefined' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Page-wide in-view reveals: every [data-reveal] element is armed (its .lp-a parts hidden) and plays
+// its intro once a fifth of it is on screen. Classes are added outside React; the elements' own
+// className props never change, so React leaves them alone.
+function useRevealAll(rootRef: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !motionAllowed()) return;
+    const targets = [...root.querySelectorAll<HTMLElement>('[data-reveal]')];
+    targets.forEach(el => el.classList.add('lp-reveal--armed'));
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      entry.target.classList.replace('lp-reveal--armed', 'lp-reveal--in');
+      observer.unobserve(entry.target);
+    }), { threshold: 0.2 });
+    targets.forEach(el => observer.observe(el));
+    return () => observer.disconnect();
+  }, [rootRef]);
+}
+
+// Scroll-linked effects, as CSS variables: --hero-p (0 -> 1 while scrolling past the hero) and
+// --join-p (0 -> 1 while the last section scrolls up into its final position).
+function useScrollFx(rootRef: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !motionAllowed()) return;
+    const hero = root.querySelector<HTMLElement>('.lp-hero'), join = root.querySelector<HTMLElement>('.lp-join');
+    const clamp = (n: number) => Math.min(1, Math.max(0, n));
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      if (hero) {
+        const r = hero.getBoundingClientRect();
+        hero.style.setProperty('--hero-p', clamp(-r.top / r.height).toFixed(4));
+      }
+      if (join) {
+        const r = join.getBoundingClientRect();
+        join.style.setProperty('--join-p', clamp((window.innerHeight - r.top) / r.height).toFixed(4));
+      }
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    update();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      hero?.style.removeProperty('--hero-p');
+      join?.style.removeProperty('--join-p');
+    };
+  }, [rootRef]);
+}
+
 // Counts a value like "$120" or "+1002.64%" up to itself, keeping its prefix, suffix and decimals.
 function CountUp({ value, from = 0, phase, delay, duration }: { value: string; from?: number; phase: RevealPhase; delay: number; duration: number }) {
   const [, prefix, digits, suffix] = /^(\D*)([\d.]+)(.*)$/.exec(value) ?? ['', '', '0', ''];
@@ -185,9 +251,10 @@ function CountUp({ value, from = 0, phase, delay, duration }: { value: string; f
   return <>{phase === 'static' ? value : format(current)}</>;
 }
 
-function StepCard({ title, text, visualClass = '', children }: { title: string; text: string; visualClass?: string; children: (phase: RevealPhase) => ReactNode }) {
+// stagger: seconds this card waits after its neighbours, so a row of cards enters left to right.
+function StepCard({ title, text, visualClass = '', stagger = 0, children }: { title: string; text: string; visualClass?: string; stagger?: number; children: (phase: RevealPhase) => ReactNode }) {
   const [ref, phase] = useReveal<HTMLElement>();
-  return <article ref={ref} className={`lp-panel lp-step lp-reveal--${phase}`}>
+  return <article ref={ref} className={`lp-panel lp-step lp-reveal--${phase}`} style={{ '--stagger': `${stagger}s` } as CSSProperties}>
     <div className={`lp-step__visual ${visualClass}`}>{children(phase)}</div>
     <div className="lp-step__body">
       <h3 className="lp-a lp-a--rise" style={{ '--d': '0.1s' } as CSSProperties}>{title}</h3>
@@ -209,10 +276,15 @@ function RaysVideo() {
 
 export function Landing({ onLogin, pendingLogin }: Props) {
   const spinner = (method: LoginMethod) => pendingLogin === method && <span className="button-spinner" aria-hidden="true" />;
-  return <div className="lp">
+  const rootRef = useRef<HTMLDivElement>(null);
+  useRevealAll(rootRef);
+  useScrollFx(rootRef);
+  const d = (seconds: number) => ({ '--d': `${seconds}s` }) as CSSProperties;
+  return <div className="lp" ref={rootRef}>
+    {/* Hero plays on page load (pure CSS, see .lp-hero .lp-a), then drifts away as you scroll. */}
     <header className="lp-hero lp-rays">
       <RaysVideo />
-      <nav className="lp-nav">
+      <nav className="lp-nav lp-a lp-a--drop" style={d(0.1)}>
         <a href="#" className="lp-nav__logo" aria-label="Cult home"><img src={`${A}/cult-logo.svg`} width={65.399} height={34.3401} alt="Cult" /></a>
         <div className="lp-nav__actions">
           <button type="button" className="lp-btn lp-btn--primary lp-btn--fixed" onClick={() => onLogin('google')}>Login {spinner('google')}</button>
@@ -220,17 +292,17 @@ export function Landing({ onLogin, pendingLogin }: Props) {
         </div>
       </nav>
       <div className="lp-hero__body">
-        <h1 className="lp-hero__title">Trade together. Own every move</h1>
-        <a href="#join" className="lp-btn lp-btn--primary lp-btn--fixed">Join a cult</a>
+        <h1 className="lp-hero__title"><Words text="Trade together. Own every move" delay={0.3} step={0.09} /></h1>
+        <a href="#join" className="lp-btn lp-btn--primary lp-btn--fixed lp-a lp-a--pop" style={d(0.85)}>Join a cult</a>
       </div>
     </header>
 
     <section className="lp-section lp-section--dark">
       <div className="lp-chart__split">
-        <div className="lp-chart__copy">
-          <h2 className="lp-display lp-display--80">Every position on one live chart</h2>
-          <p className="lp-lead">See what the whole cult holds right now, on Perpl and Nad.fun, without switching tabs.</p>
-          <a href="#how" className="lp-btn lp-btn--primary lp-btn--fixed">Explore</a>
+        <div className="lp-chart__copy" data-reveal>
+          <h2 className="lp-display lp-display--80"><Words text="Every position on one live chart" /></h2>
+          <p className="lp-lead lp-a lp-a--rise" style={d(0.4)}>See what the whole cult holds right now, on Perpl and Nad.fun, without switching tabs.</p>
+          <a href="#how" className="lp-btn lp-btn--primary lp-btn--fixed lp-a lp-a--pop" style={d(0.55)}>Explore</a>
         </div>
         <ChartPanel />
       </div>
@@ -239,7 +311,7 @@ export function Landing({ onLogin, pendingLogin }: Props) {
     <MarketsScroll />
 
     <section className="lp-section lp-section--dark lp-how" id="how">
-      <h2 className="lp-display lp-display--88 lp-how__title">From hunch to position, together.</h2>
+      <h2 className="lp-display lp-display--88 lp-how__title" data-reveal><Words text="From hunch to position, together." /></h2>
       <div className="lp-steps">
         <StepCard title="Post the call" text="Drop a long, a short, or a Nad.fun launch you like. Price, sentiment and funding sit right next to it." visualClass="lp-step__visual--call">
           {phase => <>
@@ -255,7 +327,7 @@ export function Landing({ onLogin, pendingLogin }: Props) {
           </>}
         </StepCard>
 
-        <StepCard title="Talk it through" text="Your cult sees the call the moment it lands and argues it out in real time. Nobody trades blind.">
+        <StepCard stagger={0.12} title="Talk it through" text="Your cult sees the call the moment it lands and argues it out in real time. Nobody trades blind.">
           {() => <div className="lp-chat" aria-hidden="true">
             <div className="lp-msg lp-a lp-a--msg" style={{ left: 0, top: 0, '--d': '0.15s' } as CSSProperties}>
               <img src={`${A}/avatar-23daddy-chat.png`} width={22.711} height={22.711} alt="" />
@@ -283,7 +355,7 @@ export function Landing({ onLogin, pendingLogin }: Props) {
           </div>}
         </StepCard>
 
-        <StepCard title="Trade and keep score" text="Each member executes from their own wallet. P&L updates live and every call is saved to a profile, so the sharpest traders get followed.">
+        <StepCard stagger={0.24} title="Trade and keep score" text="Each member executes from their own wallet. P&L updates live and every call is saved to a profile, so the sharpest traders get followed.">
           {phase => <ol className="lp-board">
             {BOARD.map((row, i) => <li key={row.name} className="lp-a lp-a--slide" style={{ '--d': `${0.1 + i * 0.15}s` } as CSSProperties}>
               <span className="lp-board__who">
@@ -293,41 +365,41 @@ export function Landing({ onLogin, pendingLogin }: Props) {
                   : <span className="lp-board__rank">4</span>}
                 <img src={`${A}/${row.avatar}.png`} width={30} height={30} alt="" />{row.name}
               </span>
-              <span className="lp-board__pnl"><CountUp value={row.pnl} phase={phase} delay={250 + i * 150} duration={1200} /></span>
+              <span className="lp-board__pnl"><CountUp value={row.pnl} phase={phase} delay={490 + i * 150} duration={1200} /></span>
             </li>)}
           </ol>}
         </StepCard>
       </div>
     </section>
 
-    <section className="lp-section lp-section--dark lp-partners">
-      <h2 className="lp-display lp-display--88">Built on the best in the arena</h2>
+    <section className="lp-section lp-section--dark lp-partners" data-reveal>
+      <h2 className="lp-display lp-display--88"><Words text="Built on the best in the arena" /></h2>
       <div className="lp-partners__logos">
         <div className="lp-partners__row">
-          <img src={`${A}/logo-perpl.svg`} width={209.373} height={57.41} alt="Perpl" />
-          <img src={`${A}/logo-nadfun.svg`} width={257.543} height={57.3293} alt="Nad.fun" />
+          <img className="lp-a lp-a--rise" style={d(0.45)} src={`${A}/logo-perpl.svg`} width={209.373} height={57.41} alt="Perpl" />
+          <img className="lp-a lp-a--rise" style={d(0.57)} src={`${A}/logo-nadfun.svg`} width={257.543} height={57.3293} alt="Nad.fun" />
         </div>
-        <img src={`${A}/logo-aurora.svg`} width={502.237} height={57.3293} alt="Aurora Intents" />
+        <img className="lp-a lp-a--rise" style={d(0.69)} src={`${A}/logo-aurora.svg`} width={502.237} height={57.3293} alt="Aurora Intents" />
       </div>
     </section>
 
-    {/* Figma 59:104 (FOOTER) */}
-    <section className="lp-rays lp-join" id="join">
+    {/* Figma 59:104 (FOOTER). The CULT word rises into place as the section scrolls up (--join-p). */}
+    <section className="lp-rays lp-join" id="join" data-reveal>
       <RaysVideo />
       <p className="lp-join__word" aria-hidden="true">CULT</p>
       <div className="lp-join__inner">
         <div className="lp-join__text">
-          <h2 className="lp-join__title">Get in the cult</h2>
-          <p className="lp-join__lead">Your wallet, your funds, your trades. Pick a cult or start your own on Monad.</p>
+          <h2 className="lp-join__title"><Words text="Get in the cult" step={0.09} /></h2>
+          <p className="lp-join__lead lp-a lp-a--rise" style={d(0.4)}>Your wallet, your funds, your trades. Pick a cult or start your own on Monad.</p>
         </div>
         <div className="lp-join__ctas">
-          <button type="button" className="lp-btn lp-btn--primary" onClick={() => onLogin('google')}>Continue with google {spinner('google')}</button>
-          <button type="button" className="lp-btn lp-btn--ghost" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
+          <button type="button" className="lp-btn lp-btn--primary lp-a lp-a--pop" style={d(0.55)} onClick={() => onLogin('google')}>Continue with google {spinner('google')}</button>
+          <button type="button" className="lp-btn lp-btn--ghost lp-a lp-a--pop" style={d(0.65)} onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
         </div>
       </div>
       <footer className="lp-footer">
-        <img src={`${A}/cult-logo.svg`} width={65.399} height={34.3401} alt="Cult" />
-        <p>© 2026 CULT. All rights reserved.</p>
+        <img className="lp-a lp-a--rise" style={d(0.8)} src={`${A}/cult-logo.svg`} width={65.399} height={34.3401} alt="Cult" />
+        <p className="lp-a lp-a--rise" style={d(0.9)}>© 2026 CULT. All rights reserved.</p>
       </footer>
     </section>
   </div>;
