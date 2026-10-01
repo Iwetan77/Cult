@@ -80,6 +80,36 @@
   backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
 }
 .lp-nav__actions { display: flex; gap: 10px; }
+.lp-nav__narrow { display: none; } /* phones only, see the 640px block */
+
+/* Sign-in sheet (LoginSheet): a bottom sheet on phones, a centred card on wider screens. */
+.lp-login {
+  width: min(400px, calc(100% - 32px)); max-width: none; max-height: none; padding: 0; margin: auto;
+  border: 0; background: transparent; color: #fff; overflow: visible;
+}
+.lp-login::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.lp-login__panel {
+  position: relative; display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 32px 24px 24px; border-radius: 24px; background: var(--lp-panel); border: 1px solid var(--lp-line);
+  font-family: var(--lp-body);
+}
+.lp-login__close {
+  position: absolute; top: 14px; right: 14px; width: 36px; height: 36px; display: grid; place-items: center;
+  border-radius: 50%; background: rgba(255, 255, 255, 0.06); color: var(--lp-text); cursor: pointer;
+}
+.lp-login__close:hover { background: rgba(255, 255, 255, 0.12); }
+.lp-login__close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.lp-login__logo { margin-bottom: 20px; }
+.lp-login__title { font-family: var(--lp-display); font-weight: 400; font-size: 36px; line-height: 0.98; text-transform: uppercase; }
+.lp-login__text { margin-top: 12px; max-width: 280px; font-size: 16px; line-height: 1.4; letter-spacing: -0.32px; color: var(--lp-muted); }
+.lp-login__options { margin-top: 24px; width: 100%; display: flex; flex-direction: column; gap: 10px; }
+.lp-login__options .lp-btn { width: 100%; }
+.lp-login__options .lp-btn--primary { border: 1px solid transparent; } /* same 54px height as the outlined one */
+.lp-login[open] .lp-login__panel { animation: lp-sheet 0.32s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.lp-login[open]::backdrop { animation: lp-fade 0.32s ease-out; }
+@keyframes lp-sheet { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes lp-fade { from { opacity: 0; } to { opacity: 1; } }
+:root:has(.lp-login[open]) { overflow: hidden; } /* no page scrolling behind the sheet */
 .lp-hero__body {
   flex: 1; width: 100%;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 42px;
@@ -292,7 +322,8 @@
 @keyframes lp-shimmer { 0% { transform: translateX(-100%); } 45%, 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
   .lp-hero .lp-a, .lp-reveal--in .lp-a, .lp-reveal--in.lp-step, .lp-reveal--in.lp-chart__panel,
-  .lp-reveal--in .lp-btn--long, .lp-reveal--in .lp-mini__join::after, .lp-reveal--in .lp-chart__live { animation: none; }
+  .lp-reveal--in .lp-btn--long, .lp-reveal--in .lp-mini__join::after, .lp-reveal--in .lp-chart__live,
+  .lp-login[open] .lp-login__panel, .lp-login[open]::backdrop { animation: none; }
 }
 
 /* ---------- partners ---------- */
@@ -382,8 +413,11 @@
 }
 @media (max-width: 640px) {
   .lp-nav { padding: 12px 12px 12px 20px; }
-  .lp-nav .lp-btn--fixed { width: auto; padding: 14px 16px; }
-  .lp-nav .lp-btn--primary { display: none; }
+  .lp-nav__wide { display: none; }
+  .lp-nav__narrow { display: inline-flex; padding: 14px 24px; }
+  /* Bottom sheet: full width, flush with the bottom edge, clear of the home indicator. */
+  .lp-login { width: 100%; margin: auto 0 0; }
+  .lp-login__panel { border-radius: 24px 24px 0 0; border-bottom: 0; padding-bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px)); }
   .lp-hero__body { padding-top: 64px; gap: 40px; }
   .lp-hero__title { font-size: clamp(48px, 15vw, 64px); }
   .lp-join { min-height: 0; }
