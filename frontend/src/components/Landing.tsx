@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import './landing.css';
 
 type LoginMethod = 'google' | 'wallet';
@@ -123,6 +123,68 @@ function MarketsScroll() {
   </section>;
 }
 
+// "How it works" cards (Figma 34:794). Each card plays its intro once when it scrolls into view.
+// Phases: 'static' = server render / no JS / reduced motion, everything shown as designed;
+// 'armed' = waiting below the fold, animated parts hidden; 'in' = playing.
+type RevealPhase = 'static' | 'armed' | 'in';
+
+function useReveal<T extends Element>() {
+  const ref = useRef<T>(null);
+  const [phase, setPhase] = useState<RevealPhase>('static');
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    setPhase('armed');
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      setPhase('in');
+      observer.disconnect();
+    }, { threshold: 0.35 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, phase] as const;
+}
+
+// Counts a value like "$120" or "+1002.64%" up to itself, keeping its prefix, suffix and decimals.
+function CountUp({ value, from = 0, phase, delay, duration }: { value: string; from?: number; phase: RevealPhase; delay: number; duration: number }) {
+  const [, prefix, digits, suffix] = /^(\D*)([\d.]+)(.*)$/.exec(value) ?? ['', '', '0', ''];
+  const target = Number(digits), decimals = digits.split('.')[1]?.length ?? 0;
+  const format = (n: number) => `${prefix}${n.toFixed(decimals)}${suffix}`;
+  const [current, setCurrent] = useState(from);
+  useEffect(() => {
+    if (phase !== 'in') return;
+    let frame = 0;
+    const start = performance.now() + delay;
+    const tick = (now: number) => {
+      const t = Math.min(1, Math.max(0, (now - start) / duration));
+      setCurrent(from + (target - from) * easeOut(t));
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [phase, from, target, delay, duration]);
+  return <>{phase === 'static' ? value : format(current)}</>;
+}
+
+function StepCard({ title, text, visualClass = '', children }: { title: string; text: string; visualClass?: string; children: (phase: RevealPhase) => ReactNode }) {
+  const [ref, phase] = useReveal<HTMLElement>();
+  return <article ref={ref} className={`lp-panel lp-step lp-step--${phase}`}>
+    <div className={`lp-step__visual ${visualClass}`}>{children(phase)}</div>
+    <div className="lp-step__body">
+      <h3 className="lp-a lp-a--rise" style={{ '--d': '0.1s' } as CSSProperties}>{title}</h3>
+      <p className="lp-a lp-a--rise" style={{ '--d': '0.2s' } as CSSProperties}>{text}</p>
+    </div>
+  </article>;
+}
+
+const BOARD = [
+  { rank: 1, name: '23.daddy', avatar: 'avatar-23daddy', pnl: '+1002.64%' },
+  { rank: 2, name: 'Krdnl', avatar: 'avatar-krdnl', pnl: '+900%' },
+  { rank: 3, name: 'Solstice', avatar: 'avatar-solstice', pnl: '+857%' },
+  { rank: 4, name: '0xtandid', avatar: 'avatar-0xtandid', pnl: '+765.7%' },
+] as const;
+
 function RaysVideo() {
   return <video className="lp-rays__video" src={`${A}/light-rail.mp4`} poster={`${A}/rays-bg.png`} autoPlay muted loop playsInline aria-hidden="true" />;
 }
@@ -161,72 +223,62 @@ export function Landing({ onLogin, pendingLogin }: Props) {
     <section className="lp-section lp-section--dark lp-how" id="how">
       <h2 className="lp-display lp-display--88 lp-how__title">From hunch to position, together.</h2>
       <div className="lp-steps">
-        <article className="lp-panel lp-step">
-          <div className="lp-step__visual lp-step__visual--call">
-            <div className="lp-price">
+        <StepCard title="Post the call" text="Drop a long, a short, or a Nad.fun launch you like. Price, sentiment and funding sit right next to it." visualClass="lp-step__visual--call">
+          {phase => <>
+            <div className="lp-price lp-a lp-a--rise" style={{ '--d': '0s' } as CSSProperties}>
               <img className="lp-price__icon" src={`${A}/ton.png`} alt="" />
-              <div><p className="lp-price__sym">$TON</p><p className="lp-price__amt">$120</p></div>
+              <div><p className="lp-price__sym">$TON</p><p className="lp-price__amt"><CountUp value="$120" from={96} phase={phase} delay={250} duration={1100} /></p></div>
             </div>
-            <img className="lp-price__graph" src={`${A}/chart-card.svg`} width={285} height={144} alt="" />
+            <img className="lp-price__graph lp-a lp-a--wipe" style={{ '--d': '0.25s' } as CSSProperties} src={`${A}/chart-card.svg`} width={285} height={144} alt="" />
             <div className="lp-step__buttons" aria-hidden="true">
-              <span className="lp-btn lp-btn--long">Long/Up</span>
-              <span className="lp-btn lp-btn--short">Short/Down</span>
+              <span className="lp-btn lp-btn--long lp-a lp-a--pop" style={{ '--d': '0.9s' } as CSSProperties}>Long/Up</span>
+              <span className="lp-btn lp-btn--short lp-a lp-a--pop" style={{ '--d': '1s' } as CSSProperties}>Short/Down</span>
             </div>
-          </div>
-          <div className="lp-step__body">
-            <h3>Post the call</h3>
-            <p>Drop a long, a short, or a Nad.fun launch you like. Price, sentiment and funding sit right next to it.</p>
-          </div>
-        </article>
+          </>}
+        </StepCard>
 
-        <article className="lp-panel lp-step">
-          <div className="lp-step__visual">
-            <div className="lp-chat" aria-hidden="true">
-              <div className="lp-msg" style={{ left: 0, top: 0 }}>
-                <img src={`${A}/avatar-sm.svg`} width={22.7111} height={22.7111} alt="" />
-                <div className="lp-bubble"><b>23.daddy</b><span style={{ width: 148 }}>Found this really cool perps that we can ape in.</span></div>
-              </div>
-              <div className="lp-msg lp-msg--right" style={{ left: 87, top: 51 }}>
-                <div className="lp-bubble"><b>Krdnl</b><span style={{ width: 149 }}>Drop lets analyse and see when we can enter</span></div>
-                <img src={`${A}/avatar-sm.svg`} width={22.7111} height={22.7111} alt="" />
-              </div>
-              <div className="lp-msg lp-msg--top" style={{ left: 0, top: 102 }}>
-                <img src={`${A}/avatar-sm.svg`} width={22.7111} height={22.7111} alt="" />
-                <div className="lp-bubble lp-bubble--call">
-                  <b>23.daddy <i>called a new perp play</i></b>
-                  <div className="lp-mini">
-                    <div className="lp-mini__ticker"><img src={`${A}/ton.png`} alt="" /><span>TON</span><em>LONG</em></div>
-                    <img className="lp-mini__graph" src={`${A}/chart-mini.svg`} width={123.856} height={38.184} alt="" />
-                    <span className="lp-mini__join">Join</span>
-                  </div>
+        <StepCard title="Talk it through" text="Your cult sees the call the moment it lands and argues it out in real time. Nobody trades blind.">
+          {() => <div className="lp-chat" aria-hidden="true">
+            <div className="lp-msg lp-a lp-a--msg" style={{ left: 0, top: 0, '--d': '0.15s' } as CSSProperties}>
+              <img src={`${A}/avatar-23daddy-chat.png`} width={22.711} height={22.711} alt="" />
+              <div className="lp-bubble"><b>23.daddy</b><span style={{ width: 148 }}>Found this really cool perps that we can ape in.</span></div>
+            </div>
+            <div className="lp-msg lp-msg--right lp-a lp-a--msg" style={{ left: 87, top: 51, '--d': '0.75s' } as CSSProperties}>
+              <div className="lp-bubble"><b>Krdnl</b><span style={{ width: 149 }}>Drop lets analyse and see when we can enter</span></div>
+              <img src={`${A}/avatar-krdnl-chat.png`} width={22.711} height={22.711} alt="" />
+            </div>
+            <div className="lp-msg lp-msg--top lp-a lp-a--msg" style={{ left: 0, top: 102, '--d': '1.35s' } as CSSProperties}>
+              <img src={`${A}/avatar-23daddy-chat.png`} width={22.711} height={22.711} alt="" />
+              <div className="lp-bubble lp-bubble--call">
+                <b>23.daddy <i>called a new perp play</i></b>
+                <div className="lp-mini">
+                  <div className="lp-mini__ticker"><img src={`${A}/ton.png`} alt="" /><span>TON</span><em>LONG</em></div>
+                  <img className="lp-mini__graph lp-a lp-a--wipe" style={{ '--d': '1.65s' } as CSSProperties} src={`${A}/chart-mini.svg`} width={123.856} height={38.184} alt="" />
+                  <span className="lp-mini__join">Join</span>
                 </div>
               </div>
-              <div className="lp-msg lp-msg--right" style={{ left: 184, top: 241.11 }}>
-                <div className="lp-bubble"><b>Oxtandid</b><span>LFGGGGGG!!!!!!!</span></div>
-                <img src={`${A}/avatar-sm.svg`} width={22.7111} height={22.7111} alt="" />
-              </div>
             </div>
-          </div>
-          <div className="lp-step__body">
-            <h3>Talk it through</h3>
-            <p>Your cult sees the call the moment it lands and argues it out in real time. Nobody trades blind.</p>
-          </div>
-        </article>
+            <div className="lp-msg lp-msg--right lp-a lp-a--msg" style={{ left: 184, top: 241.11, '--d': '2.15s' } as CSSProperties}>
+              <div className="lp-bubble"><b>Oxtandid</b><span>LFGGGGGG!!!!!!!</span></div>
+              <img src={`${A}/avatar-oxtandid-chat.png`} width={22.711} height={22.711} alt="" />
+            </div>
+          </div>}
+        </StepCard>
 
-        <article className="lp-panel lp-step">
-          <div className="lp-step__visual">
-            <ol className="lp-board">
-              <li><span className="lp-board__who"><span className="lp-medal lp-medal--gold"><img src={`${A}/star.svg`} width={12.6808} height={12.0601} alt="" /></span><img src={`${A}/avatar.svg`} width={30} height={30} alt="" />23.daddy</span><span className="lp-board__pnl">+1002.64%</span></li>
-              <li><span className="lp-board__who"><span className="lp-medal lp-medal--silver">2</span><img src={`${A}/avatar.svg`} width={30} height={30} alt="" />Krdnl</span><span className="lp-board__pnl">+900%</span></li>
-              <li><span className="lp-board__who"><span className="lp-medal lp-medal--bronze">3</span><img src={`${A}/avatar.svg`} width={30} height={30} alt="" />Solstice</span><span className="lp-board__pnl">+857%</span></li>
-              <li><span className="lp-board__who"><span className="lp-board__rank">4</span><img src={`${A}/avatar.svg`} width={30} height={30} alt="" />0xtandid</span><span className="lp-board__pnl">+765.7%</span></li>
-            </ol>
-          </div>
-          <div className="lp-step__body">
-            <h3>Trade and keep score</h3>
-            <p>Each member executes from their own wallet. P&amp;L updates live and every call is saved to a profile, so the sharpest traders get followed.</p>
-          </div>
-        </article>
+        <StepCard title="Trade and keep score" text="Each member executes from their own wallet. P&L updates live and every call is saved to a profile, so the sharpest traders get followed.">
+          {phase => <ol className="lp-board">
+            {BOARD.map((row, i) => <li key={row.name} className="lp-a lp-a--slide" style={{ '--d': `${0.1 + i * 0.15}s` } as CSSProperties}>
+              <span className="lp-board__who">
+                {row.rank === 1 ? <span className="lp-medal lp-medal--gold lp-a lp-a--medal" style={{ '--d': '0.45s' } as CSSProperties}><img src={`${A}/star.svg`} width={12.6808} height={12.0601} alt="" /></span>
+                  : row.rank === 2 ? <span className="lp-medal lp-medal--silver">2</span>
+                  : row.rank === 3 ? <span className="lp-medal lp-medal--bronze">3</span>
+                  : <span className="lp-board__rank">4</span>}
+                <img src={`${A}/${row.avatar}.png`} width={30} height={30} alt="" />{row.name}
+              </span>
+              <span className="lp-board__pnl"><CountUp value={row.pnl} phase={phase} delay={250 + i * 150} duration={1200} /></span>
+            </li>)}
+          </ol>}
+        </StepCard>
       </div>
     </section>
 
