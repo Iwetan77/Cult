@@ -1,0 +1,18 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="473.042" height="206" viewBox="0 0 473.042 206" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Group 3">
+<g id="Group 1">
+<path id="Vector 1" d="M112.191 72.6853C66.0845 76.8531 20.5274 56.535 1.04214 45.5944V206H467.042V6C454.692 8.6049 451.399 13.8147 437.403 33.6119C426.205 49.4497 403.098 63.134 392.943 67.9965C372.36 82.0629 339.427 63.3077 313.904 57.0559C292.612 51.8406 275.168 53.5485 240.629 52.3671C210.166 51.3252 206.804 88.8393 187.113 89.8776C157.473 91.4406 169.823 67.4755 112.191 72.6853Z" fill="url(#paint0_linear_0_9)"/>
+<path id="Vector 2" d="M1.04214 45.5944C20.5274 56.535 66.0845 76.8531 112.191 72.6853C169.823 67.4755 157.473 91.4406 187.113 89.8776C206.804 88.8393 210.166 51.3252 240.629 52.3671C275.168 53.5485 292.613 51.8406 313.904 57.0559C339.427 63.3077 372.36 82.0629 392.943 67.9965C403.098 63.134 426.205 49.4496 437.403 33.6119C451.399 13.8147 454.692 8.60489 467.042 6" stroke="#63F0D6" stroke-width="2.08392" stroke-linecap="round"/>
+</g>
+<circle id="Ellipse 1" cx="245.042" cy="53" r="6" fill="#FFE283"/>
+<circle id="Ellipse 2" cx="305.042" cy="55" r="6" fill="#5C7DFF"/>
+<circle id="Ellipse 3" cx="374.042" cy="73" r="6" fill="#64FF56"/>
+<circle id="Ellipse 4" cx="467.042" cy="6" r="6" fill="#FF91F4"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_9" x1="242.042" y1="-100" x2="239.085" y2="201.976" gradientUnits="userSpaceOnUse">
+<stop stop-color="#63F0D6"/>
+<stop offset="1" stop-opacity="0"/>
+</linearGradient>
+</defs>
+</svg>

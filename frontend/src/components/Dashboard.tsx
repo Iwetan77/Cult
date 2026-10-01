@@ -26,6 +26,7 @@ import { MarketPage, type MarketSocial } from './MarketPage';
 import { TradeTicket, type TicketMarket } from './TradeTicket';
 import { RoomBadge } from './RoomBadge';
 import { DepositSheet } from './DepositSheet';
+import { Landing } from './Landing';
 import { ApiError } from '@/lib/api';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
@@ -734,7 +735,7 @@ export function Dashboard() {
     onShare: shareMarker,
   };
 
-  if (!ready || !authenticated) return <main className="login-screen"><div className="login-brand">CULT<span>.</span></div><div className="login-main"><p className="eyebrow">CULTS / MONAD</p><h1>Trade together.<br />Own every move.</h1><p>One chart for your cult’s live positions across Perpl and Nad.fun. Your wallet, your funds, your trades.</p><div className="login-actions"><button className="primary large" onClick={() => requestLogin('google')}>Continue with Google {pendingLogin === 'google' && <span className="button-spinner" aria-hidden="true" />}</button><button className="outline large" onClick={() => requestLogin('wallet')}>Connect wallet {pendingLogin === 'wallet' && <span className="button-spinner" aria-hidden="true" />}</button></div></div><div className="login-foot">PUBLIC + PRIVATE CULTS <span>•</span> NO SHARED CUSTODY</div></main>;
+  if (!ready || !authenticated) return <Landing onLogin={requestLogin} pendingLogin={pendingLogin} />;
   if (me?.needsUsername) return <UsernameGate onSave={async username => { await setUsername(await token(), username); await loadMe(); }} />;
 
   return <div className="app-shell">
