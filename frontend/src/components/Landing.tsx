@@ -12,17 +12,35 @@ const DOTS = ['dot-pink', 'dot-yellow', 'dot-blue', 'dot-green'];
 // Figma 36:1096, the cult chart card.
 const LEADERS = [['23.daddy', '+15.6%'], ['Solstice', '+10.73%'], ['Krdnl', '+10.4%'], ['0xtandid', '+8.3%']] as const;
 
+// Plays once when the card scrolls into view: header in, the chart wipes in left to right (so the
+// line and the members' entry dots appear in order), a live ring pulses on the latest price, then the
+// results rise in and count up. Same phases and .lp-a classes as the How it works cards.
 function ChartPanel() {
-  return <div className="lp-panel lp-chart__panel">
-    <div className="lp-chart__head">
-      <div className="lp-ticker"><img className="lp-ticker__icon" src={`${A}/ton.png`} alt="" /><span className="lp-ticker__name">TON</span><span className="lp-pill">LONG</span></div>
-      <p className="lp-chart__caller">position called by <strong>23.daddy</strong></p>
+  const [ref, phase] = useReveal<HTMLDivElement>();
+  return <div ref={ref} className={`lp-panel lp-chart__panel lp-reveal--${phase}`}>
+    <div className="lp-chart__col">
+      <div className="lp-chart__head">
+        <div className="lp-ticker lp-a lp-a--rise" style={{ '--d': '0s' } as CSSProperties}>
+          <img className="lp-ticker__icon" src={`${A}/ton.png`} alt="" />
+          <span className="lp-ticker__name">TON</span>
+          <span className="lp-pill lp-a lp-a--pop" style={{ '--d': '0.35s' } as CSSProperties}>LONG</span>
+        </div>
+        <p className="lp-chart__caller lp-a lp-a--rise" style={{ '--d': '0.15s' } as CSSProperties}>position called by <strong>23.daddy</strong></p>
+      </div>
+      <div className="lp-chart__body">
+        <div className="lp-chart__graph">
+          <img className="lp-a lp-a--wipe" style={{ '--d': '0.3s' } as CSSProperties} src={`${A}/chart-main.svg`} width={473.042} height={206} alt="TON price line with caller entry markers" />
+          <span className="lp-chart__live" aria-hidden="true" />
+        </div>
+        <ul className="lp-leaders lp-a lp-a--rise" style={{ '--d': '0.9s' } as CSSProperties}>
+          {LEADERS.map(([who, gain], i) =>
+            <li key={who} className="lp-a lp-a--slide" style={{ '--d': `${1 + i * 0.12}s` } as CSSProperties}>
+              <span className="lp-leaders__who"><img src={`${A}/${DOTS[i]}.svg`} width={12} height={12} alt="" />{who}</span>
+              <span className="lp-gain"><CountUp value={gain} phase={phase} delay={1100 + i * 120} duration={1100} /></span>
+            </li>)}
+        </ul>
+      </div>
     </div>
-    <img className="lp-chart__graph" src={`${A}/chart-main.svg`} width={473.042} height={206} alt="TON price line with caller entry markers" />
-    <ul className="lp-leaders">
-      {LEADERS.map(([who, gain], i) =>
-        <li key={who}><span className="lp-leaders__who"><img src={`${A}/${DOTS[i]}.svg`} width={12} height={12} alt="" />{who}</span><span className="lp-gain">{gain}</span></li>)}
-    </ul>
   </div>;
 }
 
@@ -169,7 +187,7 @@ function CountUp({ value, from = 0, phase, delay, duration }: { value: string; f
 
 function StepCard({ title, text, visualClass = '', children }: { title: string; text: string; visualClass?: string; children: (phase: RevealPhase) => ReactNode }) {
   const [ref, phase] = useReveal<HTMLElement>();
-  return <article ref={ref} className={`lp-panel lp-step lp-step--${phase}`}>
+  return <article ref={ref} className={`lp-panel lp-step lp-reveal--${phase}`}>
     <div className={`lp-step__visual ${visualClass}`}>{children(phase)}</div>
     <div className="lp-step__body">
       <h3 className="lp-a lp-a--rise" style={{ '--d': '0.1s' } as CSSProperties}>{title}</h3>
