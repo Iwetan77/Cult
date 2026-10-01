@@ -56,7 +56,6 @@
 @media (prefers-reduced-motion: reduce) { .lp-rays__video { display: none; } }
 .lp-pill { background: var(--lp-mint); color: #102b26; border-radius: 999px; font-weight: 500; }
 .lp-gain { color: var(--lp-mint); font-weight: 500; font-size: 20px; letter-spacing: -0.4px; line-height: 20px; }
-.lp-gain--down { color: var(--lp-red); }
 
 /* ---------- hero ---------- */
 .lp-hero { min-height: 912px; display: flex; flex-direction: column; align-items: center; padding: 38px var(--lp-gutter) 88px; }
@@ -80,17 +79,17 @@
 .lp-chart__split { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 80px; }
 .lp-chart__copy { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
 .lp-chart__panel { position: relative; flex: 0 0 540px; height: 575px; }
-.lp-chart__head { position: absolute; top: 31px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+/* Figma offsets are from the card's outer edge; these are 1px less for the border. */
+.lp-chart__head { position: absolute; top: 30px; left: 180px; width: 139px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .lp-ticker { display: flex; align-items: center; gap: 4.57px; }
 .lp-ticker__icon { width: 33.32px; height: 33.32px; border-radius: 50%; object-fit: cover; }
-.lp-ticker__icon--letter { display: grid; place-items: center; background: var(--lp-mint); color: var(--lp-ink-green); font-weight: 700; }
 .lp-ticker__name { font-weight: 700; font-size: 21.8px; letter-spacing: -0.44px; line-height: 20px; margin-right: 4.57px; }
 .lp-ticker .lp-pill { font-size: 7.27px; letter-spacing: -0.29px; padding: 4.57px 9.14px; line-height: 1; }
 .lp-chart__caller { font-size: 12px; letter-spacing: -0.24px; line-height: 20px; white-space: nowrap; }
 .lp-chart__caller strong { font-weight: 500; }
-.lp-chart__graph { position: absolute; left: 35px; top: 113px; }
+.lp-chart__graph { position: absolute; left: 34px; top: 112px; }
 .lp-leaders {
-  position: absolute; top: 342px; left: calc(50% - 1px); transform: translateX(-50%); width: 466px;
+  position: absolute; top: 341px; left: calc(50% - 1px); transform: translateX(-50%); width: 466px;
   background: #000; border-radius: 20px; padding: 30px 40px;
   display: flex; flex-direction: column; gap: 20px;
 }
@@ -196,6 +195,7 @@
   .lp-markets { min-height: 0; }
   .lp-chart__panel { height: auto; width: 100%; padding: 31px 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
   .lp-chart__head, .lp-chart__graph, .lp-leaders { position: static; transform: none; }
+  .lp-chart__head { width: auto; }
   .lp-chart__graph { width: 100%; height: auto; }
   .lp-leaders { width: 100%; padding: 24px; }
   .lp-join__title { white-space: normal; }
