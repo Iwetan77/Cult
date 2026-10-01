@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, type CSSProperties } from 'react';
 import './landing.css';
 
 type LoginMethod = 'google' | 'wallet';
@@ -23,6 +24,103 @@ function ChartPanel() {
         <li key={who}><span className="lp-leaders__who"><img src={`${A}/${DOTS[i]}.svg`} width={12} height={12} alt="" />{who}</span><span className="lp-gain">{gain}</span></li>)}
     </ul>
   </div>;
+}
+
+// Sticky scroll: the section pins for a few screens of scrolling while these cards rise from the
+// bottom edge, one after another, and settle in place over the headline. Listed in arrival order.
+// Wide screens: x / y place the card within the stage's free space (0 = left/top edge, 1 =
+// right/bottom edge) and size is its width in px on a 1440 x 900 screen (the images are 306 x 290,
+// drawn at 2x). Up to 900px wide the text fills the middle, so cards settle in a band above it
+// (band 0) or below it (band 1): mx / my place them within that band, three per row, two rows each.
+const MARKET_CARDS = [
+  { src: 'monad', alt: 'Monad', x: 0.825, y: 0.151, size: 180, band: 0, mx: 0.97, my: 0.04 },
+  { src: 'btc', alt: 'BTC', x: 0.071, y: 0.203, size: 170, band: 0, mx: 0.03, my: 0.1 },
+  { src: 'solana', alt: 'Solana', x: 0.469, y: 0.12, size: 160, band: 0, mx: 0.5, my: 0 },
+  { src: 'ethereum', alt: 'Ethereum', x: 0.937, y: 0.447, size: 170, band: 1, mx: 0.97, my: 0.1 },
+  { src: 'sports', alt: 'Sports', x: 0.256, y: 0.264, size: 150, band: 0, mx: 0.17, my: 1 },
+  { src: 'pump', alt: 'Pump', x: 0.088, y: 0.583, size: 190, band: 1, mx: 0.03, my: 0.06 },
+  { src: 'weather', alt: 'Weather', x: 0.667, y: 0.27, size: 150, band: 0, mx: 0.83, my: 0.92 },
+  { src: 'polygon', alt: 'Polygon', x: 0.794, y: 0.768, size: 180, band: 1, mx: 0.5, my: 0 },
+  { src: 'esports', alt: 'Esports', x: 0.26, y: 0.853, size: 170, band: 1, mx: 0.17, my: 0.94 },
+  { src: 'sui', alt: 'Sui', x: 0.953, y: 0.855, size: 160, band: 1, mx: 0.83, my: 1 },
+  { src: 'politics', alt: 'Politics', x: 0.488, y: 0.866, size: 170, band: 0, mx: 0.5, my: 0.88 },
+  { src: 'near', alt: 'NEAR', x: 0.031, y: 0.923, size: 150, band: 1, mx: 0.5, my: 0.88 },
+] as const;
+
+// Share of the pinned scroll before the first card moves, between card starts, and per card trip.
+// The last card lands at 0.04 + 11 * 0.065 + 0.18 = 0.935, leaving a short hold before it unpins.
+const LEAD_IN = 0.04, STAGGER = 0.065, TRIP = 0.18;
+const easeOut = (t: number) => 1 - (1 - t) ** 3;
+
+function MarketsScroll() {
+  const trackRef = useRef<HTMLElement>(null);
+  const cardRefs = useRef<(HTMLLIElement | null)[]>([]);
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let frame = 0;
+
+    const update = () => {
+      frame = 0;
+      const cards = cardRefs.current;
+      if (reduced.matches) { cards.forEach(card => card?.style.removeProperty('transform')); return; }
+      const rect = track.getBoundingClientRect();
+      const stage = (track.firstElementChild as HTMLElement | null)?.offsetHeight ?? window.innerHeight;
+      const pinned = rect.height - stage; // scroll distance while the stage is stuck
+      const progress = pinned > 0 ? Math.min(1, Math.max(0, -rect.top / pinned)) : 1;
+      cards.forEach((card, i) => {
+        if (!card) return;
+        const t = Math.min(1, Math.max(0, (progress - LEAD_IN - i * STAGGER) / TRIP));
+        // Starts one stage height below its resting spot (out of view), ends at rest.
+        card.style.transform = `translate3d(0, ${((1 - easeOut(t)) * stage).toFixed(1)}px, 0)`;
+      });
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+
+    // Where the headline + lead sit in the stage, for the narrow-screen bands above and below them.
+    // Re-measured whenever the text box changes size (wrapping, font load, resize).
+    const stageEl = track.firstElementChild as HTMLElement | null;
+    const title = stageEl?.querySelector('h2'), lead = stageEl?.querySelector('p');
+    const measure = () => {
+      if (!stageEl || !title || !lead) return;
+      stageEl.style.setProperty('--text-top', `${title.offsetTop}px`);
+      stageEl.style.setProperty('--text-bottom', `${lead.offsetTop + lead.offsetHeight}px`);
+    };
+    const textObserver = new ResizeObserver(measure);
+    if (stageEl) textObserver.observe(stageEl);
+    if (title) textObserver.observe(title);
+    if (lead) textObserver.observe(lead);
+
+    const onResize = () => { measure(); schedule(); };
+
+    measure();
+    update();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', onResize);
+    reduced.addEventListener('change', schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      textObserver.disconnect();
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', onResize);
+      reduced.removeEventListener('change', schedule);
+    };
+  }, []);
+
+  return <section className="lp-section lp-markets" ref={trackRef}>
+    <div className="lp-markets__stage">
+      <h2 className="lp-display lp-display--88">Perps, memes, and next-block meta.</h2>
+      <p className="lp-lead lp-lead--dark">Scalp MON perps and snipe fresh Nad.fun runners.<br />When the cult spots the rotation, you’re already in position.</p>
+      <ul className="lp-markets__cards">
+        {MARKET_CARDS.map((card, i) =>
+          <li key={card.src} className="lp-markets__card" ref={el => { cardRefs.current[i] = el; }} style={{ '--x': card.x, '--y': card.y, '--size': card.size, '--band': card.band, '--mx': card.mx, '--my': card.my } as CSSProperties}>
+            <img src={`${A}/scroll/${card.src}.png`} width={306} height={290} alt={card.alt} />
+          </li>)}
+      </ul>
+    </div>
+  </section>;
 }
 
 function RaysVideo() {
@@ -58,10 +156,7 @@ export function Landing({ onLogin, pendingLogin }: Props) {
       </div>
     </section>
 
-    <section className="lp-section lp-markets">
-      <h2 className="lp-display lp-display--88">Perps, memes, and next-block meta.</h2>
-      <p className="lp-lead lp-lead--dark">Scalp MON perps and snipe fresh Nad.fun runners.<br />When the cult spots the rotation, you’re already in position.</p>
-    </section>
+    <MarketsScroll />
 
     <section className="lp-section lp-section--dark lp-how" id="how">
       <h2 className="lp-display lp-display--88 lp-how__title">From hunch to position, together.</h2>
