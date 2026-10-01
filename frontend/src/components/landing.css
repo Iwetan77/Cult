@@ -187,7 +187,11 @@
   --m-in: max(16px, calc((100% - 333.34px * var(--z)) / 2));
   display: flex; flex-direction: column; align-items: center; padding-top: var(--m);
 }
-.lp-step__visual { zoom: var(--z); width: 333.34px; max-width: calc(100% - 32px); height: 335px; background: #000; border-radius: 20px; position: relative; }
+/* The visual is a fixed 333.34 x 335 drawing. On phones it is scaled down as a unit with a transform
+   (the CSS zoom property is not reliable: iOS Safari zoomed the panel but not its contents), and the
+   frame reserves exactly the scaled size so the card's layout matches. */
+.lp-step__frame { flex: none; width: calc(333.34px * var(--z)); height: calc(335px * var(--z)); }
+.lp-step__visual { width: 333.34px; height: 335px; background: #000; border-radius: 20px; position: relative; transform: scale(var(--z)); transform-origin: 0 0; }
 .lp-step__body { width: 100%; padding: 28px var(--m-in) var(--m-in); display: flex; flex-direction: column; gap: 12px; }
 .lp-step__body h3 { font-weight: 500; font-size: 34px; line-height: 1.02; letter-spacing: -1.36px; color: var(--lp-text); }
 .lp-step__body p { font-size: 16px; line-height: 1.6; letter-spacing: -0.64px; color: var(--lp-muted); }
@@ -355,10 +359,10 @@
   .lp-step, .lp-step:last-child { grid-column: auto; }
 }
 /* Phones: the visual is a fixed 333 x 335 drawing. Below 441px it no longer fits the card with 16px
-   margins (room = 0.8334 x screen - 34px, the gutter being 8.33vw), so it is zoomed as a unit; zoom,
-   unlike transform, also shrinks its layout box so the card stays the right height. Each step is
-   sized for the narrowest screen it covers, keeping the margins between 16px and 21px. */
-@media (max-width: 440px) { .lp-step { --z: 0.97; } .lp-step__visual { max-width: none; } }
+   margins (room = 0.8334 x screen - 34px, the gutter being 8.33vw), so --z scales it down (see
+   .lp-step__frame). Each step is sized for the narrowest screen it covers, keeping the margins
+   between 16px and 21px. */
+@media (max-width: 440px) { .lp-step { --z: 0.97; } }
 @media (max-width: 428px) { .lp-step { --z: 0.94; } }
 @media (max-width: 416px) { .lp-step { --z: 0.91; } }
 @media (max-width: 404px) { .lp-step { --z: 0.88; } }
