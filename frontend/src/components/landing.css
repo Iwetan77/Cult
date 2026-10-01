@@ -10,7 +10,6 @@
   --lp-red: #e94747;
   --lp-display: var(--font-insidia), Impact, system-ui, sans-serif;
   --lp-body: var(--font-aeonik), var(--font-sans), system-ui, sans-serif;
-  --lp-mono: var(--font-jetbrains), var(--font-mono), ui-monospace, monospace;
   --lp-gutter: clamp(16px, 8.33vw, 120px);
   background: #000; color: #fff; font-family: var(--lp-body); -webkit-font-smoothing: antialiased;
 }
@@ -43,7 +42,6 @@
 .lp-btn--primary { background: var(--lp-mint); color: var(--lp-ink-green); }
 .lp-btn--ghost { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.16); color: var(--lp-text); }
 .lp-btn--ghost:hover { background: rgba(255, 255, 255, 0.1); }
-.lp-btn--mono { font-family: var(--lp-mono); text-transform: uppercase; letter-spacing: 0.84px; }
 .lp-btn__icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 11px; background: rgba(4, 36, 30, 0.14); }
 
 /* ---------- shared ---------- */
@@ -53,13 +51,16 @@
 .lp-rays { position: relative; isolation: isolate; background: url("/landing/rays-bg.png") center / cover no-repeat; }
 .lp-rays__video { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; max-width: none; object-fit: cover; pointer-events: none; }
 .lp-rays::before { content: ""; position: absolute; inset: 0; z-index: -1; background: rgba(0, 0, 0, 0.15); pointer-events: none; }
-.lp-rays > :not(.lp-rays__video) { position: relative; }
+:where(.lp-rays) > :where(:not(.lp-rays__video)) { position: relative; } /* no weight, so .lp-join__word can be absolute */
 @media (prefers-reduced-motion: reduce) { .lp-rays__video { display: none; } }
 .lp-pill { background: var(--lp-mint); color: #102b26; border-radius: 999px; font-weight: 500; }
 .lp-gain { color: var(--lp-mint); font-weight: 500; font-size: 20px; letter-spacing: -0.4px; line-height: 20px; }
 
 /* ---------- hero ---------- */
-.lp-hero { min-height: 912px; display: flex; flex-direction: column; align-items: center; padding: 38px var(--lp-gutter) 88px; }
+/* Fills the viewport. At 1440x912 this is the Figma frame exactly: nav at 38px (96px tall), headline
+   102px under the nav, 42px to the CTA, 72px below it. Shorter screens shrink the headline (and the
+   gaps) so it never runs into the nav. */
+.lp-hero { min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; align-items: center; padding: 38px var(--lp-gutter) clamp(40px, 7.9vh, 72px); }
 .lp-nav {
   width: 100%; max-width: 1120px;
   display: flex; align-items: center; justify-content: space-between;
@@ -68,13 +69,20 @@
   backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
 }
 .lp-nav__actions { display: flex; gap: 10px; }
+.lp-hero__body {
+  flex: 1; width: 100%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 42px;
+  padding-top: clamp(56px, 11.18vh, 102px);
+}
 .lp-hero__title {
-  margin-top: 104px; max-width: 707px;
+  max-width: 4.71em; /* 707px at 150px: same four lines at every size */
   font-family: var(--lp-display); font-weight: 400;
-  font-size: clamp(64px, 10.4vw, 150px); line-height: 0.85; letter-spacing: 0.03em;
+  /* (viewport height - nav, gaps, CTA) / four 0.85 lines, capped at the design's 150px */
+  font-size: clamp(48px, min(10.417vw, calc(23.8vh - 67.06px)), 150px);
+  font-size: clamp(48px, min(10.417vw, calc(23.8svh - 67.06px)), 150px);
+  line-height: 0.85; letter-spacing: 0.03em;
   text-align: center; text-transform: uppercase;
 }
-.lp-hero__cta { margin-top: auto; }
 
 /* ---------- chart section ---------- */
 .lp-chart__split { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 80px; }
@@ -165,18 +173,29 @@
 .lp-partners__logos img { height: auto; }
 
 /* ---------- join + footer ---------- */
-.lp-join { border-top: 1px solid var(--lp-line); overflow: hidden; }
-.lp-join__inner { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 150px var(--lp-gutter) 0; text-align: center; }
-.lp-join__title { font-family: var(--lp-display); font-weight: 400; font-size: clamp(56px, 8.6vw, 124px); line-height: 0.94; text-transform: uppercase; white-space: nowrap; }
-.lp-join__lead { font-size: 20px; line-height: 1.5; letter-spacing: -0.6px; max-width: 402px; }
-.lp-join__ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-.lp-join__word {
-  font-family: var(--font-bricolage), var(--lp-body); font-weight: 700;
-  font-size: clamp(140px, 25vw, 360px); line-height: 0.8; letter-spacing: -0.06em;
-  color: transparent; -webkit-text-stroke: 1px rgba(255, 255, 255, 0.14); user-select: none;
+/* Figma 59:104: 1440 x 900, rays + 15% black, content from 150px down, footer on the bottom edge. */
+.lp-join {
+  min-height: 900px; display: flex; flex-direction: column; overflow: hidden;
 }
-.lp-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 28px var(--lp-gutter) 40px; }
-.lp-footer p { font-weight: 500; font-size: 11px; letter-spacing: 1.1px; text-transform: uppercase; }
+.lp-join__inner { display: flex; flex-direction: column; align-items: center; gap: 32px; padding: 150px var(--lp-gutter) 0; text-align: center; border-top: 1px solid var(--lp-line); }
+.lp-join__text { max-width: 100%; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.lp-join__title {
+  font-family: var(--lp-display); font-weight: 400;
+  font-size: clamp(56px, 8.61vw, 124px); line-height: 0.94; text-transform: uppercase; white-space: nowrap;
+  text-box: trim-both cap alphabetic; /* Figma trims the line box to the cap height */
+}
+.lp-join__lead { width: 402px; max-width: 100%; font-size: 20px; line-height: 1.19; letter-spacing: -0.6px; }
+.lp-join__ctas { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+.lp-join__word {
+  position: absolute; left: var(--lp-gutter); top: 416.11px; margin: 0;
+  font-family: var(--lp-display); font-weight: 400;
+  font-size: min(720.2px, 50.01vw); line-height: 1; letter-spacing: -0.01em; white-space: nowrap;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.46) 3.452%, rgba(255, 255, 255, 0) 62.798%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  mix-blend-mode: color-dodge; pointer-events: none; user-select: none;
+}
+.lp-footer { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 28px var(--lp-gutter) 40px; }
+.lp-footer p { font-weight: 500; font-size: 11px; line-height: 13px; letter-spacing: 1.1px; text-transform: uppercase; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1180px) {
@@ -186,18 +205,21 @@
 }
 @media (max-width: 640px) {
   .lp-section { padding-block: 96px; }
-  .lp-hero { min-height: 720px; }
   .lp-nav { padding: 12px 12px 12px 20px; }
   .lp-nav .lp-btn--fixed { width: auto; padding: 14px 16px; }
   .lp-nav .lp-btn--primary { display: none; }
-  .lp-hero__title { margin-top: 80px; }
-  .lp-hero__cta { margin-top: 64px; }
+  .lp-hero__body { padding-top: 64px; gap: 40px; }
+  .lp-hero__title { font-size: clamp(48px, 15vw, 64px); }
   .lp-markets { min-height: 0; }
   .lp-chart__panel { height: auto; width: 100%; padding: 31px 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
   .lp-chart__head, .lp-chart__graph, .lp-leaders { position: static; transform: none; }
   .lp-chart__head { width: auto; }
   .lp-chart__graph { width: 100%; height: auto; }
   .lp-leaders { width: 100%; padding: 24px; }
+  .lp-join { min-height: 0; }
+  .lp-join__inner { padding-top: 96px; }
   .lp-join__title { white-space: normal; }
+  .lp-join__word { order: 1; position: relative; left: auto; top: auto; margin: 48px var(--lp-gutter) -12vw; }
+  .lp-footer { order: 2; }
   .lp-footer { flex-direction: column; align-items: flex-start; }
 }
