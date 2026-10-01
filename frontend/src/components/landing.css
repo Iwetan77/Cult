@@ -86,18 +86,29 @@
 /* ---------- chart section ---------- */
 .lp-chart__split { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 80px; }
 .lp-chart__copy { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
-.lp-chart__panel { position: relative; flex: 0 0 540px; height: 575px; }
-.lp-chart__head { position: absolute; top: 31px; left: 181px; width: 139px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+/* Figma 36:1096: 537 x 577.32, 1px border, 32px / 31px padding around a 473px column. */
+.lp-chart__panel { flex: none; width: 537px; padding: 32px 31px; display: flex; align-items: center; }
+.lp-chart__col { width: 473px; display: flex; flex-direction: column; align-items: center; gap: 25px; }
+.lp-chart__head { width: 139px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .lp-ticker { display: flex; align-items: center; gap: 4.57px; }
 .lp-ticker__icon { width: 33.32px; height: 33.32px; border-radius: 50%; object-fit: cover; }
 .lp-ticker__name { font-weight: 700; font-size: 21.8px; letter-spacing: -0.44px; line-height: 20px; margin-right: 4.57px; }
 .lp-ticker .lp-pill { font-size: 7.27px; letter-spacing: -0.29px; padding: 4.57px 9.14px; line-height: 1; }
 .lp-chart__caller { font-size: 12px; letter-spacing: -0.24px; line-height: 20px; white-space: nowrap; }
 .lp-chart__caller strong { font-weight: 500; }
-.lp-chart__graph { position: absolute; left: 35px; top: 113px; }
+.lp-chart__body { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 23px; }
+/* The chart SVG is 473.042 wide and sits 0.22% left of its 472px frame, as in Figma. */
+.lp-chart__graph { position: relative; width: 472px; }
+.lp-chart__graph img { width: calc(100% * 473.042 / 472); max-width: none; height: auto; margin-left: -0.22%; }
+/* Pulse ring over the latest-price dot (Figma ellipse 4: 12px at x 460, y 0 of the 472 x 206 frame). */
+.lp-chart__live {
+  position: absolute; left: calc(100% * 460 / 472); top: 0; width: calc(100% * 12 / 472); aspect-ratio: 1;
+  border-radius: 50%; background: #ff91f4; opacity: 0; pointer-events: none;
+}
+.lp-reveal--in .lp-chart__live { animation: lp-live 2s ease-out 1.4s infinite; }
+@keyframes lp-live { from { opacity: 0.7; transform: scale(1); } to { opacity: 0; transform: scale(2.8); } }
 .lp-leaders {
-  position: absolute; top: 342px; left: calc(50% - 1px); transform: translateX(-50%); width: 466px;
-  background: #000; border-radius: 20px; padding: 30px 40px;
+  width: 466px; background: #000; border-radius: 20px; padding: 30px 40px;
   display: flex; flex-direction: column; gap: 20px;
 }
 .lp-leaders li { display: flex; align-items: center; justify-content: space-between; }
@@ -200,22 +211,22 @@
 
 /* Card intros: .lp-a parts are hidden while the card waits below the fold (--armed) and play once
    when it scrolls into view (--in), each after its own --d delay. Static cards are untouched. */
-.lp-step--armed .lp-a { opacity: 0; }
-.lp-step--armed .lp-a--wipe { opacity: 1; clip-path: inset(0 100% 0 0); }
-.lp-step--in .lp-a { animation: 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) var(--d, 0s) both; }
-.lp-step--in .lp-a--rise { animation-name: lp-rise; }
-.lp-step--in .lp-a--wipe { animation-name: lp-wipe; animation-duration: 1.1s; animation-timing-function: cubic-bezier(0.45, 0, 0.2, 1); }
-.lp-step--in .lp-a--pop { animation-name: lp-pop; animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.3, 1.5, 0.6, 1); }
-.lp-step--in .lp-a--msg { animation-name: lp-msg; animation-duration: 0.45s; transform-origin: left bottom; }
-.lp-step--in .lp-msg--right.lp-a--msg { transform-origin: right bottom; }
-.lp-step--in .lp-a--slide { animation-name: lp-slide; animation-duration: 0.55s; }
-.lp-step--in .lp-a--medal { animation-name: lp-medal; animation-duration: 0.7s; animation-timing-function: cubic-bezier(0.3, 1.6, 0.5, 1); }
+.lp-reveal--armed .lp-a { opacity: 0; }
+.lp-reveal--armed .lp-a--wipe { opacity: 1; clip-path: inset(0 100% 0 0); }
+.lp-reveal--in .lp-a { animation: 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) var(--d, 0s) both; }
+.lp-reveal--in .lp-a--rise { animation-name: lp-rise; }
+.lp-reveal--in .lp-a--wipe { animation-name: lp-wipe; animation-duration: 1.1s; animation-timing-function: cubic-bezier(0.45, 0, 0.2, 1); }
+.lp-reveal--in .lp-a--pop { animation-name: lp-pop; animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.3, 1.5, 0.6, 1); }
+.lp-reveal--in .lp-a--msg { animation-name: lp-msg; animation-duration: 0.45s; transform-origin: left bottom; }
+.lp-reveal--in .lp-msg--right.lp-a--msg { transform-origin: right bottom; }
+.lp-reveal--in .lp-a--slide { animation-name: lp-slide; animation-duration: 0.55s; }
+.lp-reveal--in .lp-a--medal { animation-name: lp-medal; animation-duration: 0.7s; animation-timing-function: cubic-bezier(0.3, 1.6, 0.5, 1); }
 /* After the intro: Long/Up keeps a soft pulse, the Join button a shimmer. */
-.lp-step--in .lp-btn--long {
+.lp-reveal--in .lp-btn--long {
   animation: lp-pop 0.5s cubic-bezier(0.3, 1.5, 0.6, 1) var(--d) both, lp-pulse 2.6s ease-out 1.6s infinite;
 }
 .lp-mini__join { position: relative; overflow: hidden; }
-.lp-step--in .lp-mini__join::after {
+.lp-reveal--in .lp-mini__join::after {
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
   transform: translateX(-100%); animation: lp-shimmer 2.8s ease-in-out 2.2s infinite;
@@ -229,7 +240,7 @@
 @keyframes lp-pulse { 0% { box-shadow: 0 0 0 0 rgba(99, 240, 214, 0.55); } 70%, 100% { box-shadow: 0 0 0 12px rgba(99, 240, 214, 0); } }
 @keyframes lp-shimmer { 0% { transform: translateX(-100%); } 45%, 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
-  .lp-step--in .lp-a, .lp-step--in .lp-btn--long, .lp-step--in .lp-mini__join::after { animation: none; }
+  .lp-reveal--in .lp-a, .lp-reveal--in .lp-btn--long, .lp-reveal--in .lp-mini__join::after, .lp-reveal--in .lp-chart__live { animation: none; }
 }
 
 /* ---------- partners ---------- */
@@ -275,6 +286,13 @@
   .lp-chart__panel { align-self: center; }
   .lp-steps { grid-template-columns: 1fr; max-width: 420px !important; }
 }
+/* The card is 537px wide; below 645px it no longer fits inside the page margins, so it goes fluid. */
+@media (max-width: 660px) {
+  .lp-chart__panel { width: 100%; padding: 24px 16px; }
+  .lp-chart__col { width: 100%; }
+  .lp-chart__graph { width: 100%; }
+  .lp-leaders { width: 100%; padding: 24px; }
+}
 @media (max-width: 640px) {
   .lp-section { padding-block: 96px; }
   .lp-nav { padding: 12px 12px 12px 20px; }
@@ -282,11 +300,6 @@
   .lp-nav .lp-btn--primary { display: none; }
   .lp-hero__body { padding-top: 64px; gap: 40px; }
   .lp-hero__title { font-size: clamp(48px, 15vw, 64px); }
-  .lp-chart__panel { height: auto; width: 100%; padding: 31px 16px 16px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
-  .lp-chart__head, .lp-chart__graph, .lp-leaders { position: static; transform: none; }
-  .lp-chart__head { width: auto; }
-  .lp-chart__graph { width: 100%; height: auto; }
-  .lp-leaders { width: 100%; padding: 24px; }
   .lp-join { min-height: 0; }
   .lp-join__inner { padding-top: 96px; }
   .lp-join__title { white-space: normal; }
