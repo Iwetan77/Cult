@@ -11,6 +11,15 @@
   --lp-display: var(--font-insidia), Impact, system-ui, sans-serif;
   --lp-body: var(--font-aeonik), var(--font-sans), system-ui, sans-serif;
   --lp-gutter: clamp(16px, 8.33vw, 120px);
+  /* Spacing scale, used everywhere instead of one-off values:
+     section-y = section top/bottom padding (140 at 1440, never under 96);
+     gap-lead  = headline -> paragraph; gap-cta = paragraph -> buttons;
+     gap-block = section headline -> its cards / logos. */
+  --lp-section-y: clamp(96px, 9.72vw, 140px);
+  --lp-gap-lead: 24px;
+  --lp-gap-cta: 32px;
+  --lp-gap-block: clamp(40px, 3.89vw, 56px);
+  --lp-card-gap: 24px;
   background: #000; color: #fff; font-family: var(--lp-body); -webkit-font-smoothing: antialiased;
 }
 /* Resets sit in :where() so they carry no class weight: every lp- rule below beats them. */
@@ -23,8 +32,9 @@
 
 /* ---------- type ---------- */
 .lp-display { font-family: var(--lp-display); font-weight: 400; line-height: 0.98; text-transform: uppercase; }
-.lp-display--80 { font-size: clamp(44px, 5.56vw, 80px); max-width: 566px; }
-.lp-display--88 { font-size: clamp(48px, 6.11vw, 88px); max-width: 663px; }
+/* Widths in em (Figma's 566px at 80px, 663px at 88px) so headlines keep the designed line breaks as they scale. */
+.lp-display--80 { font-size: clamp(44px, 5.56vw, 80px); max-width: 7.075em; }
+.lp-display--88 { font-size: clamp(48px, 6.11vw, 88px); max-width: 7.534em; }
 .lp-lead { font-size: 20px; line-height: 1.2; letter-spacing: -0.6px; color: rgba(255, 255, 255, 0.78); max-width: 460px; }
 .lp-lead--dark { color: rgba(15, 19, 24, 0.78); line-height: 1.5; max-width: 490px; }
 
@@ -44,8 +54,10 @@
 .lp-btn--ghost:hover { background: rgba(255, 255, 255, 0.1); }
 
 /* ---------- shared ---------- */
-.lp-section { padding: 140px var(--lp-gutter); }
+.lp-section { padding: var(--lp-section-y) var(--lp-gutter); }
 .lp-section--dark { background: #000; }
+/* Two black sections in a row read as one band: without this their paddings stack into a 280px void. */
+.lp-section--dark + .lp-section--dark { padding-top: calc(var(--lp-section-y) * 0.3); }
 .lp-panel { background: var(--lp-panel); border: 1px solid var(--lp-line); border-radius: 30px; overflow: hidden; }
 .lp-rays { position: relative; isolation: isolate; background: url("/landing/rays-bg.png") center / cover no-repeat; }
 .lp-rays__video { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; max-width: none; object-fit: cover; pointer-events: none; }
@@ -85,7 +97,8 @@
 
 /* ---------- chart section ---------- */
 .lp-chart__split { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 80px; }
-.lp-chart__copy { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
+.lp-chart__copy { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--lp-gap-lead); }
+.lp-chart__copy > .lp-btn { margin-top: calc(var(--lp-gap-cta) - var(--lp-gap-lead)); }
 /* Figma 36:1096: 537 x 577.32, 1px border, 32px / 31px padding around a 473px column. */
 .lp-chart__panel { flex: none; width: 537px; padding: 32px 31px; display: flex; align-items: center; }
 .lp-chart__col { width: 473px; display: flex; flex-direction: column; align-items: center; gap: 25px; }
@@ -120,7 +133,7 @@
 .lp-section.lp-markets { position: relative; height: 340vh; height: 340svh; padding: 0; background: var(--lp-mint); color: var(--lp-ink); }
 .lp-markets__stage {
   position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--lp-gap-lead);
   padding: 0 var(--lp-gutter); text-align: center;
 }
 .lp-markets__cards { position: absolute; inset: 0; pointer-events: none; }
@@ -156,13 +169,26 @@
 }
 
 /* ---------- how it works ---------- */
-.lp-how { display: flex; flex-direction: column; gap: 28px; }
-.lp-how__title { max-width: 820px; color: var(--lp-text); }
+.lp-how { display: flex; flex-direction: column; gap: var(--lp-gap-block); }
 .lp-how > *, .lp-partners > * { width: 100%; max-width: 1200px; margin-inline: auto; }
-.lp-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: stretch; }
-.lp-step { display: flex; flex-direction: column; align-items: center; padding-top: 27px; }
-.lp-step__visual { width: 333.34px; max-width: calc(100% - 40px); height: 335px; background: #000; border-radius: 20px; position: relative; }
-.lp-step__body { width: 100%; padding: 28px 28px 34px; display: flex; flex-direction: column; gap: 12px; }
+/* After the rule above, so the design's 820px wins (two lines: "From hunch to / position, together."). */
+.lp-how > .lp-how__title { max-width: 9.318em; margin-left: max(0px, calc((100% - 1200px) / 2)); color: var(--lp-text); } /* 820px at 88px */
+/* Step cards: the visual is a fixed 333.34 x 335 drawing, so a card is never narrower than that plus
+   16px each side (365px). Three across from 1381px wide, two across (third centred) down to 921px,
+   then one column. --m is the visual's side margin; the top margin and the text below use the same
+   value so the card reads as one grid. */
+.lp-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--lp-card-gap); align-items: stretch; }
+/* --z: the visual's zoom (1, or less on phones, see below). --m is resolved against the card's outer
+   width (so it subtracts the 2px border); --m-in against the card's inner width, for the text. Both
+   come out to the same margin. */
+.lp-step {
+  --z: 1;
+  --m: max(16px, calc((100% - 2px - 333.34px * var(--z)) / 2));
+  --m-in: max(16px, calc((100% - 333.34px * var(--z)) / 2));
+  display: flex; flex-direction: column; align-items: center; padding-top: var(--m);
+}
+.lp-step__visual { zoom: var(--z); width: 333.34px; max-width: calc(100% - 32px); height: 335px; background: #000; border-radius: 20px; position: relative; }
+.lp-step__body { width: 100%; padding: 28px var(--m-in) var(--m-in); display: flex; flex-direction: column; gap: 12px; }
 .lp-step__body h3 { font-weight: 500; font-size: 34px; line-height: 1.02; letter-spacing: -1.36px; color: var(--lp-text); }
 .lp-step__body p { font-size: 16px; line-height: 1.6; letter-spacing: -0.64px; color: var(--lp-muted); }
 
@@ -266,9 +292,9 @@
 }
 
 /* ---------- partners ---------- */
-.lp-partners { display: flex; flex-direction: column; align-items: center; gap: 28px; text-align: center; }
-.lp-partners .lp-display { max-width: 663px; }
-.lp-partners__logos { margin-top: 36px; display: flex; flex-direction: column; align-items: center; gap: 32px; width: 100%; max-width: 562px !important; }
+.lp-partners { display: flex; flex-direction: column; align-items: center; gap: var(--lp-gap-block); text-align: center; }
+.lp-partners .lp-display { max-width: 7.534em; }
+.lp-partners__logos { display: flex; flex-direction: column; align-items: center; gap: 32px; width: 100%; max-width: 562px !important; }
 .lp-partners__row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .lp-partners__row img { min-width: 0; flex: 0 1 auto; }
 .lp-partners__logos img { height: auto; }
@@ -305,11 +331,44 @@
 .lp-footer p { font-weight: 500; font-size: 11px; line-height: 13px; letter-spacing: 1.1px; text-transform: uppercase; }
 
 /* ---------- responsive ---------- */
-@media (max-width: 1180px) {
-  .lp-chart__split { flex-direction: column; align-items: stretch; gap: 56px; }
-  .lp-chart__panel { align-self: center; }
-  .lp-steps { grid-template-columns: 1fr; max-width: 420px !important; }
+/* Side by side, the chart headline scales with its column so it stays on its two designed lines
+   ("Every position / on one live chart") instead of leaving "chart" alone on a third. */
+@media (min-width: 1181px) {
+  .lp-chart__copy .lp-display--80 { font-size: clamp(48px, calc(11.5vw - 86px), 80px); }
 }
+/* Two across: four tracks, each card spans two, the third sits centred under the first two. Cards
+   cap at 420px so the visuals don't float in wide margins; the title centres over the group. */
+@media (max-width: 1380px) {
+  .lp-steps { grid-template-columns: repeat(4, 1fr); max-width: calc(2 * 420px + var(--lp-card-gap)) !important; }
+  .lp-step { grid-column: span 2; }
+  .lp-step:last-child { grid-column: 2 / span 2; }
+  .lp-how > .lp-how__title { text-align: center; margin-inline: auto; }
+}
+/* Stacked: copy and card share one centre line. */
+@media (max-width: 1180px) {
+  .lp-chart__split { flex-direction: column; align-items: center; gap: var(--lp-gap-block); }
+  .lp-chart__copy { align-items: center; text-align: center; }
+}
+/* Two across needs 2 x (333.34 + 32 + 2) + 24 = 759px of content, i.e. a 911px screen. */
+@media (max-width: 920px) {
+  .lp-steps { grid-template-columns: 1fr; max-width: 420px !important; }
+  .lp-step, .lp-step:last-child { grid-column: auto; }
+}
+/* Phones: the visual is a fixed 333 x 335 drawing. Below 441px it no longer fits the card with 16px
+   margins (room = 0.8334 x screen - 34px, the gutter being 8.33vw), so it is zoomed as a unit; zoom,
+   unlike transform, also shrinks its layout box so the card stays the right height. Each step is
+   sized for the narrowest screen it covers, keeping the margins between 16px and 21px. */
+@media (max-width: 440px) { .lp-step { --z: 0.97; } .lp-step__visual { max-width: none; } }
+@media (max-width: 428px) { .lp-step { --z: 0.94; } }
+@media (max-width: 416px) { .lp-step { --z: 0.91; } }
+@media (max-width: 404px) { .lp-step { --z: 0.88; } }
+@media (max-width: 392px) { .lp-step { --z: 0.85; } }
+@media (max-width: 380px) { .lp-step { --z: 0.82; } }
+@media (max-width: 368px) { .lp-step { --z: 0.79; } }
+@media (max-width: 356px) { .lp-step { --z: 0.76; } }
+@media (max-width: 344px) { .lp-step { --z: 0.73; } }
+@media (max-width: 332px) { .lp-step { --z: 0.7; } }
+@media (max-width: 320px) { .lp-step { --z: 0.67; } }
 /* The card is 537px wide; below 645px it no longer fits inside the page margins, so it goes fluid. */
 @media (max-width: 660px) {
   .lp-chart__panel { width: 100%; padding: 24px 16px; }
@@ -318,14 +377,13 @@
   .lp-leaders { width: 100%; padding: 24px; }
 }
 @media (max-width: 640px) {
-  .lp-section { padding-block: 96px; }
   .lp-nav { padding: 12px 12px 12px 20px; }
   .lp-nav .lp-btn--fixed { width: auto; padding: 14px 16px; }
   .lp-nav .lp-btn--primary { display: none; }
   .lp-hero__body { padding-top: 64px; gap: 40px; }
   .lp-hero__title { font-size: clamp(48px, 15vw, 64px); }
   .lp-join { min-height: 0; }
-  .lp-join__inner { padding-top: 96px; }
+  .lp-join__inner { padding-top: var(--lp-section-y); }
   .lp-join__title { white-space: normal; }
   .lp-join__word { order: 1; position: relative; left: auto; top: auto; transform: translateX(var(--ink)) translateY(calc((1 - var(--join-p, 1)) * 80px)); align-self: center; margin: 48px 0 -12vw; }
   .lp-footer { order: 2; }
