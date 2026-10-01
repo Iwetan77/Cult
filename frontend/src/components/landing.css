@@ -209,21 +209,30 @@
 .lp-medal--bronze { background: #cd7f32; color: #995b1d; box-shadow: inset 0 2.42px 2.42px #ef9842; }
 .lp-board__rank { width: 20px; padding-left: 6px; font-weight: 500; font-size: 18.67px; color: #7e7e7e; }
 
-/* Card intros: .lp-a parts are hidden while the card waits below the fold (--armed) and play once
-   when it scrolls into view (--in), each after its own --d delay. Static cards are untouched. */
+/* ---------- motion ----------
+   Reveals: a reveal root ([data-reveal] sections, the chart card, each step card) is armed while it
+   waits below the fold (.lp-reveal--armed hides its .lp-a parts) and plays once it scrolls into
+   view (.lp-reveal--in), each part after its own --d delay plus the root's --stagger. Fill mode is
+   `backwards`: every keyframe ends on the element's normal style, so nothing is held afterwards and
+   hover effects keep working. Static roots (no JS, reduced motion) are never armed. */
+.lp-word { display: inline-block; } /* so headline words can move; wrapping is unchanged */
 .lp-reveal--armed .lp-a { opacity: 0; }
 .lp-reveal--armed .lp-a--wipe { opacity: 1; clip-path: inset(0 100% 0 0); }
-.lp-reveal--in .lp-a { animation: 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) var(--d, 0s) both; }
+.lp-reveal--in .lp-a { animation: 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) calc(var(--d, 0s) + var(--stagger, 0s)) backwards; }
 .lp-reveal--in .lp-a--rise { animation-name: lp-rise; }
+.lp-reveal--in .lp-a--word { animation-name: lp-word; animation-duration: 0.75s; }
 .lp-reveal--in .lp-a--wipe { animation-name: lp-wipe; animation-duration: 1.1s; animation-timing-function: cubic-bezier(0.45, 0, 0.2, 1); }
 .lp-reveal--in .lp-a--pop { animation-name: lp-pop; animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.3, 1.5, 0.6, 1); }
 .lp-reveal--in .lp-a--msg { animation-name: lp-msg; animation-duration: 0.45s; transform-origin: left bottom; }
 .lp-reveal--in .lp-msg--right.lp-a--msg { transform-origin: right bottom; }
 .lp-reveal--in .lp-a--slide { animation-name: lp-slide; animation-duration: 0.55s; }
 .lp-reveal--in .lp-a--medal { animation-name: lp-medal; animation-duration: 0.7s; animation-timing-function: cubic-bezier(0.3, 1.6, 0.5, 1); }
+/* Cards rise in as a whole too; step cards one after another (--stagger). */
+.lp-reveal--armed.lp-step, .lp-reveal--armed.lp-chart__panel { opacity: 0; }
+.lp-reveal--in.lp-step, .lp-reveal--in.lp-chart__panel { animation: lp-card 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) var(--stagger, 0s) backwards; }
 /* After the intro: Long/Up keeps a soft pulse, the Join button a shimmer. */
 .lp-reveal--in .lp-btn--long {
-  animation: lp-pop 0.5s cubic-bezier(0.3, 1.5, 0.6, 1) var(--d) both, lp-pulse 2.6s ease-out 1.6s infinite;
+  animation: lp-pop 0.5s cubic-bezier(0.3, 1.5, 0.6, 1) calc(var(--d, 0s) + var(--stagger, 0s)) backwards, lp-pulse 2.6s ease-out 1.6s infinite;
 }
 .lp-mini__join { position: relative; overflow: hidden; }
 .lp-reveal--in .lp-mini__join::after {
@@ -231,7 +240,19 @@
   background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
   transform: translateX(-100%); animation: lp-shimmer 2.8s ease-in-out 2.2s infinite;
 }
+/* Hero: plays on page load, straight from CSS (it is on screen at once, so there is nothing to wait for). */
+.lp-hero .lp-a { animation: 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) var(--d, 0s) backwards; }
+.lp-hero .lp-a--drop { animation-name: lp-drop; }
+.lp-hero .lp-a--word { animation-name: lp-word; animation-duration: 0.9s; }
+.lp-hero .lp-a--pop { animation-name: lp-pop; animation-duration: 0.5s; animation-timing-function: cubic-bezier(0.3, 1.5, 0.6, 1); }
+/* Scroll-linked (--hero-p / --join-p come from useScrollFx; unset = the designed resting state). */
+.lp-hero { overflow: hidden; } /* keeps the zooming video inside the hero */
+.lp-hero__body { transform: translate3d(0, calc(var(--hero-p, 0) * 22vh), 0); opacity: calc(1 - var(--hero-p, 0) * 1.4); }
+.lp-hero .lp-rays__video { transform: scale(calc(1 + var(--hero-p, 0) * 0.12)); }
 @keyframes lp-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes lp-word { from { opacity: 0; transform: translateY(0.35em); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes lp-drop { from { opacity: 0; transform: translateY(-24px); } to { opacity: 1; transform: none; } }
+@keyframes lp-card { from { opacity: 0; transform: translateY(40px) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes lp-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 @keyframes lp-pop { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: none; } }
 @keyframes lp-msg { from { opacity: 0; transform: translateY(10px) scale(0.92); } to { opacity: 1; transform: none; } }
@@ -240,7 +261,8 @@
 @keyframes lp-pulse { 0% { box-shadow: 0 0 0 0 rgba(99, 240, 214, 0.55); } 70%, 100% { box-shadow: 0 0 0 12px rgba(99, 240, 214, 0); } }
 @keyframes lp-shimmer { 0% { transform: translateX(-100%); } 45%, 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
-  .lp-reveal--in .lp-a, .lp-reveal--in .lp-btn--long, .lp-reveal--in .lp-mini__join::after, .lp-reveal--in .lp-chart__live { animation: none; }
+  .lp-hero .lp-a, .lp-reveal--in .lp-a, .lp-reveal--in.lp-step, .lp-reveal--in.lp-chart__panel,
+  .lp-reveal--in .lp-btn--long, .lp-reveal--in .lp-mini__join::after, .lp-reveal--in .lp-chart__live { animation: none; }
 }
 
 /* ---------- partners ---------- */
@@ -270,7 +292,9 @@
    bearings leave the glyphs 0.0048em right of the box's centre (measured: 3.46px at 720px). */
 .lp-join__word {
   --ink: -0.0048em;
-  position: absolute; left: 50%; top: 416.11px; margin: 0; transform: translateX(calc(-50% + var(--ink)));
+  position: absolute; left: 50%; top: 416.11px; margin: 0;
+  /* Rises 160px into place as the section scrolls up (--join-p: 0 -> 1; unset = in place). */
+  transform: translateX(calc(-50% + var(--ink))) translateY(calc((1 - var(--join-p, 1)) * 160px));
   font-family: var(--lp-display); font-weight: 400;
   font-size: min(720.2px, 50.01vw); line-height: 1; letter-spacing: -0.01em; white-space: nowrap;
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0.46) 3.452%, rgba(255, 255, 255, 0) 62.798%);
@@ -303,7 +327,7 @@
   .lp-join { min-height: 0; }
   .lp-join__inner { padding-top: 96px; }
   .lp-join__title { white-space: normal; }
-  .lp-join__word { order: 1; position: relative; left: auto; top: auto; transform: translateX(var(--ink)); align-self: center; margin: 48px 0 -12vw; }
+  .lp-join__word { order: 1; position: relative; left: auto; top: auto; transform: translateX(var(--ink)) translateY(calc((1 - var(--join-p, 1)) * 80px)); align-self: center; margin: 48px 0 -12vw; }
   .lp-footer { order: 2; }
   .lp-footer { flex-direction: column; align-items: flex-start; }
 }
