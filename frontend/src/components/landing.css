@@ -14,12 +14,13 @@
   --lp-gutter: clamp(16px, 8.33vw, 120px);
   background: #000; color: #fff; font-family: var(--lp-body); -webkit-font-smoothing: antialiased;
 }
-.lp *, .lp *::before, .lp *::after { box-sizing: border-box; }
-.lp h1, .lp h2, .lp h3, .lp p, .lp ol, .lp ul { margin: 0; padding: 0; }
-.lp ol, .lp ul { list-style: none; }
-.lp img { display: block; max-width: 100%; }
-.lp a { color: inherit; text-decoration: none; }
-.lp button { font: inherit; border: 0; cursor: pointer; }
+/* Resets sit in :where() so they carry no class weight: every lp- rule below beats them. */
+:where(.lp) *, :where(.lp) *::before, :where(.lp) *::after { box-sizing: border-box; }
+:where(.lp) :where(h1, h2, h3, p, ol, ul) { margin: 0; padding: 0; }
+:where(.lp) :where(ol, ul) { list-style: none; }
+:where(.lp) img { display: block; max-width: 100%; }
+:where(.lp) a { color: inherit; text-decoration: none; }
+:where(.lp) button { font: inherit; border: 0; cursor: pointer; }
 
 /* ---------- type ---------- */
 .lp-display { font-family: var(--lp-display); font-weight: 400; line-height: 0.98; text-transform: uppercase; }
@@ -79,17 +80,16 @@
 .lp-chart__split { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 80px; }
 .lp-chart__copy { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 24px; }
 .lp-chart__panel { position: relative; flex: 0 0 540px; height: 575px; }
-/* Figma offsets are from the card's outer edge; these are 1px less for the border. */
-.lp-chart__head { position: absolute; top: 30px; left: 180px; width: 139px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.lp-chart__head { position: absolute; top: 31px; left: 181px; width: 139px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .lp-ticker { display: flex; align-items: center; gap: 4.57px; }
 .lp-ticker__icon { width: 33.32px; height: 33.32px; border-radius: 50%; object-fit: cover; }
 .lp-ticker__name { font-weight: 700; font-size: 21.8px; letter-spacing: -0.44px; line-height: 20px; margin-right: 4.57px; }
 .lp-ticker .lp-pill { font-size: 7.27px; letter-spacing: -0.29px; padding: 4.57px 9.14px; line-height: 1; }
 .lp-chart__caller { font-size: 12px; letter-spacing: -0.24px; line-height: 20px; white-space: nowrap; }
 .lp-chart__caller strong { font-weight: 500; }
-.lp-chart__graph { position: absolute; left: 34px; top: 112px; }
+.lp-chart__graph { position: absolute; left: 35px; top: 113px; }
 .lp-leaders {
-  position: absolute; top: 341px; left: calc(50% - 1px); transform: translateX(-50%); width: 466px;
+  position: absolute; top: 342px; left: calc(50% - 1px); transform: translateX(-50%); width: 466px;
   background: #000; border-radius: 20px; padding: 30px 40px;
   display: flex; flex-direction: column; gap: 20px;
 }
@@ -117,7 +117,7 @@
 .lp-step__visual--call { display: flex; flex-direction: column; align-items: center; gap: 32px; padding: 20px 25.17px; }
 .lp-price { align-self: flex-start; display: flex; align-items: center; gap: 8px; }
 .lp-price__icon { width: 55px; height: 55px; border-radius: 50%; object-fit: cover; }
-.lp-price__sym { font-size: 12px; line-height: 10px; letter-spacing: -0.48px; margin-bottom: 8px !important; }
+.lp-price__sym { font-size: 12px; line-height: 10px; letter-spacing: -0.48px; margin-bottom: 8px; }
 .lp-price__amt { font-weight: 700; font-size: 36px; line-height: 33px; letter-spacing: -0.72px; }
 .lp-price__graph { margin-top: -19px; width: 285px; height: 144px; } /* 13px under header vs. 32px card gap */
 .lp-step__buttons { display: flex; gap: 12px; }
