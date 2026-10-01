@@ -41,8 +41,10 @@ export function Landing({ onLogin, pendingLogin }: Props) {
           <button type="button" className="lp-btn lp-btn--ghost lp-btn--fixed" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
         </div>
       </nav>
-      <h1 className="lp-hero__title">Trade together. Own every move</h1>
-      <a href="#join" className="lp-btn lp-btn--primary lp-btn--fixed lp-hero__cta">Join a cult</a>
+      <div className="lp-hero__body">
+        <h1 className="lp-hero__title">Trade together. Own every move</h1>
+        <a href="#join" className="lp-btn lp-btn--primary lp-btn--fixed">Join a cult</a>
+      </div>
     </header>
 
     <section className="lp-section lp-section--dark">
@@ -144,16 +146,19 @@ export function Landing({ onLogin, pendingLogin }: Props) {
       </div>
     </section>
 
+    {/* Figma 59:104 (FOOTER) */}
     <section className="lp-rays lp-join" id="join">
       <RaysVideo />
+      <p className="lp-join__word" aria-hidden="true">CULT</p>
       <div className="lp-join__inner">
-        <h2 className="lp-join__title">Get in the cult</h2>
-        <p className="lp-join__lead">Your wallet, your funds, your trades. Pick a cult or start your own on Monad.</p>
-        <div className="lp-join__ctas">
-          <button type="button" className="lp-btn lp-btn--primary lp-btn--mono" onClick={() => onLogin('google')}>Continue with Google {pendingLogin === 'google' ? spinner('google') : <span className="lp-btn__icon"><img src={`${A}/arrow.svg`} width={10} height={10} alt="" /></span>}</button>
-          <button type="button" className="lp-btn lp-btn--ghost lp-btn--mono" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
+        <div className="lp-join__text">
+          <h2 className="lp-join__title">Get in the cult</h2>
+          <p className="lp-join__lead">Your wallet, your funds, your trades. Pick a cult or start your own on Monad.</p>
         </div>
-        <p className="lp-join__word" aria-hidden="true">CULT</p>
+        <div className="lp-join__ctas">
+          <button type="button" className="lp-btn lp-btn--primary" onClick={() => onLogin('google')}>Continue with google {pendingLogin === 'google' ? spinner('google') : <span className="lp-btn__icon"><img src={`${A}/arrow.svg`} width={10} height={10} alt="" /></span>}</button>
+          <button type="button" className="lp-btn lp-btn--ghost" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
+        </div>
       </div>
       <footer className="lp-footer">
         <img src={`${A}/cult-logo.svg`} width={65.399} height={34.3401} alt="Cult" />
