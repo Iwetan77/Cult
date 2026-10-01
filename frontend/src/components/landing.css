@@ -42,7 +42,6 @@
 .lp-btn--primary { background: var(--lp-mint); color: var(--lp-ink-green); }
 .lp-btn--ghost { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.16); color: var(--lp-text); }
 .lp-btn--ghost:hover { background: rgba(255, 255, 255, 0.1); }
-.lp-btn__icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 11px; background: rgba(4, 36, 30, 0.14); }
 
 /* ---------- shared ---------- */
 .lp-section { padding: 140px var(--lp-gutter); }
@@ -255,8 +254,12 @@
 }
 .lp-join__lead { width: 402px; max-width: 100%; font-size: 20px; line-height: 1.19; letter-spacing: -0.6px; }
 .lp-join__ctas { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+/* Centred on the section's centre line at every width (Figma: left calc(50% - 600px), 1199 wide).
+   --ink nudges the visible letters onto the centre: the trailing letter-spacing and Insidia's side
+   bearings leave the glyphs 0.0048em right of the box's centre (measured: 3.46px at 720px). */
 .lp-join__word {
-  position: absolute; left: var(--lp-gutter); top: 416.11px; margin: 0;
+  --ink: -0.0048em;
+  position: absolute; left: 50%; top: 416.11px; margin: 0; transform: translateX(calc(-50% + var(--ink)));
   font-family: var(--lp-display); font-weight: 400;
   font-size: min(720.2px, 50.01vw); line-height: 1; letter-spacing: -0.01em; white-space: nowrap;
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0.46) 3.452%, rgba(255, 255, 255, 0) 62.798%);
@@ -287,7 +290,7 @@
   .lp-join { min-height: 0; }
   .lp-join__inner { padding-top: 96px; }
   .lp-join__title { white-space: normal; }
-  .lp-join__word { order: 1; position: relative; left: auto; top: auto; margin: 48px var(--lp-gutter) -12vw; }
+  .lp-join__word { order: 1; position: relative; left: auto; top: auto; transform: translateX(var(--ink)); align-self: center; margin: 48px 0 -12vw; }
   .lp-footer { order: 2; }
   .lp-footer { flex-direction: column; align-items: flex-start; }
 }
