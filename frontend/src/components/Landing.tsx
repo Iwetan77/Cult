@@ -255,7 +255,8 @@ function CountUp({ value, from = 0, phase, delay, duration }: { value: string; f
 function StepCard({ title, text, visualClass = '', stagger = 0, children }: { title: string; text: string; visualClass?: string; stagger?: number; children: (phase: RevealPhase) => ReactNode }) {
   const [ref, phase] = useReveal<HTMLElement>();
   return <article ref={ref} className={`lp-panel lp-step lp-reveal--${phase}`} style={{ '--stagger': `${stagger}s` } as CSSProperties}>
-    <div className={`lp-step__visual ${visualClass}`}>{children(phase)}</div>
+    {/* The frame reserves the visual's scaled size; the visual itself is scaled with a transform. */}
+    <div className="lp-step__frame"><div className={`lp-step__visual ${visualClass}`}>{children(phase)}</div></div>
     <div className="lp-step__body">
       <h3 className="lp-a lp-a--rise" style={{ '--d': '0.1s' } as CSSProperties}>{title}</h3>
       <p className="lp-a lp-a--rise" style={{ '--d': '0.2s' } as CSSProperties}>{text}</p>
