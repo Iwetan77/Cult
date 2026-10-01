@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
-import { Bricolage_Grotesque, JetBrains_Mono } from 'next/font/google';
 import { AppProvider } from '@/components/AppProvider';
 import './globals.css';
 
@@ -42,10 +41,7 @@ const aeonik = localFont({
   display: 'swap',
 });
 
-const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], weight: '700', variable: '--font-jetbrains', display: 'swap' });
-const bricolage = Bricolage_Grotesque({ subsets: ['latin'], weight: '700', variable: '--font-bricolage', display: 'swap' });
-
 export const metadata: Metadata = { title: 'Cult | Trade with your cult', description: 'Trading cults on Monad.' };
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${satoshi.variable} ${cascadiaMono.variable} ${insidia.variable} ${aeonik.variable} ${jetbrainsMono.variable} ${bricolage.variable}`}><AppProvider>{children}</AppProvider></body></html>;
+  return <html lang="en"><body className={`${satoshi.variable} ${cascadiaMono.variable} ${insidia.variable} ${aeonik.variable}`}><AppProvider>{children}</AppProvider></body></html>;
 }
