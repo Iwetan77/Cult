@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { X } from 'lucide-react';
 import './landing.css';
 
 type LoginMethod = 'google' | 'wallet';
@@ -275,8 +276,37 @@ function RaysVideo() {
   return <video className="lp-rays__video" src={`${A}/light-rail.mp4`} poster={`${A}/rays-bg.png`} autoPlay muted loop playsInline aria-hidden="true" />;
 }
 
+// Phone sign-in sheet: the mobile nav has room for one button, so Login opens this choice. A native
+// <dialog> gives Escape-to-close, focus handling and the top layer; tapping the backdrop closes it.
+// It closes before handing over, so Privy's own modal is never underneath it.
+function LoginSheet({ open, onClose, onLogin }: { open: boolean; onClose: () => void; onLogin: (method: LoginMethod) => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const firstOption = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) { dialog.showModal(); firstOption.current?.focus(); }
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+  const choose = (method: LoginMethod) => { ref.current?.close(); onLogin(method); };
+  return <dialog ref={ref} className="lp-login" aria-labelledby="lp-login-title" onClose={onClose}
+    onClick={event => { if (event.target === event.currentTarget) ref.current?.close(); }}>
+    <div className="lp-login__panel">
+      <button type="button" className="lp-login__close" aria-label="Close" onClick={() => ref.current?.close()}><X size={18} /></button>
+      <img className="lp-login__logo" src={`${A}/cult-logo.svg`} width={65.399} height={34.3401} alt="" />
+      <h2 id="lp-login-title" className="lp-login__title">Log in to Cult</h2>
+      <p className="lp-login__text">Your wallet, your funds, your trades. Pick how you want to sign in.</p>
+      <div className="lp-login__options">
+        <button ref={firstOption} type="button" className="lp-btn lp-btn--primary" onClick={() => choose('google')}>Continue with google</button>
+        <button type="button" className="lp-btn lp-btn--ghost" onClick={() => choose('wallet')}>Connect wallet</button>
+      </div>
+    </div>
+  </dialog>;
+}
+
 export function Landing({ onLogin, pendingLogin }: Props) {
   const spinner = (method: LoginMethod) => pendingLogin === method && <span className="button-spinner" aria-hidden="true" />;
+  const [sheetOpen, setSheetOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useRevealAll(rootRef);
   useScrollFx(rootRef);
@@ -288,8 +318,12 @@ export function Landing({ onLogin, pendingLogin }: Props) {
       <nav className="lp-nav lp-a lp-a--drop" style={d(0.1)}>
         <a href="#" className="lp-nav__logo" aria-label="Cult home"><img src={`${A}/cult-logo.svg`} width={65.399} height={34.3401} alt="Cult" /></a>
         <div className="lp-nav__actions">
-          <button type="button" className="lp-btn lp-btn--primary lp-btn--fixed" onClick={() => onLogin('google')}>Login {spinner('google')}</button>
-          <button type="button" className="lp-btn lp-btn--ghost lp-btn--fixed" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
+          {/* Wide screens: both ways in. Phones: one Login button that opens the sign-in sheet. */}
+          <button type="button" className="lp-btn lp-btn--primary lp-btn--fixed lp-nav__wide" onClick={() => onLogin('google')}>Login {spinner('google')}</button>
+          <button type="button" className="lp-btn lp-btn--ghost lp-btn--fixed lp-nav__wide" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
+          <button type="button" className="lp-btn lp-btn--primary lp-nav__narrow" aria-haspopup="dialog" onClick={() => setSheetOpen(true)}>
+            Login {pendingLogin && <span className="button-spinner" aria-hidden="true" />}
+          </button>
         </div>
       </nav>
       <div className="lp-hero__body">
@@ -403,5 +437,7 @@ export function Landing({ onLogin, pendingLogin }: Props) {
         <p className="lp-a lp-a--rise" style={d(0.9)}>© 2026 CULT. All rights reserved.</p>
       </footer>
     </section>
+
+    <LoginSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onLogin={onLogin} />
   </div>;
 }
