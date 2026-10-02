@@ -20,7 +20,7 @@ import { DiscoverCults } from './DiscoverCults';
 import { UsernameGate } from './UsernameGate';
 import { Leaderboards } from './Leaderboards';
 import { HomeView, RoomRow } from './HomeView';
-import { AccountView } from './AccountView';
+import { AccountView, type AccountTab } from './AccountView';
 import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
 import { MarketsView } from './MarketsView';
@@ -126,6 +126,7 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
     if (id) { setMarketId(id); setSelectedId(null); }
   };
   const [profileId, setProfileId] = useState('me');
+  const [accountTab, setAccountTab] = useState<AccountTab>('open');
   const [tradeSheetTarget, setTradeSheetTarget] = useState<TradeSheetTarget | null>(null);
   const [formOpen, setFormOpen] = useState<'create' | 'join' | null>(null);
   const [search, setSearch] = useState('');
@@ -692,7 +693,7 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
     setGroupPanelOpen(false);
     if (id.startsWith('cult:')) { const next = id.slice(5); if (next !== clanId) { setClanId(next); setSnapshot(null); setSelectedId(null); } }
   };
-  const openAccount = (id = 'me') => { setProfileId(id); go('account'); };
+  const openAccount = (id = 'me', tab: AccountTab = 'open') => { setProfileId(id); setAccountTab(tab); go('account'); };
   const openTradeChart = (cultId: string, markerId: string, tradeMarket: string) => perform('open-chart', async () => {
     const result = await getChart(await token(), cultId, tradeMarket, chartResolution);
     const marker = result.markers.find(item => item.id === markerId);
@@ -788,7 +789,8 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
     </header>
 
     <SideRail me={me} nav={nav} collapsed={collapsed} onToggle={toggleRail} activeRoom={view === 'chat' ? roomId : null} activeMarket={view === 'markets' ? marketPage : null}
-      onRoom={openRoom} onMarket={id => openMarket(id)} onCreate={() => setFormOpen('create')} onJoin={() => setFormOpen('join')} />
+      onRoom={openRoom} onMarket={id => openMarket(id)} onCreate={() => setFormOpen('create')} onJoin={() => setFormOpen('join')}
+      settingsActive={view === 'account' && profileId === 'me' && accountTab === 'settings'} onSettings={() => openAccount('me', 'settings')} onSignOut={signOut} />
     {railOpenMobile && <button className="rail-scrim" aria-label="Close panel" onClick={() => setRailOpenMobile(false)} />}
 
     <main className="stage" key={view === 'chat' ? `chat:${roomId}` : view === 'markets' ? `m:${marketPage ?? ''}` : view === 'account' ? `a:${profileId}` : view}>
@@ -798,7 +800,7 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><span className="eyebrow">Your cults</span><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{me.rooms.filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
-        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onSignOut={signOut} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
+        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onSignOut={signOut} tab={accountTab} onTab={setAccountTab} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
         : <div className="view two-col room-view">
           <section className="view-main room-main">
             <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => go('groups')}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm" onClick={() => setGroupPanelOpen(true)}><PanelRightOpen size={14} /> {activeRoom?.kind === 'cult' ? 'Positions' : 'Rankings'}</button></div>
