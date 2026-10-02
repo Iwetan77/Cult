@@ -276,10 +276,17 @@ function RaysVideo() {
   return <video className="lp-rays__video" src={`${A}/light-rail.mp4`} poster={`${A}/rays-bg.png`} autoPlay muted loop playsInline aria-hidden="true" />;
 }
 
-// Phone sign-in sheet: the mobile nav has room for one button, so Login opens this choice. A native
-// <dialog> gives Escape-to-close, focus handling and the top layer; tapping the backdrop closes it.
-// It closes before handing over, so Privy's own modal is never underneath it.
-function LoginSheet({ open, onClose, onLogin }: { open: boolean; onClose: () => void; onLogin: (method: LoginMethod) => void }) {
+// Sign-in sheet: Google or wallet. Opened by the phone nav's Login and by the hero's Create a cult
+// (creating one needs an account), with copy to match. A native <dialog> gives Escape-to-close,
+// focus handling and the top layer; tapping the backdrop closes it. It closes before handing over,
+// so Privy's own modal is never underneath it.
+type SheetIntent = 'login' | 'create';
+const SHEET_COPY: Record<SheetIntent, { title: string; text: string }> = {
+  login: { title: 'Log in to Cult', text: 'Your wallet, your funds, your trades. Pick how you want to sign in.' },
+  create: { title: 'Create a cult', text: 'Sign in to start your own cult on Monad. Your wallet, your funds, your trades.' },
+};
+
+function LoginSheet({ open, intent, onClose, onLogin }: { open: boolean; intent: SheetIntent; onClose: () => void; onLogin: (method: LoginMethod) => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const firstOption = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -294,8 +301,8 @@ function LoginSheet({ open, onClose, onLogin }: { open: boolean; onClose: () => 
     <div className="lp-login__panel">
       <button type="button" className="lp-login__close" aria-label="Close" onClick={() => ref.current?.close()}><X size={18} /></button>
       <img className="lp-login__logo" src={`${A}/cult-logo.svg`} width={65.399} height={34.3401} alt="" />
-      <h2 id="lp-login-title" className="lp-login__title">Log in to Cult</h2>
-      <p className="lp-login__text">Your wallet, your funds, your trades. Pick how you want to sign in.</p>
+      <h2 id="lp-login-title" className="lp-login__title">{SHEET_COPY[intent].title}</h2>
+      <p className="lp-login__text">{SHEET_COPY[intent].text}</p>
       <div className="lp-login__options">
         <button ref={firstOption} type="button" className="lp-btn lp-btn--primary" onClick={() => choose('google')}>Continue with google</button>
         <button type="button" className="lp-btn lp-btn--ghost" onClick={() => choose('wallet')}>Connect wallet</button>
@@ -307,6 +314,8 @@ function LoginSheet({ open, onClose, onLogin }: { open: boolean; onClose: () => 
 export function Landing({ onLogin, pendingLogin }: Props) {
   const spinner = (method: LoginMethod) => pendingLogin === method && <span className="button-spinner" aria-hidden="true" />;
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetIntent, setSheetIntent] = useState<SheetIntent>('login');
+  const openSheet = (intent: SheetIntent) => { setSheetIntent(intent); setSheetOpen(true); };
   const rootRef = useRef<HTMLDivElement>(null);
   useRevealAll(rootRef);
   useScrollFx(rootRef);
@@ -321,14 +330,17 @@ export function Landing({ onLogin, pendingLogin }: Props) {
           {/* Wide screens: both ways in. Phones: one Login button that opens the sign-in sheet. */}
           <button type="button" className="lp-btn lp-btn--primary lp-btn--fixed lp-nav__wide" onClick={() => onLogin('google')}>Login {spinner('google')}</button>
           <button type="button" className="lp-btn lp-btn--ghost lp-btn--fixed lp-nav__wide" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
-          <button type="button" className="lp-btn lp-btn--primary lp-nav__narrow" aria-haspopup="dialog" onClick={() => setSheetOpen(true)}>
+          <button type="button" className="lp-btn lp-btn--primary lp-nav__narrow" aria-haspopup="dialog" onClick={() => openSheet('login')}>
             Login {pendingLogin && <span className="button-spinner" aria-hidden="true" />}
           </button>
         </div>
       </nav>
       <div className="lp-hero__body">
         <h1 className="lp-hero__title"><Words text="Trade together. Own every move" delay={0.3} step={0.09} /></h1>
-        <a href="#join" className="lp-btn lp-btn--primary lp-btn--fixed lp-a lp-a--pop" style={d(0.85)}>Join a cult</a>
+        <div className="lp-hero__ctas">
+          <a href="#join" className="lp-btn lp-btn--primary lp-a lp-a--pop" style={d(0.85)}>Join a cult</a>
+          <button type="button" className="lp-btn lp-btn--glass lp-a lp-a--pop" style={d(0.95)} aria-haspopup="dialog" onClick={() => openSheet('create')}>Create a cult</button>
+        </div>
       </div>
     </header>
 
@@ -438,6 +450,6 @@ export function Landing({ onLogin, pendingLogin }: Props) {
       </footer>
     </section>
 
-    <LoginSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onLogin={onLogin} />
+    <LoginSheet open={sheetOpen} intent={sheetIntent} onClose={() => setSheetOpen(false)} onLogin={onLogin} />
   </div>;
 }
