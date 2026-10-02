@@ -1,4 +1,4 @@
-import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue } from './contracts';
+import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue, WithdrawRequest, WithdrawResult } from './contracts';
 import { cachedList } from './marketCache';
 
 // Demo mode: the whole app, signed out, on realistic sample data. Every API
@@ -500,6 +500,17 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
   if (a === 'nadfun') return done({ markets: [] });
   if (a === 'perpl') return done({ step: 'ready', wallet: DEMO_ADDRESS, perplAccountId: '4821', collateralBalance: '0', minAccountOpen: '0', actions: [] });
   if (a === 'privy') return done({ signerId: 'demo', policyIds: [], capAusd: 1000, maxBuyMon: 1000, monPriceAusd: 0.42 });
+  if (a === 'wallet' && b === 'withdraw' && method === 'POST') {
+    const bal = s.me.balances!;
+    const amount = Number(body.amount), to = String(body.to ?? ''), symbol = body.symbol as WithdrawRequest['symbol'];
+    if (!/^0x[0-9a-fA-F]{40}$/.test(to)) throw new DemoError('Enter a valid Monad address.');
+    if (!(amount > 0)) throw new DemoError('Enter an amount.');
+    const available = symbol === 'MON' ? Math.max(0, bal.mon - bal.gasReserveMon) : symbol === 'AUSD' ? bal.walletUsd : 0;
+    if (amount > available + 1e-9) throw new DemoError('More than you have available.');
+    if (symbol === 'MON') bal.mon -= amount; else bal.walletUsd -= amount;
+    const tx = '0x' + Array.from({ length: 8 }, () => Math.floor(Math.random() * 2 ** 32).toString(16).padStart(8, '0')).join('');
+    return done<WithdrawResult>({ symbol, amount, to, tx });
+  }
   if (a === 'wallet') {
     const bal = s.me.balances!;
     const info: DepositInfo = { address: DEMO_ADDRESS, network: { name: 'Monad Testnet', chainId: 10143 }, tokens: [

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, Camera, LogOut, ShieldCheck, Wallet } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Camera, LogOut, ShieldCheck, Wallet } from 'lucide-react';
 import { deleteAvatar, getProfile, uploadAvatar } from '@/lib/api';
 import type { Holding, Profile } from '@/lib/contracts';
 import { percent, shortAddress, signedDollars, signedPct } from '@/lib/format';
@@ -13,7 +13,7 @@ import { TokenLogo } from './TokenLogo';
 import type { TradeSheetTarget } from './TradeSheet';
 
 type Props = {
-  id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onCountrySaved: () => Promise<unknown>; onDeposit: () => void;
+  id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onCountrySaved: () => Promise<unknown>; onDeposit: () => void; onWithdraw: () => void;
   onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void; onAvatarSaved: () => Promise<unknown>; onRoom: (roomId: string) => void;
   tab: AccountTab; onTab: (tab: AccountTab) => void;
   signOutLabel?: string;
@@ -39,7 +39,7 @@ function PnlCurve({ points }: { points: { t: number; v: number }[] }) {
   </svg>;
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, signOutLabel = 'Sign out' }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -123,7 +123,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
             <h1>{profile.name}</h1>
             <small>{shortAddress(profile.address)} · {profile.country?.name ?? profile.country?.code ?? 'Country not set'} · since {new Date(profile.memberSince).toLocaleDateString([], { month: 'short', year: 'numeric' })}</small>
           </div>
-          {profile.isMe && <div className="profile-actions"><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
+          {profile.isMe && <div className="profile-actions"><button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
         </div>
         {profile.isMe && (profile.avatarUrl || photoBusy || error) && <div className="profile-photo-note">{profile.avatarUrl && <button className="link" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}{photoBusy && <span>Updating photo…</span>}{error && <span className="down">{error}</span>}</div>}
       </section>
