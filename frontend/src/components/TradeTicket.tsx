@@ -93,38 +93,40 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
   const submit = (side: 'long' | 'short' | 'buy') => { if (valid) onSubmit(side, stakeUsd, isPerp ? lev : undefined, cultIds); };
   const assetSize = price > 0 && positionUsd > 0 ? `${trim(positionUsd / price, 6)} ${asset}` : null;
 
+  const quick = isPerp ? [10, 50, 100, 500] : [10, 100, 500, 1000];
+
   return <div className="ticket">
-    <div className="ticket-size">
-      <label className="ticket-label" htmlFor="ticket-size">{unit === 'usd' ? (isPerp ? 'You put in' : 'Amount') : `${isPerp ? 'Position size' : 'Amount'} in ${asset}`}</label>
-      <div className="ticket-size-row">
+    <div className="ticket-amount">
+      <div className="ticket-row"><label className="ticket-label" htmlFor="ticket-size">{unit === 'usd' ? (isPerp ? 'You put in' : 'Amount') : `${isPerp ? 'Position size' : 'Amount'} in ${asset}`}</label><span className="ticket-avail">Available <b className="num">{available == null ? '—' : dollars(available)}</b></span></div>
+      <div className="ticket-input">
         {unit === 'usd' && <span className="ticket-prefix">$</span>}
-        <input id="ticket-size" inputMode="decimal" placeholder="0" value={amountText} onChange={event => { setAmountText(event.target.value.replace(/[^0-9.]/g, '')); setPct(null); }} />
-        <button type="button" className="ticket-unit" onClick={toggleUnit} title={`Enter in ${unit === 'usd' ? asset : 'dollars'}`}>{unit === 'usd' ? 'USD' : asset} <ArrowLeftRight size={13} /></button>
+        <input id="ticket-size" className="num" inputMode="decimal" placeholder="0" value={amountText} onChange={event => { setAmountText(event.target.value.replace(/[^0-9.]/g, '')); setPct(null); }} />
+        <button type="button" className="ticket-unit" onClick={toggleUnit} title={`Enter in ${unit === 'usd' ? asset : 'dollars'}`}>{unit === 'usd' ? 'USD' : asset} <ArrowLeftRight size={12} /></button>
       </div>
       <small className="ticket-other">{isPerp
-        ? (positionUsd > 0 ? <>Position <b>{dollars(positionUsd)}</b>{assetSize ? ` · ${assetSize}` : ''} at {lev}x{unit === 'asset' ? ` · you put in ${dollars(stakeUsd)}` : ''}</> : `× ${lev} leverage = your position size`)
+        ? (positionUsd > 0 ? <>Position <b className="num">{dollars(positionUsd)}</b>{assetSize ? ` · ${assetSize}` : ''} at {lev}x{unit === 'asset' ? ` · you put in ${dollars(stakeUsd)}` : ''}</> : `× ${lev} leverage = your position size`)
         : (stakeUsd > 0 ? (unit === 'usd' ? (assetSize ? `≈ ${assetSize}` : '') : `≈ ${dollars(stakeUsd)}`) : `in dollars or ${asset}`)}</small>
+      {unit === 'usd' && <div className="ticket-quick">{quick.map(q => <button type="button" key={q} onClick={() => { setAmountText(String(q)); setPct(null); }}>${q}</button>)}</div>}
     </div>
 
     {isPerp && <div className="ticket-slider">
-      <div className="ticket-slider-head"><span className="ticket-label">Leverage</span><strong>{lev}x</strong></div>
+      <div className="ticket-row"><span className="ticket-label">Leverage</span><strong className="num">{lev}x</strong></div>
       <input type="range" min={1} max={maxLev} step={1} value={lev} onChange={event => changeLeverage(Number(event.target.value))} aria-label="Leverage" style={{ '--fill': `${((lev - 1) / Math.max(1, maxLev - 1)) * 100}%` } as React.CSSProperties} />
-      <div className="ticket-ticks">{leverageTicks(maxLev).map(t => <button type="button" key={t} className={t === lev ? 'active' : ''} onClick={() => changeLeverage(t)}>{t}x</button>)}</div>
+      <div className="ticket-ticks">{leverageTicks(maxLev).map(t => <button type="button" key={t} className={t === lev ? 'on' : ''} onClick={() => changeLeverage(t)}>{t}x</button>)}</div>
     </div>}
 
     <div className="ticket-slider">
-      <div className="ticket-slider-head"><span className="ticket-label">% of available</span><strong>{pct == null ? '—' : `${pct}%`}</strong></div>
+      <div className="ticket-row"><span className="ticket-label">% of available</span><strong className="num">{pct == null ? '—' : `${pct}%`}</strong></div>
       <input type="range" min={0} max={100} step={1} value={pct ?? 0} disabled={available == null || available <= 0} onChange={event => fillPct(Number(event.target.value))} aria-label="Percent of available funds" style={{ '--fill': `${pct ?? 0}%` } as React.CSSProperties} />
-      <div className="ticket-ticks">{[0, 25, 50, 75, 100].map(t => <button type="button" key={t} className={pct === t ? 'active' : ''} disabled={available == null || available <= 0} onClick={() => fillPct(t)}>{t}%</button>)}</div>
+      <div className="ticket-ticks">{[0, 25, 50, 75, 100].map(t => <button type="button" key={t} className={pct === t ? 'on' : ''} disabled={available == null || available <= 0} onClick={() => fillPct(t)}>{t}%</button>)}</div>
     </div>
 
     <dl className="ticket-summary">
-      <dt>You put in</dt><dd>{dollars(stakeUsd)}</dd>
-      {isPerp && <><dt>Position</dt><dd>{dollars(positionUsd)}</dd></>}
-      <dt>Available</dt><dd>{available == null ? '—' : dollars(available)}</dd>
-      {isPerp && <><dt>Entry ≈</dt><dd>{price > 0 ? dollars(price, price < 1 ? 6 : 2) : '—'}</dd></>}
+      <div><dt>You put in</dt><dd className="num">{dollars(stakeUsd)}</dd></div>
+      {isPerp && <div><dt>Position</dt><dd className="num">{dollars(positionUsd)}</dd></div>}
+      {isPerp && <div><dt>Entry ≈</dt><dd className="num">{price > 0 ? dollars(price, price < 1 ? 6 : 2) : '—'}</dd></div>}
     </dl>
-    {tooBig && <p className="ticket-warn">More than you have available.{onDeposit && <button type="button" className="text-link" onClick={onDeposit}>Deposit</button>}</p>}
+    {tooBig && <p className="ticket-warn">More than you have available.{onDeposit && <button type="button" className="link" onClick={onDeposit}>Deposit</button>}</p>}
     {!tooBig && shortInAccount && stakeUsd > 0 && <p className="ticket-note">Funds move from your wallet automatically.</p>}
 
     {cults.length ? <label className="ticket-post">
@@ -137,9 +139,9 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
     </label> : <p className="ticket-note">You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</p>}
 
     {isPerp ? <div className="ticket-actions">
-      <button type="button" className="ticket-long" disabled={!valid || busy} onClick={() => submit('long')}>Long<small>{positionUsd > 0 ? dollars(positionUsd) : asset}</small></button>
-      <button type="button" className="ticket-short" disabled={!valid || busy} onClick={() => submit('short')}>Short<small>{positionUsd > 0 ? dollars(positionUsd) : asset}</small></button>
-    </div> : <button type="button" className="ticket-long ticket-buy" disabled={!valid || busy} onClick={() => submit('buy')}>Buy {market.symbol}<small>{stakeUsd > 0 ? dollars(stakeUsd) : ''}</small></button>}
+      <button type="button" className="ticket-long" disabled={!valid || busy} onClick={() => submit('long')}>Long<small className="num">{positionUsd > 0 ? dollars(positionUsd) : asset}</small></button>
+      <button type="button" className="ticket-short" disabled={!valid || busy} onClick={() => submit('short')}>Short<small className="num">{positionUsd > 0 ? dollars(positionUsd) : asset}</small></button>
+    </div> : <button type="button" className="ticket-long ticket-buy" disabled={!valid || busy} onClick={() => submit('buy')}>Buy {market.symbol}<small className="num">{stakeUsd > 0 ? dollars(stakeUsd) : ''}</small></button>}
     {cults.length > 0 && <p className="ticket-foot">{postTo === 'none' ? 'Only you see this trade.' : 'Cult-mates on Auto-follow copy it, sized to their own limits.'}</p>}
   </div>;
 }

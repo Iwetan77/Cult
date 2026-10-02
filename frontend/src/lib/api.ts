@@ -1,5 +1,6 @@
 import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 import { rememberList, rememberMarket } from './marketCache';
+import { DemoError, demoApi, isDemo } from './demo';
 
 const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
@@ -8,6 +9,14 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, token: string | null, options: RequestInit = {}): Promise<T> {
+  if (isDemo()) {
+    try { return await demoApi<T>(path, options, () => request<T>(path, null, options)); }
+    catch (reason) { throw reason instanceof DemoError ? new ApiError(reason.message, reason.status) : reason; }
+  }
+  return request<T>(path, token, options);
+}
+
+async function request<T>(path: string, token: string | null, options: RequestInit): Promise<T> {
   if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
   const response = await fetch(`${BASE.replace(/\/$/, '')}${path}`, {
     ...options,

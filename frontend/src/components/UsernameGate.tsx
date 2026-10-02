@@ -44,7 +44,7 @@ export function UsernameGate({ onSave }: { onSave: (username: string) => Promise
     <label className="field-label" htmlFor="username">USERNAME</label>
     <input id="username" value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={20} autoFocus />
     <p className={available ? 'username-available' : 'field-note'} aria-live="polite">{checking ? 'Checking…' : available ? 'Available' : reason ?? 'This is how other traders will know you.'}</p>
-    {error && <p className="wallet-warning" role="alert">{error}</p>}
-    <button className="primary full" type="submit" disabled={!valid || !available || saving}>{saving ? 'Saving…' : 'Continue'}</button>
+    {error && <p className="notice-line" role="alert">{error}</p>}
+    <button className="btn btn-primary btn-block" type="submit" disabled={!valid || !available || saving}>{saving ? 'Saving…' : 'Continue'}</button>
   </form></main>;
 }
