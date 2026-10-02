@@ -9,6 +9,7 @@ import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, 
 import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
+import { privySupported } from '@/lib/privySupport';
 import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
 import { dollars, price } from '@/lib/format';
@@ -50,20 +51,39 @@ const formatInviteCode = (input: string) => {
   return letters.length > 3 ? `${letters.slice(0, 3)}-${letters.slice(3)}` : letters;
 };
 
-export function Dashboard() {
+// Everything the dashboard needs from Privy, in one place, so it can also run
+// where Privy can't (see privySupport).
+function usePrivyAuth() {
   const privy = usePrivy();
-  const { login, logout } = privy;
   const { wallets, ready: walletsReady } = useWallets();
+  const { createWallet } = useCreateWallet();
+  const { signMessage } = useSignMessage();
+  const { sendTransaction } = useSendTransaction();
+  const { addSigners } = useSigners();
+  return { ready: privy.ready, authenticated: privy.authenticated, login: privy.login, logout: privy.logout, wallets, walletsReady, createWallet, signMessage, sendTransaction, addSigners };
+}
+type PrivyAuth = ReturnType<typeof usePrivyAuth>;
+const SECURE_ONLY = 'Sign-in needs a secure connection (https or localhost). On this device, use "Explore the demo".';
+const needsSecure = () => { throw new Error(SECURE_ONLY); };
+const NO_PRIVY = {
+  ready: true, authenticated: false, login: () => window.alert(SECURE_ONLY), logout: async () => {},
+  wallets: [], walletsReady: true, createWallet: needsSecure, signMessage: needsSecure, sendTransaction: needsSecure, addSigners: needsSecure,
+} as unknown as PrivyAuth;
+
+function WithPrivy() { return <DashboardView privy={usePrivyAuth()} />; }
+
+export function Dashboard() {
+  return privySupported() ? <WithPrivy /> : <DashboardView privy={NO_PRIVY} />;
+}
+
+function DashboardView({ privy }: { privy: PrivyAuth }) {
+  const { login, logout, wallets, walletsReady, createWallet, signMessage, sendTransaction, addSigners } = privy;
   // Demo mode is read after mounting (it lives in the URL and session storage).
   const [demo, setDemo] = useState<boolean | null>(demoEnabled() ? null : false);
   useEffect(() => { setDemo(isDemo()); }, []);
   const ready = demo === true || privy.ready;
   const authenticated = demo === true || privy.authenticated;
   const walletCreateAttempted = useRef(false);
-  const { createWallet } = useCreateWallet();
-  const { signMessage } = useSignMessage();
-  const { sendTransaction } = useSendTransaction();
-  const { addSigners } = useSigners();
   const [pendingLogin, setPendingLogin] = useState<'google' | 'wallet' | null>(null);
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
