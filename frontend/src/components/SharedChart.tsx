@@ -16,8 +16,8 @@ type Hit = { id: string; x: number; y: number; width: number; height: number };
 type GuideHit = { markerId: string; kind: GuideKind; x: number; y: number };
 type Drag = { markerId: string; kind: GuideKind; price: number; startY: number; moved: boolean };
 
-const markerColor = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? '#7aaaff' : origin === 'manual_stack' ? '#f6bf68' : '#68e7be';
-const guideColor = (kind: GuideKind) => kind === 'takeProfit' ? '#68e7be' : '#e4777d';
+const markerColor = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? '#8fb4ff' : origin === 'manual_stack' ? '#f6bf68' : '#63f0d6';
+const guideColor = (kind: GuideKind) => kind === 'takeProfit' ? '#63f0d6' : '#ff6b6b';
 const guideLabel = (kind: GuideKind) => kind === 'takeProfit' ? 'TP' : 'SL';
 
 export function SharedChart({ candles, markers, market, selectedId, onSelect, onGuideDrop, guidesDisabled = false }: Props) {
@@ -38,20 +38,20 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const monoFont = getComputedStyle(document.body).getPropertyValue('--font-mono').trim() || 'monospace';
+    const monoFont = getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif';
     const chart = createChart(host, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: '#1e2029' }, textColor: '#838b9a', fontFamily: monoFont, fontSize: 11 },
-      grid: { vertLines: { color: '#292d37' }, horzLines: { color: '#292d37' } },
-      crosshair: { vertLine: { color: '#657080' }, horzLine: { color: '#657080' } },
-      rightPriceScale: { borderColor: '#303541', scaleMargins: { top: 0.12, bottom: 0.12 } },
-      timeScale: { borderColor: '#303541', timeVisible: true, secondsVisible: false, rightOffset: 14 },
+      layout: { background: { type: ColorType.Solid, color: 'rgba(0,0,0,0)' }, textColor: '#7d8792', fontFamily: monoFont, fontSize: 11, attributionLogo: false },
+      grid: { vertLines: { color: 'rgba(255,255,255,0.035)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
+      crosshair: { vertLine: { color: 'rgba(99,240,214,0.35)', labelBackgroundColor: '#1d2a28' }, horzLine: { color: 'rgba(99,240,214,0.35)', labelBackgroundColor: '#1d2a28' } },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', scaleMargins: { top: 0.12, bottom: 0.12 } },
+      timeScale: { borderColor: 'rgba(255,255,255,0.06)', timeVisible: true, secondsVisible: false, rightOffset: 14 },
       handleScroll: true,
       handleScale: true,
     });
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#57cfa8', downColor: '#e4777d', borderVisible: false,
-      wickUpColor: '#57cfa8', wickDownColor: '#e4777d', priceLineVisible: false,
+      upColor: '#63f0d6', downColor: '#ff6b6b', borderVisible: false,
+      wickUpColor: 'rgba(99,240,214,0.7)', wickDownColor: 'rgba(255,107,107,0.7)', priceLineVisible: true, priceLineColor: 'rgba(99,240,214,0.5)', priceLineStyle: 2,
       autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => {
         const base = original();
         const levels = levelsRef.current;
@@ -107,7 +107,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.scale(dpr, dpr);
-      ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue('--font-mono').trim() || 'monospace'}`;
+      ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif'}`;
       ctx.textBaseline = 'middle';
       const hits: Hit[] = [];
       const guides: GuideHit[] = [];
@@ -164,9 +164,9 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         ctx.setLineDash([]); ctx.globalAlpha = 1;
         const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedDollars(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : dollars(marker.valueUsd)}`;
         const badgeWidth = Math.min(235, Math.max(80, width - x - 62), ctx.measureText(badge).width + 43);
-        ctx.fillStyle = selected ? '#313945' : '#292e39';
+        ctx.fillStyle = selected ? 'rgba(30,36,38,0.96)' : 'rgba(17,19,20,0.92)';
         ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1;
-        ctx.beginPath(); ctx.roundRect(x, markerY - 13, badgeWidth, 26, 4); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.roundRect(x, markerY - 13, badgeWidth, 26, 13); ctx.fill(); ctx.stroke();
         const iconX = x + 14;
         ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
         if (marker.origin === 'auto_mirror') {
@@ -176,8 +176,8 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         } else {
           ctx.beginPath(); ctx.moveTo(iconX, markerY - 6); ctx.lineTo(iconX + 6, markerY + 5); ctx.lineTo(iconX - 6, markerY + 5); ctx.closePath(); ctx.fill();
         }
-        ctx.fillStyle = '#ecf1f2'; ctx.fillText(badge, x + 29, markerY + 1, badgeWidth - (marker.pendingAdd ? 68 : 35));
-        if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = `10px ${getComputedStyle(document.body).getPropertyValue('--font-mono').trim() || 'monospace'}`; ctx.fillText('ADD', x + badgeWidth - 34, markerY + 1); ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue('--font-mono').trim() || 'monospace'}`; }
+        ctx.fillStyle = '#f4f6f8'; ctx.fillText(badge, x + 29, markerY + 1, badgeWidth - (marker.pendingAdd ? 68 : 35));
+        if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = `10px ${getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif'}`; ctx.fillText('ADD', x + badgeWidth - 34, markerY + 1); ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif'}`; }
         hits.push({ id: marker.id, x, y: markerY - 15, width: badgeWidth, height: 30 });
       });
       setHitRegions(hits);

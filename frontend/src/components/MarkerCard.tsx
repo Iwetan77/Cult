@@ -45,7 +45,7 @@ export function MarkerCard(p: Props) {
       <Avatar name={m.memberName} url={p.avatarUrl} />
       <div><strong>{m.isMine ? 'You' : m.memberName}</strong><small>{originLabel(m.origin)} · {p.symbol}</small></div>
       <span className={`side-chip ${m.side}`}>{m.side.toUpperCase()}{perp && m.leverage ? ` ${m.leverage}x` : ''}</span>
-      <button className="icon-button compact" title="Close" onClick={p.onDismiss}><X size={15} /></button>
+      <button className="icon-btn icon-btn--sm" title="Close" onClick={p.onDismiss}><X size={15} /></button>
     </header>
     <div className="marker-card-pnl">
       <span>{perp ? 'Live PnL' : 'Value'}</span>
@@ -58,32 +58,32 @@ export function MarkerCard(p: Props) {
       {levels && <><dt>TP</dt><dd className="positive">{price(m.takeProfitPrice)}</dd><dt>SL</dt><dd className="negative">{price(m.stopLossPrice)}</dd></>}
     </dl>
 
-    {m.isMine && m.origin === 'auto_mirror' && m.mirrorStatus === 'pending' && skipLeft > 0 && <button className="outline full" disabled={p.busy} onClick={p.onSkip}>Skip this copy ({skipLeft}s)</button>}
+    {m.isMine && m.origin === 'auto_mirror' && m.mirrorStatus === 'pending' && skipLeft > 0 && <button className="btn btn-ghost btn-sm btn-block" disabled={p.busy} onClick={p.onSkip}>Skip this copy ({skipLeft}s)</button>}
 
     {levels && <>
       <p className="marker-card-hint"><GripHorizontal size={14} /> {m.isMine ? 'Drag the TP and SL handles on the chart to set real orders.' : `Drag ${m.memberName}'s TP and SL handles to suggest levels.`}</p>
       <div className="marker-card-levels">
         <label><span>TP $</span><input inputMode="decimal" value={p.tpDraft} onChange={event => p.onTpDraft(event.target.value)} /></label>
         <label><span>SL $</span><input inputMode="decimal" value={p.slDraft} onChange={event => p.onSlDraft(event.target.value)} /></label>
-        <button className="outline" disabled={p.busy} onClick={p.onSaveLevels}>{m.isMine ? 'Set' : 'Suggest'}</button>
+        <button className="btn btn-ghost btn-sm" disabled={p.busy} onClick={p.onSaveLevels}>{m.isMine ? 'Set' : 'Suggest'}</button>
       </div>
     </>}
 
     {m.isMine && perp && !!m.suggestions?.length && <div className="marker-card-suggestions">
       <span className="ticket-label">Suggestions from your cult</span>
-      {m.suggestions.map(s => <div key={s.id}><span><strong>{s.fromName}</strong> TP {price(s.takeProfitPrice)} · SL {price(s.stopLossPrice)}</span><button className="outline" disabled={p.busy} onClick={() => p.onApplySuggestion(s)}>Accept</button></div>)}
+      {m.suggestions.map(s => <div key={s.id}><span><strong>{s.fromName}</strong> TP {price(s.takeProfitPrice)} · SL {price(s.stopLossPrice)}</span><button className="btn btn-ghost btn-sm" disabled={p.busy} onClick={() => p.onApplySuggestion(s)}>Accept</button></div>)}
     </div>}
 
     {!m.isMine && <div className="marker-card-stack">
       <span className="ticket-label">Stack on this</span>
       <div><span className="ticket-prefix">$</span><input inputMode="decimal" value={p.stackUsd} onChange={event => p.onStackUsd(event.target.value.replace(/[^0-9.]/g, ''))} aria-label="Stack amount in dollars" />
-        <button className="primary" disabled={p.busy} onClick={p.onStack}>{perp ? `Open ${m.side}` : 'Buy'} <ArrowRight size={14} /></button></div>
+        <button className="btn btn-primary btn-sm" disabled={p.busy} onClick={p.onStack}>{perp ? `Open ${m.side}` : 'Buy'} <ArrowRight size={14} /></button></div>
       <small>Opens the same {perp ? 'position' : 'buy'} in your own account.</small>
     </div>}
 
     {m.isMine && <div className="marker-card-own">
-      <button className="outline" disabled={p.busy} onClick={p.onShare}><Share2 size={14} /> Share PnL card</button>
-      {m.origin !== 'auto_mirror' && <button className="outline danger-button" disabled={p.busy} onClick={p.onClosePosition}>Close position</button>}
+      <button className="btn btn-ghost btn-sm" disabled={p.busy} onClick={p.onShare}><Share2 size={14} /> Share PnL card</button>
+      {m.origin !== 'auto_mirror' && <button className="btn btn-danger btn-sm" disabled={p.busy} onClick={p.onClosePosition}>Close position</button>}
     </div>}
   </section>;
 }

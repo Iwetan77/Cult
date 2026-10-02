@@ -114,6 +114,8 @@
 .lp-login__options { margin-top: 24px; width: 100%; display: flex; flex-direction: column; gap: 10px; }
 .lp-login__options .lp-btn { width: 100%; }
 .lp-login__options .lp-btn--primary { border: 1px solid transparent; } /* same 54px height as the outlined one */
+.lp-login__demo { margin-top: 6px; padding: 10px; border: 0; background: none; color: var(--lp-mint); font: 500 14px/1.2 var(--lp-body); letter-spacing: -0.28px; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; text-decoration-color: rgba(99, 240, 214, 0.4); }
+.lp-login__demo:hover { text-decoration-color: var(--lp-mint); }
 .lp-login[open] .lp-login__panel { animation: lp-sheet 0.32s cubic-bezier(0.2, 0.7, 0.2, 1); }
 .lp-login[open]::backdrop { animation: lp-fade 0.32s ease-out; }
 @keyframes lp-sheet { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
