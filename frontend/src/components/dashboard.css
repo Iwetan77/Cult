@@ -229,18 +229,12 @@
 .rail-market-name small { font-size: 11.5px; color: var(--dim); }
 .rail-market-price { align-items: flex-end; }
 .rail-market-price small { font-size: 11.5px; }
-.rail-me { display: flex; align-items: center; gap: 6px; margin: 0 10px 12px; padding: 8px 6px 8px 8px; border-radius: 18px; background: var(--s2); box-shadow: inset 0 0 0 1px var(--line); }
-.rail-me-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none; text-align: left; }
-.rail-me-main span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.rail-me-main strong { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
-.rail-me-main small { font-size: 11.5px; color: var(--dim); }
 .rail--collapsed { align-items: center; padding: 14px 0 12px; gap: 10px; }
 .rail-mini { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 6px 0; scrollbar-width: none; }
 .rail-mini button { padding: 0; border: 0; background: none; border-radius: 50%; transition: transform 0.15s; }
 .rail-mini button:hover { transform: scale(1.06); }
 .rail-mini button.on .room-badge { box-shadow: 0 0 0 2px var(--s1), 0 0 0 3.5px var(--mint); }
 .rail-mini-add { box-shadow: inset 0 0 0 1px var(--line2); }
-.rail-mini-me { padding: 0; border: 0; background: none; }
 .rail-scrim { display: none; }
 
 /* room badges (cults, rooms) */
