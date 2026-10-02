@@ -1,4 +1,4 @@
-import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
+import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 import { rememberList, rememberMarket } from './marketCache';
 import { DemoError, demoApi, isDemo } from './demo';
 
@@ -88,7 +88,7 @@ export const getRoomEventUrl = (room: string) => {
   if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
   return `${BASE.replace(/\/$/, '')}/v1/chat/${encodeURIComponent(room)}/events`;
 };
-export const getLeaderboard = (token: string, scope: 'global' | 'country' | 'cult', cultId?: string) => api<Leaderboard>(scope === 'global' ? '/v1/leaderboards/global' : scope === 'country' ? '/v1/leaderboards/country' : `/v1/cults/${encodeURIComponent(cultId ?? '')}/leaderboard`, token);
+export const getLeaderboard = (token: string, scope: 'global' | 'country' | 'cult', cultId?: string, period: BoardPeriod = 'all') => api<Leaderboard>(`${scope === 'global' ? '/v1/leaderboards/global' : scope === 'country' ? '/v1/leaderboards/country' : `/v1/cults/${encodeURIComponent(cultId ?? '')}/leaderboard`}${period === 'all' ? '' : `?period=${period}`}`, token);
 export const getCultStandings = (token: string) => api<{ entries: CultStanding[]; asOf: string }>('/v1/leaderboards/cults', token);
 
 export const setAutoFollowOff = (token: string, cultId: string) => api<Clan>(`/v1/cults/${encodeURIComponent(cultId)}/auto-follow`, token, { method: 'POST', body: json({ enabled: false }) });
