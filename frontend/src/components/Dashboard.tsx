@@ -5,7 +5,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSigners, useWallets } from '@privy-io/react-auth';
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
-import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, Wallet, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, Menu, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, Wallet, X } from 'lucide-react';
 import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
@@ -30,7 +30,7 @@ import { DepositSheet } from './DepositSheet';
 import { Landing } from './Landing';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
-import { SideRail } from './SideRail';
+import { SideRail, type NavItem } from './SideRail';
 import { Ticker } from './Ticker';
 import './dashboard.css';
 
@@ -89,11 +89,16 @@ export function Dashboard() {
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [railOpenMobile, setRailOpenMobile] = useState(false);
-  useEffect(() => { try { setRailCollapsed(window.localStorage.getItem('cult:rail') === 'collapsed'); } catch { /* default open */ } }, []);
-  const toggleRail = () => setRailCollapsed(current => {
-    try { window.localStorage.setItem('cult:rail', current ? 'open' : 'collapsed'); } catch { /* per session */ }
-    return !current;
-  });
+// The rail starts open on every visit; below 1100px it's a drawer instead.
+  const toggleRail = () => setRailCollapsed(current => !current);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 1100px)');
+    const update = () => setNarrow(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
   const go = (next: View) => { setView(next); setRailOpenMobile(false); };
   const openMarket = (id: string | null) => {
     setMarketPage(id || null);
@@ -729,18 +734,19 @@ export function Dashboard() {
 
   const pickSearch = (action: () => void) => { action(); setSearch(''); setSearchOpen(false); searchRef.current?.blur(); };
   const balance = me?.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) : null;
-  const nav: [View, string, React.ReactNode, () => void][] = [
-    ['home', 'Home', <Home key="i" size={16} />, () => go('home')],
-    ['markets', 'Markets', <CandlestickChart key="i" size={16} />, () => openMarket(null)],
-    ['discover', 'Discover', <Compass key="i" size={16} />, () => go('discover')],
-    ['leaderboards', 'Leaderboard', <Trophy key="i" size={16} />, () => go('leaderboards')],
+// Main menu, most used first.
+  const nav: NavItem[] = [
+    { id: 'home', label: 'Home', icon: <Home size={18} />, active: view === 'home', onClick: () => go('home') },
+    { id: 'markets', label: 'Markets', icon: <CandlestickChart size={18} />, active: view === 'markets', onClick: () => openMarket(null) },
+    { id: 'discover', label: 'Discover', icon: <Compass size={18} />, active: view === 'discover', onClick: () => go('discover') },
+    { id: 'leaderboards', label: 'Leaderboard', icon: <Trophy size={18} />, active: view === 'leaderboards', onClick: () => go('leaderboards') },
   ];
+  const collapsed = railCollapsed && !narrow;
 
-  return <div className={`dash ${railCollapsed ? 'rail-collapsed' : ''} ${railOpenMobile ? 'rail-open' : ''}`}>
+  return <div className={`dash ${collapsed ? 'rail-collapsed' : ''} ${railOpenMobile ? 'rail-open' : ''}`}>
     <header className="topbar">
-      <button className="icon-btn topbar-menu" title="Your cults" onClick={() => setRailOpenMobile(open => !open)}><UsersRound size={18} /></button>
+      <button className="icon-btn topbar-menu" title="Menu" onClick={() => setRailOpenMobile(open => !open)}><Menu size={19} /></button>
       <button className="topbar-logo" onClick={() => go('home')} aria-label="Cult home"><img src="/landing/cult-logo.svg" alt="Cult" width={58} height={30} /></button>
-      <nav className="topnav" aria-label="Main navigation">{nav.map(([id, label, icon, onClick]) => <button key={id} className={view === id ? 'on' : ''} onClick={onClick}>{icon}{label}</button>)}</nav>
       <div className="search">
         <label className="search-box"><Search size={16} /><input ref={searchRef} value={search} onChange={event => { setSearch(event.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)} onBlur={() => window.setTimeout(() => setSearchOpen(false), 160)}
           onKeyDown={event => { if (event.key === 'Escape') { setSearchOpen(false); event.currentTarget.blur(); } if (event.key === 'Enter' && searchMarkets[0] && view !== 'markets') pickSearch(() => openMarket(searchMarkets[0]!.id)); }}
@@ -761,7 +767,7 @@ export function Dashboard() {
       </div>
     </header>
 
-    <SideRail me={me} collapsed={railCollapsed} onToggle={toggleRail} activeRoom={view === 'chat' ? roomId : null} activeMarket={view === 'markets' ? marketPage : null}
+    <SideRail me={me} nav={nav} collapsed={collapsed} onToggle={toggleRail} activeRoom={view === 'chat' ? roomId : null} activeMarket={view === 'markets' ? marketPage : null}
       onRoom={openRoom} onMarket={id => openMarket(id)} onCreate={() => setFormOpen('create')} onJoin={() => setFormOpen('join')} />
     {railOpenMobile && <button className="rail-scrim" aria-label="Close panel" onClick={() => setRailOpenMobile(false)} />}
 
