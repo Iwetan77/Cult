@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronsLeft, ChevronsRight, Link2, Plus } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Link2, LogOut, Plus, Settings } from 'lucide-react';
 import { getMarkets } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { ChatRoom, MarketListing, Me } from '@/lib/contracts';
@@ -12,7 +12,7 @@ import { TokenLogo } from './TokenLogo';
 // The left panel: the main menu, then your cults and rooms (the flow) or a
 // compact watchlist of every market (the terminal). Collapsed, it's a strip
 // of icons that opens over the page while hovered; the expand button pins it
-// open again.
+// open again. Settings and Log out sit at the bottom.
 
 export type NavItem = { id: string; label: string; icon: ReactNode; active: boolean; onClick: () => void };
 
@@ -21,6 +21,7 @@ type Props = {
   activeRoom: string | null; activeMarket: string | null;
   onRoom: (id: string) => void; onMarket: (id: string) => void;
   onCreate: () => void; onJoin: () => void;
+  settingsActive: boolean; onSettings: () => void; onSignOut: () => void;
 };
 
 type Filter = 'all' | 'perpl' | 'nadfun';
@@ -31,7 +32,7 @@ const preview = (room: ChatRoom) => {
   return last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`;
 };
 
-export function SideRail({ me, nav, collapsed, onToggle, activeRoom, activeMarket, onRoom, onMarket, onCreate, onJoin }: Props) {
+export function SideRail({ me, nav, collapsed, onToggle, activeRoom, activeMarket, onRoom, onMarket, onCreate, onJoin, settingsActive, onSettings, onSignOut }: Props) {
   const [tab, setTab] = useState<'cults' | 'markets'>('cults');
   const [filter, setFilter] = useState<Filter>('all');
   const [markets, setMarkets] = useState<MarketListing[]>(() => cachedList('') ?? []);
@@ -111,6 +112,11 @@ export function SideRail({ me, nav, collapsed, onToggle, activeRoom, activeMarke
         </div>
       </div>}
     </>}
+
+    <div className="rail-nav rail-foot">
+      <button className={settingsActive ? 'on' : ''} title={mini ? 'Settings' : undefined} aria-current={settingsActive ? 'page' : undefined} onClick={() => pick(onSettings)}><Settings size={18} />{!mini && <span>Settings</span>}</button>
+      <button className="rail-logout" title={mini ? 'Log out' : undefined} onClick={onSignOut}><LogOut size={18} />{!mini && <span>Log out</span>}</button>
+    </div>
   </aside>;
 }
 

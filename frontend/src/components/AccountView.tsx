@@ -15,8 +15,11 @@ import type { TradeSheetTarget } from './TradeSheet';
 type Props = {
   id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onCountrySaved: () => Promise<unknown>; onDeposit: () => void;
   onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void; onAvatarSaved: () => Promise<unknown>; onRoom: (roomId: string) => void;
+  tab: AccountTab; onTab: (tab: AccountTab) => void;
   signOutLabel?: string;
 };
+
+export type AccountTab = 'open' | 'closed' | 'settings';
 
 // Cumulative realized PnL across closed trades, as a soft area line.
 function PnlCurve({ points }: { points: { t: number; v: number }[] }) {
@@ -36,17 +39,16 @@ function PnlCurve({ points }: { points: { t: number; v: number }[] }) {
   </svg>;
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onSignOut, onTrade, onAvatarSaved, onRoom, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, signOutLabel = 'Sign out' }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
-  const [tab, setTab] = useState<'open' | 'closed' | 'settings'>('open');
   const [error, setError] = useState<string | null>(null);
+  const tabsCard = useRef<HTMLElement>(null);
   useEffect(() => {
     let active = true;
     setProfile(null);
     setError(null);
-    setTab('open');
     getAccessToken().then(token => {
       if (!token) throw new Error('Sign in again to see this profile.');
       return getProfile(token, id);
@@ -54,6 +56,14 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
       .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Profile unavailable.'); });
     return () => { active = false; };
   }, [id]);
+  // Settings sits below the fold; bring it up when it is picked (e.g. from the side panel).
+  const loaded = profile != null;
+  useEffect(() => {
+    const card = tabsCard.current;
+    if (tab !== 'settings' || !loaded || !card) return;
+    const top = card.getBoundingClientRect().top;
+    if (top < 0 || top > window.innerHeight * 0.5) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [tab, loaded]);
 
   const curve = useMemo(() => {
     if (!profile) return [];
@@ -130,7 +140,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
         <PnlCurve points={curve} />
       </section>
 
-      <section className="card">
+      <section className="card" ref={tabsCard}>
         <div className="tabs">
           <button className={tab === 'open' ? 'on' : ''} onClick={() => setTab('open')}>Open<b>{profile.openTrades.length}</b></button>
           <button className={tab === 'closed' ? 'on' : ''} onClick={() => setTab('closed')}>Closed<b>{profile.closedTrades.length}</b></button>
