@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronsLeft, ChevronsRight, Copy, Link2, Plus } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Link2, Plus } from 'lucide-react';
 import { getMarkets } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { ChatRoom, MarketListing, Me } from '@/lib/contracts';
-import { price, shortAddress, signedPct, timeAgo } from '@/lib/format';
-import { Avatar } from './Avatar';
+import { price, signedPct, timeAgo } from '@/lib/format';
 import { RoomBadge } from './RoomBadge';
 import { TokenLogo } from './TokenLogo';
 
@@ -17,7 +16,7 @@ type Props = {
   me: Me | null; collapsed: boolean; onToggle: () => void;
   activeRoom: string | null; activeMarket: string | null;
   onRoom: (id: string) => void; onMarket: (id: string) => void;
-  onCreate: () => void; onJoin: () => void; onAccount: () => void; onCopyAddress: () => void;
+  onCreate: () => void; onJoin: () => void;
 };
 
 type Filter = 'all' | 'perpl' | 'nadfun';
@@ -28,7 +27,7 @@ const preview = (room: ChatRoom) => {
   return last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`;
 };
 
-export function SideRail({ me, collapsed, onToggle, activeRoom, activeMarket, onRoom, onMarket, onCreate, onJoin, onAccount, onCopyAddress }: Props) {
+export function SideRail({ me, collapsed, onToggle, activeRoom, activeMarket, onRoom, onMarket, onCreate, onJoin }: Props) {
   const [tab, setTab] = useState<'cults' | 'markets'>('cults');
   const [filter, setFilter] = useState<Filter>('all');
   const [markets, setMarkets] = useState<MarketListing[]>(() => cachedList('') ?? []);
@@ -49,7 +48,6 @@ export function SideRail({ me, collapsed, onToggle, activeRoom, activeMarket, on
     <button className="icon-btn rail-toggle" title="Expand panel" onClick={onToggle}><ChevronsRight size={17} /></button>
     <div className="rail-mini">{rooms.map(room => <button key={room.id} title={room.name} className={activeRoom === room.id ? 'on' : ''} onClick={() => onRoom(room.id)}><RoomBadge icon={room.icon} kind={room.kind} /></button>)}</div>
     <button className="icon-btn rail-mini-add" title="Create a cult" onClick={onCreate}><Plus size={17} /></button>
-    <button className="rail-mini-me" title="Account" onClick={onAccount}><Avatar name={me?.name ?? 'You'} url={me?.avatarUrl} /></button>
   </aside>;
 
   return <aside className="rail" aria-label="Your cults and markets">
@@ -83,11 +81,6 @@ export function SideRail({ me, collapsed, onToggle, activeRoom, activeMarket, on
         </button>) : Array.from({ length: 8 }, (_, i) => <span key={i} className="skel rail-skel" />)}
       </div>
     </div>}
-
-    <div className="rail-me">
-      <button className="rail-me-main" onClick={onAccount}><Avatar name={me?.name ?? 'Account'} url={me?.avatarUrl} /><span><strong>{me?.name ?? 'Account'}</strong><small>{me?.address ? shortAddress(me.address) : 'Wallet connecting'}</small></span></button>
-      {me?.address && <button className="icon-btn" title="Copy wallet address" onClick={onCopyAddress}><Copy size={15} /></button>}
-    </div>
   </aside>;
 }
 

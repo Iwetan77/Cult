@@ -762,8 +762,7 @@ export function Dashboard() {
     </header>
 
     <SideRail me={me} collapsed={railCollapsed} onToggle={toggleRail} activeRoom={view === 'chat' ? roomId : null} activeMarket={view === 'markets' ? marketPage : null}
-      onRoom={openRoom} onMarket={id => openMarket(id)} onCreate={() => setFormOpen('create')} onJoin={() => setFormOpen('join')} onAccount={() => openAccount()}
-      onCopyAddress={() => { if (me?.address) void navigator.clipboard.writeText(me.address).then(() => setNotice('Wallet address copied.')).catch(() => setError('Could not copy wallet address.')); }} />
+      onRoom={openRoom} onMarket={id => openMarket(id)} onCreate={() => setFormOpen('create')} onJoin={() => setFormOpen('join')} />
     {railOpenMobile && <button className="rail-scrim" aria-label="Close panel" onClick={() => setRailOpenMobile(false)} />}
 
     <main className="stage" key={view === 'chat' ? `chat:${roomId}` : view === 'markets' ? `m:${marketPage ?? ''}` : view === 'account' ? `a:${profileId}` : view}>
