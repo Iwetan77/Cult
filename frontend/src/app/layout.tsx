@@ -43,5 +43,7 @@ const aeonik = localFont({
 
 export const metadata: Metadata = { title: 'Cult | Trade with your cult', description: 'Trading cults on Monad.' };
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${satoshi.variable} ${cascadiaMono.variable} ${insidia.variable} ${aeonik.variable}`}><AppProvider>{children}</AppProvider></body></html>;
+  // Extensions such as Grammarly add attributes to <html>/<body> before React
+  // hydrates; ignore those (this only covers these two tags' own attributes).
+  return <html lang="en" suppressHydrationWarning><body suppressHydrationWarning className={`${satoshi.variable} ${cascadiaMono.variable} ${insidia.variable} ${aeonik.variable}`}><AppProvider>{children}</AppProvider></body></html>;
 }
