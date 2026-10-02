@@ -22,8 +22,9 @@ export type Member = {
 };
 export type ChatRoom = { id: string; kind: 'global' | 'country' | 'cult'; name: string; icon: string; memberCount: number; lastMessage: ChatMessage | null };
 export type DiscoverCult = { id: string; name: string; visibility: 'public'; memberCount: number; createdAt: string; joined: boolean };
+export type BoardPeriod = 'all' | '30d' | '7d';
 export type LeaderboardEntry = { rank: number; memberId: string; name: string; avatarUrl: string | null; address: string; country: string | null; realizedPnlUsd: number; winRate: number | null; tradeCount: number; copiedTradeCount: number };
-export type Leaderboard = { scope: string; name: string; metric: 'realizedPnlUsd'; period: 'all'; entries: LeaderboardEntry[]; me: (Omit<LeaderboardEntry, 'rank'> & { rank: number | null }) | null; rankedCount: number; memberCount: number; asOf: string };
+export type Leaderboard = { scope: string; name: string; metric: 'realizedPnlUsd'; period: BoardPeriod; entries: LeaderboardEntry[]; me: (Omit<LeaderboardEntry, 'rank'> & { rank: number | null }) | null; rankedCount: number; memberCount: number; asOf: string };
 export type CultStanding = { rank: number; cultId: string; name: string; memberCount: number; realizedPnlUsd: number; winRate: number | null; tradeCount: number; joined: boolean };
 export type ChatMessage = {
   id: string; room: string; kind: 'text' | 'system'; clanId: string | null; memberId: string; memberName: string;

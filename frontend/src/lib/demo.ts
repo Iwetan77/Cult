@@ -1,4 +1,4 @@
-import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue, WithdrawRequest, WithdrawResult } from './contracts';
+import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, BoardPeriod, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue, WithdrawRequest, WithdrawResult } from './contracts';
 import { cachedList } from './marketCache';
 
 // Demo mode: the whole app, signed out, on realistic sample data. Every API
@@ -380,6 +380,30 @@ function leaderboard(s: State, scope: string, cultId?: string): Leaderboard {
   return { scope, name, metric: 'realizedPnlUsd', period: 'all', entries, me: mine, rankedCount: entries.length, memberCount: entries.length + 3, asOf: new Date().toISOString() };
 }
 
+// The members you'd meet in a public cult (and do meet once you join).
+const previewMembers = (cultId: string) => PEOPLE.slice(hash(cultId) % 6, (hash(cultId) % 6) + 5).map(p => p.id);
+
+// A public cult you haven't joined: its standing spread over those members,
+// per period, so the preview's totals match the Discover numbers.
+function cultPreviewBoard(s: State, cultId: string, period: BoardPeriod): Leaderboard {
+  const standing = standings(s).find(c => c.cultId === cultId);
+  if (!standing) throw new DemoError('Cult not found.', 404);
+  const r = rng(hash(cultId + 'periods'));
+  const f30 = 0.25 + r() * 0.4, f7 = -0.12 + r() * 0.35;
+  const share = period === 'all' ? 1 : period === '30d' ? f30 : f7;
+  const tradeShare = period === 'all' ? 1 : period === '30d' ? 0.35 : 0.1;
+  const ids = previewMembers(cultId);
+  const w = rng(hash(cultId + 'members'));
+  const weights = ids.map(() => 0.3 + w());
+  const total = weights.reduce((a, b) => a + b, 0);
+  const entries: LeaderboardEntry[] = ids.map((id, i) => {
+    const p = person(id);
+    const part = weights[i]! / total;
+    return { rank: 0, memberId: id, name: p.name, avatarUrl: p.avatar, address: addr(id), country: p.country, realizedPnlUsd: Math.round(standing.realizedPnlUsd * share * part * 100) / 100, winRate: Math.min(0.92, Math.max(0.2, (standing.winRate ?? 0.5) + (w() - 0.5) * 0.24)), tradeCount: Math.max(1, Math.round(standing.tradeCount * tradeShare * part)), copiedTradeCount: 0 };
+  }).sort((a, b) => b.realizedPnlUsd - a.realizedPnlUsd).map((e, i) => ({ ...e, rank: i + 1 }));
+  return { scope: 'cult', name: standing.name, metric: 'realizedPnlUsd', period, entries, me: null, rankedCount: entries.length, memberCount: standing.memberCount, asOf: new Date().toISOString() };
+}
+
 function standings(s: State): CultStanding[] {
   const cults = [...s.discover, ...s.me.clans.filter(c => !s.discover.some(d => d.id === c.id)).map(c => ({ id: c.id, name: c.name, memberCount: c.memberCount, joined: true }))];
   return cults.map(c => { const r = rng(hash(c.id + 'cult')); return { cultId: c.id, name: c.name, memberCount: c.memberCount, realizedPnlUsd: Math.round(r() * 48_000 - 4_000), winRate: 0.45 + r() * 0.3, tradeCount: 40 + Math.floor(r() * 600), joined: s.me.clans.some(x => x.id === c.id) }; })
@@ -608,13 +632,17 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     const name = target?.name ?? `Cult ${code}`;
     const clan: Clan = { id, name, inviteCode: code || 'INV-ITE', visibility: target ? 'public' : 'private', isOwner: false, memberCount: (target?.memberCount ?? 5) + 1, myPolicy: policy(false), autoFollow: false };
     s.me.clans.push(clan);
-    s.members[id] = [ME_ID, ...PEOPLE.slice(hash(id) % 6, (hash(id) % 6) + 5).map(p => p.id)];
+    s.members[id] = [ME_ID, ...previewMembers(id)];
     s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: name[0]!.toUpperCase(), memberCount: clan.memberCount, lastMessage: null });
     const leader = s.members[id]![1]!;
     s.seeds.push({ id: `mk-${++s.next}`, cultId: id, memberId: leader, symbol: 'ETH-PERP', origin: 'leader', side: 'long', entryRatio: 0.985, notional: 3000, leverage: 5, openedAgoMin: 200, tp: null, sl: null, suggestions: [] });
     post(s, `cult:${id}`, leader, 'opened ETH-PERP long 5x', 'system', `mk-${s.next}`);
     post(s, `cult:${id}`, ME_ID, 'joined the group', 'system');
     return done(clan);
+  }
+  if (a === 'cults' && b && c === 'leaderboard' && !s.me.clans.some(x => x.id === b)) {
+    const period = url.searchParams.get('period');
+    return done(cultPreviewBoard(s, b, period === '7d' || period === '30d' ? period : 'all'));
   }
   if (a === 'cults' && b) {
     const clan = s.me.clans.find(x => x.id === b);

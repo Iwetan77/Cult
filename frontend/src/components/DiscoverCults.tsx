@@ -6,6 +6,7 @@ import { ArrowRight, Check, Link2, Plus, RefreshCw } from 'lucide-react';
 import { discoverCults, getCultStandings } from '@/lib/api';
 import type { CultStanding, DiscoverCult } from '@/lib/contracts';
 import { percent, signedDollars } from '@/lib/format';
+import { CultPreview } from './CultPreview';
 import { Leaderboards } from './Leaderboards';
 import { RoomBadge } from './RoomBadge';
 
@@ -20,6 +21,8 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  // Join opens a preview of the cult first; joining happens from there.
+  const [preview, setPreview] = useState<Row | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -38,9 +41,10 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
     .sort((a, b) => (a.standing?.rank ?? 1e6) - (b.standing?.rank ?? 1e6)), [cults, standings, search]);
   const top = rows.filter(r => r.standing).slice(0, 4);
 
-  const join = (row: Row) => row.joined ? <span className="joined"><Check size={14} /> Joined</span> : <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => onJoin(row.id)}>Join <ArrowRight size={14} /></button>;
+  const join = (row: Row) => row.joined ? <span className="joined"><Check size={14} /> Joined</span> : <button className="btn btn-primary btn-sm" onClick={() => setPreview(row)}>Join <ArrowRight size={14} /></button>;
 
   return <div className="view one-col">
+    {preview && <CultPreview cult={preview} standing={preview.standing} busy={busy} onJoin={() => onJoin(preview.id)} onClose={() => setPreview(null)} onProfile={id => { setPreview(null); onProfile(id); }} />}
     <section className="view-main">
       <section className="discover-hero reveal">
         <div className="discover-hero-copy">
