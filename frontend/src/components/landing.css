@@ -52,6 +52,15 @@
 .lp-btn--primary { background: var(--lp-mint); color: var(--lp-ink-green); }
 .lp-btn--ghost { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.16); color: var(--lp-text); }
 .lp-btn--ghost:hover { background: rgba(255, 255, 255, 0.1); }
+/* Secondary button for bright backgrounds (the rays): the nav pill's dark glass. A ghost button's
+   4% white would leave white text unreadable on cyan. The outline is an inset shadow, not a border,
+   so it matches the primary's 52px height. */
+.lp-btn--glass {
+  background: rgba(13, 17, 22, 0.62); color: var(--lp-text);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+}
+.lp-btn--glass:hover { background: rgba(13, 17, 22, 0.78); }
 
 /* ---------- shared ---------- */
 .lp-section { padding: var(--lp-section-y) var(--lp-gutter); }
@@ -115,6 +124,10 @@
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 42px;
   padding-top: clamp(56px, 11.18vh, 102px);
 }
+/* Join a cult + Create a cult: 150px each, side by side; they share the width on the narrowest phones. */
+.lp-hero__ctas { width: 100%; display: flex; justify-content: center; gap: 10px; }
+.lp-hero__ctas .lp-btn { flex: 0 1 150px; min-width: 0; }
+@media (max-width: 360px) { .lp-hero__ctas .lp-btn { padding-inline: 16px; } }
 .lp-hero__title {
   max-width: 4.71em; /* 707px at 150px: same four lines at every size */
   font-family: var(--lp-display); font-weight: 400;
