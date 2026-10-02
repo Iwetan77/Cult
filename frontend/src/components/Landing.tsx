@@ -276,13 +276,14 @@ function RaysVideo() {
   return <video className="lp-rays__video" src={`${A}/light-rail.mp4`} poster={`${A}/rays-bg.png`} autoPlay muted loop playsInline aria-hidden="true" />;
 }
 
-// Sign-in sheet: Google or wallet. Opened by the phone nav's Login and by the hero's Create a cult
-// (creating one needs an account), with copy to match. A native <dialog> gives Escape-to-close,
+// Sign-in sheet: Google or wallet. Opened by the phone nav's Login and the hero's Join / Create a cult
+// (both need an account), with copy to match. A native <dialog> gives Escape-to-close,
 // focus handling and the top layer; tapping the backdrop closes it. It closes before handing over,
 // so Privy's own modal is never underneath it.
-type SheetIntent = 'login' | 'create';
+type SheetIntent = 'login' | 'join' | 'create';
 const SHEET_COPY: Record<SheetIntent, { title: string; text: string }> = {
   login: { title: 'Log in to Cult', text: 'Your wallet, your funds, your trades. Pick how you want to sign in.' },
+  join: { title: 'Join a cult', text: 'Sign in to join a public cult or one you have an invite code for. Your wallet, your funds, your trades.' },
   create: { title: 'Create a cult', text: 'Sign in to start your own cult on Monad. Your wallet, your funds, your trades.' },
 };
 
@@ -338,7 +339,7 @@ export function Landing({ onLogin, pendingLogin }: Props) {
       <div className="lp-hero__body">
         <h1 className="lp-hero__title"><Words text="Trade together. Own every move" delay={0.3} step={0.09} /></h1>
         <div className="lp-hero__ctas">
-          <a href="#join" className="lp-btn lp-btn--primary lp-a lp-a--pop" style={d(0.85)}>Join a cult</a>
+          <button type="button" className="lp-btn lp-btn--primary lp-a lp-a--pop" style={d(0.85)} aria-haspopup="dialog" onClick={() => openSheet('join')}>Join a cult</button>
           <button type="button" className="lp-btn lp-btn--glass lp-a lp-a--pop" style={d(0.95)} aria-haspopup="dialog" onClick={() => openSheet('create')}>Create a cult</button>
         </div>
       </div>
