@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { getAccessToken } from '@/lib/auth';
 import { ArrowRight, Check, Link2, Plus, RefreshCw } from 'lucide-react';
 import { discoverCults, getCultStandings } from '@/lib/api';
@@ -10,11 +10,11 @@ import { CultPreview } from './CultPreview';
 import { Leaderboards } from './Leaderboards';
 import { RoomBadge } from './RoomBadge';
 
-type Props = { busy: boolean; onJoin: (cultId: string) => void; country: { code: string; name: string } | null; cultId: string | null; onProfile: (memberId: string) => void; search: string; onCreate: () => void; onInvite: () => void };
+type Props = { busy: boolean; onJoin: (cultId: string) => void; country: { code: string; name: string } | null; cultId: string | null; onProfile: (memberId: string) => void; search: string; onCreate: () => void; onInvite: () => void; onOpenRoom: (roomId: string) => void };
 
 type Row = DiscoverCult & { standing: CultStanding | null };
 
-export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search, onCreate, onInvite }: Props) {
+export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search, onCreate, onInvite, onOpenRoom }: Props) {
   const [tab, setTab] = useState<'cults' | 'rankings'>('cults');
   const [cults, setCults] = useState<DiscoverCult[]>([]);
   const [standings, setStandings] = useState<CultStanding[]>([]);
@@ -41,7 +41,14 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
     .sort((a, b) => (a.standing?.rank ?? 1e6) - (b.standing?.rank ?? 1e6)), [cults, standings, search]);
   const top = rows.filter(r => r.standing).slice(0, 4);
 
-  const join = (row: Row) => row.joined ? <span className="joined"><Check size={14} /> Joined</span> : <button className="btn btn-primary btn-sm" onClick={() => setPreview(row)}>Join <ArrowRight size={14} /></button>;
+  // A whole card or row opens the cult: its preview, or its room once you're in.
+  const open = (row: Row) => row.joined ? onOpenRoom(`cult:${row.id}`) : setPreview(row);
+  const clickable = (row: Row) => ({
+    role: 'button', tabIndex: 0, 'aria-label': row.joined ? `Open ${row.name}` : `Preview ${row.name}`,
+    onClick: () => open(row),
+    onKeyDown: (event: KeyboardEvent) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(row); } },
+  });
+  const join = (row: Row) => row.joined ? <span className="joined"><Check size={14} /> Joined</span> : <button className="btn btn-primary btn-sm" onClick={event => { event.stopPropagation(); setPreview(row); }}>Join <ArrowRight size={14} /></button>;
 
   return <div className="view one-col">
     {preview && <CultPreview cult={preview} standing={preview.standing} busy={busy} onJoin={() => onJoin(preview.id)} onClose={() => setPreview(null)} onProfile={id => { setPreview(null); onProfile(id); }} />}
@@ -64,7 +71,7 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
       {tab === 'rankings' ? <Leaderboards embedded country={country} cultId={cultId} onProfile={onProfile} /> : loading ? <div className="cult-cards">{Array.from({ length: 4 }, (_, i) => <div key={i} className="cult-card skel" />)}</div> : error ? <p className="notice-line">{error}</p> : <>
         {top.length > 0 && !search.trim() && <section className="block">
           <div className="block-head"><h2>Top performing</h2></div>
-          <div className="cult-cards">{top.map((row, i) => <article key={row.id} className={`cult-card reveal ${i === 0 ? 'is-first' : ''}`} style={{ '--d': `${i * 60}ms` } as React.CSSProperties}>
+          <div className="cult-cards">{top.map((row, i) => <article key={row.id} {...clickable(row)} className={`cult-card reveal ${i === 0 ? 'is-first' : ''}`} style={{ '--d': `${i * 60}ms` } as React.CSSProperties}>
             <div className="cult-card-top"><RoomBadge icon={row.name[0]!.toUpperCase()} kind="cult" size="lg" /><span className="cult-card-rank">#{row.standing!.rank}</span></div>
             <h3>{row.name}</h3>
             <small>{row.memberCount} members · {row.standing!.tradeCount} trades</small>
@@ -77,7 +84,7 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
           <div className="table-tools"><h2>All public cults</h2><span className="count">{rows.length}</span></div>
           {rows.length === 0 ? <div className="empty"><span>{search.trim() ? 'No public cults match your search.' : 'No public cults yet. Be the first.'}</span></div> : <div className="ctable">
             <div className="ctable-row ctable-head"><span>#</span><span>Cult</span><span className="hide-sm">Win rate</span><span className="hide-sm">Trades</span><span>All-time</span><span /></div>
-            {rows.map(row => <div className="ctable-row" key={row.id}>
+            {rows.map(row => <div className="ctable-row" key={row.id} {...clickable(row)}>
               <span className="rank">{row.standing?.rank ?? '—'}</span>
               <span className="ctable-cult"><RoomBadge icon={row.name[0]!.toUpperCase()} kind="cult" /><span><strong>{row.name}</strong><small>{row.memberCount} {row.memberCount === 1 ? 'member' : 'members'}</small></span></span>
               <span className="num hide-sm">{row.standing?.winRate == null ? '—' : percent(row.standing.winRate * 100)}</span>
