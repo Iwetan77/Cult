@@ -46,7 +46,29 @@ export function PerfBars({ bars, lit = () => true, valueLabel = 'PnL', totalLabe
   const start = Math.max(0, bars.findLastIndex(b => b.value !== 0));
   const [active, setActive] = useState(start);
   const barsKey = bars.map(b => b.key).join('|');
-  useEffect(() => { setActive(start); }, [barsKey, start]);
+  // Phones: the card shows only when a bar is tapped, and goes away after a
+  // minute (or on a second tap of the same bar). Wider screens: on hover.
+  const [phone, setPhone] = useState(false);
+  const [shown, setShown] = useState(false);
+  const [tap, setTap] = useState(0);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 760px)');
+    const sync = () => setPhone(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
+  useEffect(() => {
+    if (!phone || !shown) return;
+    const timer = window.setTimeout(() => setShown(false), 60_000);
+    return () => window.clearTimeout(timer);
+  }, [phone, shown, tap]);
+  const pick = (i: number) => {
+    if (!phone) { setActive(i); return; }
+    if (shown && i === active) { setShown(false); return; }
+    setActive(i); setShown(true); setTap(t => t + 1);
+  };
+  useEffect(() => { setActive(start); setShown(false); }, [barsKey, start]);
 
   const { min, max, ticks } = useMemo(() => axis(bars.flatMap(b => [b.value, b.total])), [bars]);
   const y = (v: number) => ((v - min) / (max - min)) * 100;
@@ -72,17 +94,17 @@ export function PerfBars({ bars, lit = () => true, valueLabel = 'PnL', totalLabe
       <div className="pbars-cols">
         {bars.map((b, i) => <button key={b.key} type="button" className={`pbars-col${i === active ? ' on' : ''}${lit(i) ? '' : ' is-dim'}`}
           aria-label={`${b.title}: ${valueLabel} ${signedDollars(b.value)}, ${totalLabel.toLowerCase()} ${signedDollars(b.total)}`}
-          onMouseEnter={() => setActive(i)} onFocus={() => setActive(i)} onClick={() => setActive(i)}>
+          onMouseEnter={() => { if (!phone) setActive(i); }} onFocus={() => { if (!phone) setActive(i); }} onClick={() => pick(i)}>
           <span className="pbars-ghost" style={span(0, b.total)} />
           <span className={`pbars-bar ${b.value >= 0 ? 'is-up' : 'is-down'}`} style={span(0, b.value)} />
           {i === active && <i className={`pbars-dot ${b.value >= 0 ? 'is-up' : 'is-down'}`} style={{ bottom: `${y(b.value)}%` }} />}
         </button>)}
-        <div className="pbars-tip" role="status" style={place}>
+        {(!phone || shown) && <div className="pbars-tip" role="status" style={place}>
           <strong>{on.title}</strong>
           <span><i className={up ? 'is-up' : 'is-down'} />{valueLabel}<b className={up ? 'up' : 'down'}>{money(on.value, true)}</b></span>
           <span><i className="is-ghost" />{totalLabel}<b>{money(on.total, false)}</b></span>
           {on.note && <small>{on.note}</small>}
-        </div>
+        </div>}
       </div>
     </div>
     <div className="pbars-x" aria-hidden="true">{bars.map((b, i) => <span key={b.key} className={i === active ? 'on' : undefined}><span className="pbars-lg">{b.label}</span><span className="pbars-sm">{b.short ?? b.label}</span></span>)}</div>
