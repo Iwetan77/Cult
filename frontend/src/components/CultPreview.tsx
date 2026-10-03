@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Lock, X } from 'lucide-react';
+import { CandlestickChart, Lock, MessageCircle, Repeat2, X } from 'lucide-react';
 import { getAccessToken } from '@/lib/auth';
 import { getLeaderboard } from '@/lib/api';
 import type { BoardPeriod, CultStanding, DiscoverCult, Leaderboard, LeaderboardEntry } from '@/lib/contracts';
-import { percent, signedDollars } from '@/lib/format';
+import { dollars, percent, signedDollars } from '@/lib/format';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
 
@@ -14,6 +14,8 @@ import { RoomBadge } from './RoomBadge';
 // realized PnL) for all time, 30 days and 7 days.
 
 type Props = { cult: DiscoverCult; standing: CultStanding | null; busy: boolean; onJoin: () => void; onClose: () => void; onProfile: (memberId: string) => void };
+
+const compactSigned = (value: number) => `${value > 0 ? '+' : value < 0 ? '-' : ''}${dollars(Math.abs(value), 0)}`;
 
 const PERIODS: { id: BoardPeriod; label: string }[] = [{ id: '7d', label: '7D' }, { id: '30d', label: '30D' }, { id: 'all', label: 'All' }];
 
@@ -61,7 +63,7 @@ function Faces({ entries }: { entries: LeaderboardEntry[] }) {
 export function CultPreview({ cult, standing, busy, onJoin, onClose, onProfile }: Props) {
   const [boards, setBoards] = useState<Partial<Record<BoardPeriod, Leaderboard>>>({});
   const [error, setError] = useState<string | null>(null);
-  const [period, setPeriod] = useState<BoardPeriod>('all');
+  const [period, setPeriod] = useState<BoardPeriod>('30d');
 
   useEffect(() => {
     let active = true;
@@ -90,49 +92,65 @@ export function CultPreview({ cult, standing, busy, onJoin, onClose, onProfile }
   const since = new Date(cult.createdAt).toLocaleDateString([], { month: 'short', year: 'numeric' });
   const up = (shown?.pnl ?? 0) >= 0;
 
+  const allTime = totals(boards.all);
+  const periodNote = period === 'all' ? 'all time' : period === '30d' ? 'in the last 30 days' : 'in the last 7 days';
+  const traders = `${cult.memberCount} ${cult.memberCount === 1 ? 'trader' : 'traders'}`;
+
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className="dialog cpv" role="dialog" aria-modal="true" aria-label={`${cult.name}, before you join`}>
       <button className="icon-btn dialog-close" title="Close" onClick={onClose}><X size={16} /></button>
-      <div className="cpv-banner" />
-      <div className="cpv-id">
-        <span className="cpv-badge"><RoomBadge icon={cult.name[0]!.toUpperCase()} kind="cult" size="lg" /></span>
-        <div className="cpv-title"><h2>{cult.name}</h2>{standing && <span className="cpv-rank">Rank {standing.rank}</span>}</div>
-        <div className="cpv-meta">{people.length > 0 && <Faces entries={people} />}<span>{cult.memberCount} {cult.memberCount === 1 ? 'trader' : 'traders'} · Public · Since {since}</span></div>
+      <header className="cpv-hero">
+        {standing && <span className="cpv-rank"><b>#{standing.rank}</b> ranked cult</span>}
+        <div className="cpv-hero-id">
+          <span className="cpv-badge"><RoomBadge icon={cult.name[0]!.toUpperCase()} kind="cult" size="lg" /></span>
+          <div className="cpv-hero-copy">
+            <span className="eyebrow">Public cult · since {since}</span>
+            <h2>{cult.name}</h2>
+            <span className="cpv-meta">{people.length > 0 && <Faces entries={people} />}{traders}</span>
+          </div>
+        </div>
+      </header>
+
+      <div className="cpv-strip">
+        <div><span>All-time PnL</span><strong className={`num ${(allTime?.pnl ?? 0) >= 0 ? 'up' : 'down'}`}>{allTime ? compactSigned(allTime.pnl) : '—'}</strong></div>
+        <div><span>Win rate</span><strong className="num">{allTime?.winRate == null ? '—' : percent(allTime.winRate * 100)}</strong></div>
+        <div><span>Closed trades</span><strong className="num">{allTime ? allTime.trades : '—'}</strong></div>
       </div>
 
       <section className="cpv-card">
-        <div className="cpv-card-head"><span>Cult performance</span>
+        <div className="cpv-card-head"><h3>Performance</h3>
           <div className="seg seg--sm" role="tablist">{PERIODS.map(p => <button key={p.id} role="tab" aria-selected={period === p.id} className={period === p.id ? 'on' : ''} onClick={() => setPeriod(p.id)}>{p.label}</button>)}</div>
         </div>
         {error ? <p className="notice-line">{error}</p> : !loaded || !shown || !points ? <><span className="skel cpv-skel-num" /><span className="skel cpv-skel-chart" /></> : <>
-          <div className="cpv-pnl"><strong className={`num ${up ? 'up' : 'down'}`}>{signedDollars(shown.pnl)}</strong><span className={`cpv-chip ${up ? 'up' : 'down'}`}>{shown.trades} closed {shown.trades === 1 ? 'trade' : 'trades'}</span></div>
+          <p className="cpv-pnl"><strong className={`num ${up ? 'up' : 'down'}`}>{signedDollars(shown.pnl)}</strong> <span>{periodNote} · {shown.trades} {shown.trades === 1 ? 'trade' : 'trades'} · {shown.winRate == null ? '—' : percent(shown.winRate * 100)} wins</span></p>
           <Curve points={points} up={up} />
           <div className="cpv-ticks">{points.map(p => <span key={p.label} className={p.minor ? 'minor' : undefined} style={{ left: `${p.x * 100}%` }}>{p.label}</span>)}</div>
-          <div className="cpv-stats">
-            <div><strong className="num">{shown.winRate == null ? '—' : percent(shown.winRate * 100)}</strong><span>Win rate</span></div>
-            <div><strong className="num">{shown.trades}</strong><span>Trades</span></div>
-            <div><strong className="num">{boards.all!.rankedCount}</strong><span>Traders ranked</span></div>
-          </div>
         </>}
       </section>
 
-      <section className="cpv-card">
-        <div className="cpv-card-head"><span>Top traders</span><small>{period === 'all' ? 'All time' : period === '30d' ? 'Last 30 days' : 'Last 7 days'}</small></div>
+      <section className="cpv-section">
+        <div className="cpv-card-head"><h3>Leading the cult</h3><small>{period === 'all' ? 'All time' : period === '30d' ? 'Last 30 days' : 'Last 7 days'}</small></div>
         {!loaded ? <span className="skel cpv-skel-row" /> : top.length ? <div className="cpv-traders">{top.map((e, i) => <button key={e.memberId} className="cpv-trader" onClick={() => onProfile(e.memberId)}>
-          <span className="cpv-trader-rank">{i + 1}</span>
-          <Avatar name={e.name} url={e.avatarUrl} />
-          <span className="cpv-trader-name"><strong>{e.name}</strong><small>{e.winRate == null ? '—' : percent(e.winRate * 100)} win rate · {e.tradeCount} trades</small></span>
-          <strong className={`num ${e.realizedPnlUsd >= 0 ? 'up' : 'down'}`}>{signedDollars(e.realizedPnlUsd)}</strong>
+          <span className="cpv-trader-top"><Avatar name={e.name} url={e.avatarUrl} /><span className="cpv-trader-rank">{i + 1}</span></span>
+          <strong className="cpv-trader-name">{e.name}</strong>
+          <strong className={`num cpv-trader-pnl ${e.realizedPnlUsd >= 0 ? 'up' : 'down'}`}>{compactSigned(e.realizedPnlUsd)}</strong>
+          <small>{e.winRate == null ? '—' : percent(e.winRate * 100)} wins · {e.tradeCount} trades</small>
         </button>)}</div> : <p className="field-note">No closed trades yet. The record fills in as members close trades.</p>}
       </section>
 
-      <section className="cpv-card cpv-join">
-        <h3>Free</h3>
-        <button className="btn btn-primary btn-lg btn-block" disabled={busy} onClick={onJoin}>{busy ? 'Joining…' : 'Join cult'}</button>
-        <p className="field-note">You keep your own wallet. Auto-follow stays off until you turn it on.</p>
-        <div className="cpv-join-foot">{people.length > 0 && <Faces entries={people} />}<span>{cult.memberCount} {cult.memberCount === 1 ? 'trader' : 'traders'} already in</span></div>
+      <section className="cpv-section">
+        <div className="cpv-card-head"><h3><Lock size={14} /> Unlocks when you join</h3></div>
+        <ul className="cpv-perks">
+          <li><MessageCircle size={17} /><span><strong>Cult chat</strong><small>Talk trades with every member</small></span></li>
+          <li><CandlestickChart size={17} /><span><strong>Their positions on your chart</strong><small>Live entries, exits and PnL</small></span></li>
+          <li><Repeat2 size={17} /><span><strong>Auto-follow, if you want it</strong><small>Off until you set your own limits</small></span></li>
+        </ul>
       </section>
-      <p className="cpv-lock"><Lock size={13} /> Chat and live positions unlock when you join</p>
+
+      <footer className="cpv-foot">
+        <span className="cpv-foot-copy">{people.length > 0 && <Faces entries={people} />}<span className="cpv-foot-text"><strong>{traders} already in</strong><small>Free to join · you keep your own wallet</small></span></span>
+        <button className="btn btn-primary" disabled={busy} onClick={onJoin}>{busy ? 'Joining…' : 'Join cult'}</button>
+      </footer>
     </section>
   </div>;
 }
