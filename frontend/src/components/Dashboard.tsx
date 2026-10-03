@@ -10,7 +10,7 @@ import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry,
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
 import { privySupported } from '@/lib/privySupport';
-import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
+import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
 import { dollars, price } from '@/lib/format';
 import { TokenLogo } from './TokenLogo';
@@ -29,6 +29,8 @@ import { type TicketMarket } from './TradeTicket';
 import { RoomBadge } from './RoomBadge';
 import { DepositSheet } from './DepositSheet';
 import { WithdrawSheet } from './WithdrawSheet';
+import { PnlCardSheet } from './PnlCardSheet';
+import { resultOfClose, type TradeResult } from '@/lib/pnlCard';
 import { Landing } from './Landing';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
@@ -97,6 +99,8 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
   const [marketSolo, setMarketSolo] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  // The PnL card shown after a close.
+  const [closedResult, setClosedResult] = useState<TradeResult | null>(null);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const permissionResolve = useRef<((allowed: boolean) => void) | null>(null);
   const decidePermission = (allowed: boolean) => {
@@ -583,20 +587,26 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
     window.open(url, '_blank', 'noopener');
     setNotice('PnL card link copied.');
   });
+  // After a close, the PnL card, built from the position as it was just before.
+  const showCard = (holding: Holding | undefined, fill: Fill | null) => {
+    if (holding) setClosedResult(resultOfClose(holding, fill, { name: me?.name ?? 'You', avatarUrl: me?.avatarUrl ?? null }));
+    else setNotice('Position close submitted.');
+  };
   const closeMarket = (marketToClose: string) => perform('close', async () => {
-    await closePosition(await token(), marketToClose);
+    const holding = holdings.find(item => item.market.toLowerCase() === marketToClose.toLowerCase());
+    const fill = await closePosition(await token(), marketToClose);
     setSelectedId(null);
     if (clanId) await loadChart(clanId, marketToClose).catch(() => undefined);
     setHoldings((await getHoldings(await token())).positions);
     await loadMe();
-    setNotice('Position close submitted.');
+    showCard(holding, fill);
   });
   const closeTrade = (holding: Holding) => perform('close', async () => {
-    await closePosition(await token(), holding.market);
+    const fill = await closePosition(await token(), holding.market);
     if (clanId) await loadChart(clanId, marketId ?? undefined);
     setHoldings((await getHoldings(await token())).positions);
     await loadMe();
-    setNotice('Position close submitted.');
+    showCard(holding, fill);
   });
   const stack = () => perform('stack', async () => {
     if (!clanId || !selected) throw new Error('Select a cult position first.');
@@ -859,6 +869,7 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
         </>}
       </section>
     </div>}
+    {closedResult && <PnlCardSheet result={closedResult} onClose={() => setClosedResult(null)} />}
     {withdrawOpen && <WithdrawSheet onClose={() => setWithdrawOpen(false)} onDone={() => { void loadMe(); }} gasReserveMon={me?.balances?.gasReserveMon ?? 0} />}
     {depositOpen && <DepositSheet onClose={() => setDepositOpen(false)} signerReady={signerReady} permissionBusy={!!busy} onGrantPermission={() => { void perform('grant-signer', async () => { if (await grantSigner()) setNotice('Trading permission is active.'); }); }} />}
     {permissionOpen && <TradingPermissionDialog onDecision={decidePermission} />}
