@@ -5,11 +5,11 @@ import { logoFor } from './logos';
 import { yieldToPage } from './gifFrames';
 
 // The PnL card: a trading card for one trade, drawn on a canvas so it can be
-// saved or shared. Laid out like a collectible: a strip with leverage and a
-// power bar, a big window (a reaction GIF from GIPHY when there is one), then
-// the market, the return, and entry / exit / size beside the trader. Built in
-// the app from the position just before closing and the closing fill (the
-// public share links only cover open positions).
+// saved or shared. Laid out like a collectible: a strip with the logo, the
+// trade status and leverage, a big window (a reaction GIF from GIPHY when
+// there is one), then the market, the return, and entry / exit / size beside
+// the trader. Built in the app from the position just before closing and the
+// closing fill (the public share links only cover open positions).
 
 export type TradeResult = {
   symbol: string; venue: Venue; side: TradeSide; leverage: number | null;
@@ -179,27 +179,21 @@ export async function prepareCard(r: TradeResult, scale = 1): Promise<CardRender
   roundRect(ctx, 14, 14, W - 28, H - 28, 46);
   ctx.strokeStyle = `rgba(${accentRgb}, 0.28)`; ctx.lineWidth = 3; ctx.stroke();
 
-  // Top strip, left: a slanted power bar (how big the move was) and leverage.
-  const segs = 14, segW = 30, segH = 26, gap = 7, skew = 9;
-  const lit = Math.max(1, Math.min(segs, Math.round((Math.abs(r.roiPct ?? (r.pnlUsd ? 20 : 0)) / 60) * segs)));
-  for (let i = 0; i < segs; i++) {
-    const x = PAD + i * (segW + gap);
-    ctx.beginPath(); ctx.moveTo(x + skew, 70); ctx.lineTo(x + segW + skew, 70); ctx.lineTo(x + segW, 70 + segH); ctx.lineTo(x, 70 + segH); ctx.closePath();
-    ctx.fillStyle = i < lit ? accent : 'rgba(255, 255, 255, 0.1)'; ctx.fill();
-  }
+  // Top strip: the logo on the left; on the right, whether the trade is
+  // live or closed, and the leverage (or the bet side / spot buy).
   ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  if (logo) { const lw = 150, lh = lw * (logo.height / logo.width || 30 / 58); ctx.drawImage(logo, PAD, 60, lw, lh); }
+  else { ctx.fillStyle = TEXT; ctx.font = `400 64px ${display}`; ctx.fillText('CULT', PAD, 128); }
   const [levLabel, levValue] = pred ? ['BET', pred.sideLabel.toUpperCase()] : r.venue === 'perpl' ? ['LEV', `${r.leverage ?? 1}X`] : ['SPOT', 'BUY'];
-  spaced(ctx, 4, () => {
-    ctx.font = `700 30px ${body}`; ctx.fillStyle = DIM; ctx.fillText(levLabel, PAD, 150);
-    const lw = ctx.measureText(`${levLabel} `).width;
-    ctx.fillStyle = TEXT; ctx.fillText(fit(ctx, levValue, 420), PAD + lw + 6, 150);
-  });
-
-  // Top strip, right: the logo, and whether the trade is closed or live.
-  if (logo) { const lw = 110, lh = lw * (logo.height / logo.width || 30 / 58); ctx.drawImage(logo, W - PAD - lw, 58, lw, lh); }
-  else { ctx.fillStyle = TEXT; ctx.font = `400 56px ${display}`; ctx.textAlign = 'right'; ctx.fillText('CULT', W - PAD, 116); }
   ctx.textAlign = 'right';
-  spaced(ctx, 4, () => { ctx.font = `700 22px ${body}`; ctx.fillStyle = r.live ? accent : DIM; ctx.fillText(r.live ? '● LIVE POSITION' : 'CLOSED TRADE', W - PAD, 150); });
+  spaced(ctx, 4, () => {
+    ctx.font = `700 22px ${body}`; ctx.fillStyle = r.live ? accent : DIM; ctx.fillText(r.live ? '● LIVE POSITION' : 'CLOSED TRADE', W - PAD, 96);
+    ctx.font = `700 30px ${body}`; ctx.fillStyle = TEXT;
+    const value = fit(ctx, levValue, 420);
+    ctx.fillText(value, W - PAD, 146);
+    const vw = ctx.measureText(`${value} `).width;
+    ctx.fillStyle = DIM; ctx.fillText(levLabel, W - PAD - vw - 6, 146);
+  });
 
   // Window background, and the still art used when there is no GIF.
   ctx.save();
