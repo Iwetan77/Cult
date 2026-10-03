@@ -32,7 +32,7 @@ export function PnlCardSheet({ result, onClose }: Props) {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
 
-  const fileName = `cult-${result.symbol.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${new Date(result.closedAt).toISOString().slice(0, 10)}.png`;
+  const fileName = `cult-${result.symbol.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 48)}-${new Date(result.closedAt).toISOString().slice(0, 10)}.png`;
   const file = blob ? new File([blob], fileName, { type: 'image/png' }) : null;
   const canShare = !!file && typeof navigator !== 'undefined' && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
   const canCopy = typeof window !== 'undefined' && 'ClipboardItem' in window && !!navigator.clipboard?.write;
@@ -62,7 +62,7 @@ export function PnlCardSheet({ result, onClose }: Props) {
       <button className="icon-btn dialog-close" title="Close" onClick={onClose}><X size={16} /></button>
       <div className="pnl-sheet-head">
         <span className="eyebrow">Trade closed</span>
-        <h2>{result.symbol}</h2>
+        <h2 className={result.prediction ? 'is-long' : undefined}>{result.prediction ? result.prediction.title : result.symbol}</h2>
         <p className="field-note">{result.pnlUsd == null ? 'Your position is closed.' : <>You {up ? 'made' : 'lost'} <b className={up ? 'up' : 'down'}>{up ? signedDollars(result.pnlUsd) : dollars(Math.abs(result.pnlUsd))}</b>{roi ? <> ({roi})</> : null}. Here&rsquo;s your card.</>}</p>
       </div>
       <div className="pnl-sheet-card">

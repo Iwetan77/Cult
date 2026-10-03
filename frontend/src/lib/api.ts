@@ -1,4 +1,4 @@
-import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
+import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, PredictionBet, PredictionOrder, PredictionPosition, PredictionSale, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 import { rememberList, rememberMarket } from './marketCache';
 import { DemoError, demoApi, isDemo } from './demo';
 
@@ -101,6 +101,15 @@ export const usernameAvailability = (name: string) => api<{ available: boolean; 
 export const setUsername = (token: string, username: string) => api<{ username: string; name: string }>('/v1/me/username', token, { method: 'POST', body: json({ username }) });
 export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: string }>('/v1/me/avatar', token, { method: 'POST', body: json({ image }) });
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
+// Prediction markets: market data comes straight from Polymarket
+// (lib/polymarket.ts). Trading runs in the demo only until a Polygon wallet
+// and venue adapter exist on the backend.
+export const PREDICTIONS_SOON = 'Prediction trading is coming to Cult soon. Try it in the demo.';
+export const getPredictionPositions = (token: string) => isDemo() ? api<{ positions: PredictionPosition[] }>('/v1/predictions/positions', token) : Promise.resolve({ positions: [] as PredictionPosition[] });
+export const buyPrediction = (token: string, order: PredictionOrder) => isDemo() ? api<PredictionPosition>('/v1/predictions/orders', token, { method: 'POST', body: json(order) }) : Promise.reject(new ApiError(PREDICTIONS_SOON, 501));
+export const sellPrediction = (token: string, positionId: string, price: number) => isDemo() ? api<PredictionSale>('/v1/predictions/sell', token, { method: 'POST', body: json({ positionId, price }) }) : Promise.reject(new ApiError(PREDICTIONS_SOON, 501));
+export const getPredictionBets = (token: string, eventSlug: string, outcomes: { id: string; label: string; yesPrice: number; yesLabel: string; noLabel: string }[]) =>
+  isDemo() ? api<{ bets: PredictionBet[] }>('/v1/predictions/bets', token, { method: 'POST', body: json({ eventSlug, outcomes }) }) : Promise.resolve({ bets: [] as PredictionBet[] });
 export const getDeposit = (token: string) => api<DepositInfo>('/v1/wallet/deposit', token);
 // Demo only for now: the backend can't move funds out by design, so a real
 // withdrawal will be signed by the member's own wallet once it's built.

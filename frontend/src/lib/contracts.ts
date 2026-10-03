@@ -132,5 +132,20 @@ export type Profile = { id: string; name: string; username: string | null; avata
 export type MarketListing = { venue: Venue; id: string; symbol: string; name: string; priceUsd: number | null; change24hPct: number | null; volume24hUsd: number | null; imageUri: string | null; maxLeverage: number };
 export type MarketDetail = { market: MarketListing; candles: Candle[]; resolution: number };
 export type DepositInfo = { address: string; network: { name: string; chainId: number }; tokens: { symbol: 'MON' | 'USDC' | 'AUSD'; name: string; what: string; balance: number; balanceUsd: number | null }[]; tradingAccountUsd: number | null; totalUsd: number | null };
+// Prediction markets (Polymarket). Demo-only trading for now.
+export type PredictionSide = 'yes' | 'no';
+export type PredictionPosition = {
+  id: string; marketId: string; eventSlug: string; eventTitle: string; outcomeLabel: string; question: string; image: string | null;
+  side: PredictionSide; sideLabel: string; shares: number; avgPrice: number; costUsd: number; openedAt: number;
+};
+export type PredictionOrder = {
+  marketId: string; eventSlug: string; eventTitle: string; outcomeLabel: string; question: string; image: string | null;
+  side: PredictionSide; sideLabel: string; price: number; amountUsd: number; cultIds?: string[];
+};
+export type PredictionSale = { position: PredictionPosition; price: number; proceedsUsd: number; pnlUsd: number };
+export type PredictionBet = {
+  memberId: string; memberName: string; avatarUrl: string | null; cultName: string;
+  marketId: string; outcomeLabel: string; side: PredictionSide; sideLabel: string; shares: number; avgPrice: number;
+};
 export type WithdrawRequest = { symbol: DepositInfo['tokens'][number]['symbol']; amount: number; to: string };
 export type WithdrawResult = WithdrawRequest & { tx: string };

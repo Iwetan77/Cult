@@ -1,4 +1,5 @@
-import type { Fill, Holding, TradeSide, Venue } from './contracts';
+import type { Fill, Holding, PredictionSale, TradeSide, Venue } from './contracts';
+import { cents } from './polymarket';
 import { dollars, signedDollars } from './format';
 import { logoFor } from './logos';
 
@@ -12,7 +13,21 @@ export type TradeResult = {
   entryPrice: number | null; exitPrice: number | null; sizeUsd: number | null;
   pnlUsd: number | null; roiPct: number | null; closedAt: number;
   traderName: string; traderAvatarUrl: string | null;
+  // Set for a prediction-market sale: prices are 0..1 and shown in cents.
+  prediction?: { title: string; sideLabel: string; yes: boolean; shares: number };
 };
+
+export function resultOfSale(sale: PredictionSale, trader: { name: string; avatarUrl: string | null }): TradeResult {
+  const p = sale.position;
+  const title = p.outcomeLabel === p.question ? p.question : `${p.outcomeLabel} · ${p.eventTitle}`;
+  return {
+    symbol: title, venue: 'nadfun', side: 'buy', leverage: null,
+    entryPrice: p.avgPrice, exitPrice: sale.price, sizeUsd: sale.proceedsUsd,
+    pnlUsd: sale.pnlUsd, roiPct: p.costUsd > 0 ? (sale.pnlUsd / p.costUsd) * 100 : null, closedAt: Date.now(),
+    traderName: trader.name, traderAvatarUrl: trader.avatarUrl,
+    prediction: { title, sideLabel: p.sideLabel, yes: p.side === 'yes', shares: p.shares },
+  };
+}
 
 export function resultOfClose(holding: Holding, fill: Fill | null, trader: { name: string; avatarUrl: string | null }): TradeResult {
   const perp = holding.venue === 'perpl';
@@ -111,14 +126,33 @@ export async function drawPnlCard(r: TradeResult): Promise<Blob> {
 
   // Market.
   const marketY = 330;
-  circleImage(ctx, token, r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), PAD, marketY, 104, body);
-  ctx.fillStyle = TEXT; ctx.font = `500 62px ${body}`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  ctx.fillText(r.symbol, PAD + 132, marketY + 50);
-  const side = r.side === 'buy' ? 'BUY' : `${r.side.toUpperCase()}${r.leverage ? ` ${r.leverage}X` : ''}`;
-  const sideBg = r.side === 'short' ? RED : MINT, sideInk = r.side === 'short' ? '#2a0707' : INK;
-  const chipW = pill(ctx, side, PAD + 132, marketY + 66, { bg: sideBg, color: sideInk, font: `700 24px ${body}` });
+  const pred = r.prediction;
+  circleImage(ctx, pred ? null : token, pred ? (pred.yes ? 'Y' : 'N') : r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), PAD, marketY, 104, body);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  let titleLines = [r.symbol];
+  if (pred) {
+    // The question, wrapped to two lines.
+    ctx.fillStyle = TEXT; ctx.font = `500 46px ${body}`;
+    const maxW = W - PAD * 2 - 132, words = pred.title.split(/\s+/), lines: string[] = [''];
+    for (const word of words) {
+      const next = lines[lines.length - 1] ? `${lines[lines.length - 1]} ${word}` : word;
+      if (ctx.measureText(next).width <= maxW || !lines[lines.length - 1]) lines[lines.length - 1] = next;
+      else if (lines.length < 2) lines.push(word);
+      else { let last = lines[1]!; while (ctx.measureText(`${last}…`).width > maxW && last.length > 1) last = last.slice(0, -1); lines[1] = `${last}…`; break; }
+    }
+    titleLines = lines;
+    lines.forEach((line, i) => ctx.fillText(line, PAD + 132, marketY + 44 + i * 56));
+  } else {
+    ctx.fillStyle = TEXT; ctx.font = `500 62px ${body}`;
+    ctx.fillText(r.symbol, PAD + 132, marketY + 50);
+  }
+  const chipY = marketY + 66 + (titleLines.length - 1) * 56;
+  const side = pred ? pred.sideLabel.toUpperCase() : r.side === 'buy' ? 'BUY' : `${r.side.toUpperCase()}${r.leverage ? ` ${r.leverage}X` : ''}`;
+  const shortSide = pred ? !pred.yes : r.side === 'short';
+  const sideBg = shortSide ? RED : MINT, sideInk = shortSide ? '#2a0707' : INK;
+  const chipW = pill(ctx, side, PAD + 132, chipY, { bg: sideBg, color: sideInk, font: `700 24px ${body}` });
   ctx.fillStyle = DIM; ctx.font = `400 28px ${body}`; ctx.textBaseline = 'middle';
-  ctx.fillText(r.venue === 'perpl' ? 'Perpetual' : 'Meme', PAD + 132 + chipW + 18, marketY + 96);
+  ctx.fillText(pred ? 'Prediction · Polymarket' : r.venue === 'perpl' ? 'Perpetual' : 'Meme', PAD + 132 + chipW + 18, chipY + 30);
 
   // The number.
   const roi = roiText(r);
@@ -143,7 +177,9 @@ export async function drawPnlCard(r: TradeResult): Promise<Blob> {
   roundRect(ctx, PAD, boxY, W - PAD * 2, boxH, 36);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.045)'; ctx.fill();
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 2; ctx.stroke();
-  const cols: [string, string][] = [['ENTRY', priceText(r.entryPrice)], ['EXIT', priceText(r.exitPrice)], [r.venue === 'perpl' ? 'SIZE' : 'VALUE', dollars(r.sizeUsd)]];
+  const cols: [string, string][] = pred
+    ? [['AVG PRICE', r.entryPrice == null ? '—' : cents(r.entryPrice)], ['SOLD AT', r.exitPrice == null ? '—' : cents(r.exitPrice)], ['SHARES', pred.shares.toFixed(0)]]
+    : [['ENTRY', priceText(r.entryPrice)], ['EXIT', priceText(r.exitPrice)], [r.venue === 'perpl' ? 'SIZE' : 'VALUE', dollars(r.sizeUsd)]];
   const colW = (W - PAD * 2) / 3;
   cols.forEach(([label, value], i) => {
     const x = PAD + colW * i + 40;
