@@ -1,16 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronsLeft, ChevronsRight, Link2, LogOut, Plus, Settings } from 'lucide-react';
-import { getMarkets } from '@/lib/api';
-import { cachedList } from '@/lib/marketCache';
-import type { ChatRoom, MarketListing, Me } from '@/lib/contracts';
-import { price, signedPct, timeAgo } from '@/lib/format';
+import type { ChatRoom, Me } from '@/lib/contracts';
+import { timeAgo } from '@/lib/format';
 import { RoomBadge } from './RoomBadge';
-import { TokenLogo } from './TokenLogo';
 
-// The left panel: the main menu, then your cults and rooms (the flow) or a
-// compact watchlist of every market (the terminal). Collapsed, it's a strip
+// The left panel: the main menu, then your cults and open rooms (markets
+// live on the Markets page). Collapsed, it's a strip
 // of icons that opens over the page while hovered; the expand button pins it
 // open again. Settings and Log out sit at the bottom.
 
@@ -18,13 +15,11 @@ export type NavItem = { id: string; label: string; icon: ReactNode; active: bool
 
 type Props = {
   me: Me | null; nav: NavItem[]; collapsed: boolean; onToggle: () => void;
-  activeRoom: string | null; activeMarket: string | null;
-  onRoom: (id: string) => void; onMarket: (id: string) => void;
+  activeRoom: string | null;
+  onRoom: (id: string) => void;
   onCreate: () => void; onJoin: () => void;
   settingsActive: boolean; onSettings: () => void; onSignOut: () => void;
 };
-
-type Filter = 'all' | 'perpl' | 'nadfun';
 
 const preview = (room: ChatRoom) => {
   const last = room.lastMessage;
@@ -32,10 +27,7 @@ const preview = (room: ChatRoom) => {
   return last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`;
 };
 
-export function SideRail({ me, nav, collapsed, onToggle, activeRoom, activeMarket, onRoom, onMarket, onCreate, onJoin, settingsActive, onSettings, onSignOut }: Props) {
-  const [tab, setTab] = useState<'cults' | 'markets'>('cults');
-  const [filter, setFilter] = useState<Filter>('all');
-  const [markets, setMarkets] = useState<MarketListing[]>(() => cachedList('') ?? []);
+export function SideRail({ me, nav, collapsed, onToggle, activeRoom, onRoom, onCreate, onJoin, settingsActive, onSettings, onSignOut }: Props) {
   // Hover-to-peek while collapsed, with a short delay each way so passing
   // the cursor across the strip doesn't flicker it open.
   const [peek, setPeek] = useState(false);
@@ -49,21 +41,12 @@ export function SideRail({ me, nav, collapsed, onToggle, activeRoom, activeMarke
   useEffect(() => () => window.clearTimeout(peekTimer.current), []);
   const pick = (action: () => void) => { action(); setPeek(false); };
 
-  useEffect(() => {
-    if (tab !== 'markets') return;
-    let active = true;
-    const load = () => getMarkets().then(r => { if (active) setMarkets(r.markets); }).catch(() => {});
-    load();
-    const timer = window.setInterval(load, 30_000);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [tab]);
-  const shown = useMemo(() => markets.filter(m => filter === 'all' || m.venue === filter).sort((a, b) => (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0)).slice(0, 60), [markets, filter]);
   const rooms = me?.rooms ?? [];
   const cults = rooms.filter(r => r.kind === 'cult');
   const open = rooms.filter(r => r.kind !== 'cult');
   const mini = collapsed && !peek;
 
-  return <aside className={`rail ${collapsed ? 'rail--collapsed' : ''} ${collapsed && peek ? 'rail--peek' : ''}`} aria-label="Menu, cults and markets"
+  return <aside className={`rail ${collapsed ? 'rail--collapsed' : ''} ${collapsed && peek ? 'rail--peek' : ''}`} aria-label="Menu and cults"
     onMouseEnter={() => hover(true)} onMouseLeave={() => hover(false)}>
     <div className="rail-top">
       {!mini && <span className="rail-label">Menu</span>}
@@ -82,14 +65,7 @@ export function SideRail({ me, nav, collapsed, onToggle, activeRoom, activeMarke
       <div className="rail-mini">{rooms.map(room => <button key={room.id} title={room.name} className={activeRoom === room.id ? 'on' : ''} onClick={() => onRoom(room.id)}><RoomBadge icon={room.icon} kind={room.kind} /></button>)}</div>
       <button className="icon-btn rail-mini-add" title="Create a cult" onClick={onCreate}><Plus size={17} /></button>
     </> : <>
-      <div className="rail-head">
-        <div className="seg seg--sm" role="tablist">
-          <button role="tab" aria-selected={tab === 'cults'} className={tab === 'cults' ? 'on' : ''} onClick={() => setTab('cults')}>Cults</button>
-          <button role="tab" aria-selected={tab === 'markets'} className={tab === 'markets' ? 'on' : ''} onClick={() => setTab('markets')}>Markets</button>
-        </div>
-      </div>
-
-      {tab === 'cults' ? <div className="rail-body">
+      <div className="rail-body">
         <div className="rail-label"><span>Your cults</span><b>{cults.length}</b></div>
         <div className="rail-list">
           {!me ? Array.from({ length: 3 }, (_, i) => <span key={i} className="skel rail-skel" />) : cults.length ? cults.map(room => <RoomItem key={room.id} room={room} active={activeRoom === room.id} onOpen={() => pick(() => onRoom(room.id))} />)
@@ -101,16 +77,7 @@ export function SideRail({ me, nav, collapsed, onToggle, activeRoom, activeMarke
         </div>
         <div className="rail-label"><span>Open rooms</span></div>
         <div className="rail-list">{open.map(room => <RoomItem key={room.id} room={room} active={activeRoom === room.id} onOpen={() => pick(() => onRoom(room.id))} />)}</div>
-      </div> : <div className="rail-body">
-        <div className="chips">{([['all', 'All'], ['perpl', 'Perps'], ['nadfun', 'Memes']] as const).map(([id, label]) => <button key={id} className={filter === id ? 'on' : ''} onClick={() => setFilter(id)}>{label}</button>)}</div>
-        <div className="rail-list rail-markets">
-          {shown.length ? shown.map(m => <button key={`${m.venue}:${m.id}`} className={`rail-market ${activeMarket?.toLowerCase() === m.id.toLowerCase() ? 'on' : ''}`} onClick={() => pick(() => onMarket(m.id))}>
-            <TokenLogo symbol={m.symbol} imageUri={m.imageUri} />
-            <span className="rail-market-name"><strong>{m.symbol.replace(/-PERP$/, '')}</strong><small>{m.venue === 'perpl' ? `${Math.floor(m.maxLeverage)}x` : 'Meme'}</small></span>
-            <span className="rail-market-price"><strong className="num">{price(m.priceUsd)}</strong><small className={(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}>{signedPct(m.change24hPct)}</small></span>
-          </button>) : Array.from({ length: 8 }, (_, i) => <span key={i} className="skel rail-skel" />)}
-        </div>
-      </div>}
+      </div>
     </>}
 
     <div className="rail-nav rail-foot">

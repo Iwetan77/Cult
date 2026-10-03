@@ -194,7 +194,6 @@
 
 /* ---------- left rail ---------- */
 .rail { grid-area: rail; display: flex; flex-direction: column; min-height: 0; background: var(--s1); border-right: 1px solid var(--line); }
-.rail-head { display: flex; align-items: center; gap: 8px; padding: 14px 14px 8px 16px; }
 .rail-top { display: flex; align-items: center; justify-content: space-between; min-height: 50px; padding: 12px 12px 2px 18px; }
 .rail-top .rail-label { padding: 0; }
 .rail-toggle { box-shadow: inset 0 0 0 1px var(--line); }
@@ -206,8 +205,6 @@
 .rail-nav button.on svg { color: var(--mint); opacity: 1; }
 .rail-nav button.on::before { content: ''; position: absolute; left: -10px; top: 12px; bottom: 12px; width: 3px; border-radius: 0 3px 3px 0; background: var(--mint); box-shadow: 0 0 10px rgba(99, 240, 214, 0.7); }
 .rail-divider { flex: none; height: 1px; margin: 0 16px; background: var(--line); }
-.rail-head .seg { flex: 1; }
-.rail-head .seg button { flex: 1; }
 .rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 12px; }
 .rail-label { display: flex; align-items: center; justify-content: space-between; padding: 14px 8px 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
 .rail-label b { font-weight: 500; color: var(--muted); }
@@ -223,17 +220,6 @@
 .rail-empty { display: flex; flex-direction: column; gap: 4px; padding: 14px 10px; border-radius: 14px; background: rgba(255, 255, 255, 0.025); font-size: 12.5px; color: var(--muted); }
 .rail-empty strong { color: var(--text); font-weight: 500; font-size: 13.5px; }
 .rail-actions { display: flex; flex-direction: column; gap: 8px; padding: 12px 6px 6px; }
-.rail-body > .chips { padding: 8px 6px 12px; }
-.rail-market { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 8px; border: 0; border-radius: 14px; background: none; text-align: left; }
-.rail-market:hover { background: rgba(255, 255, 255, 0.04); }
-.rail-market.on { background: var(--s3); box-shadow: inset 0 0 0 1px var(--line2); }
-.rail-market .token-logo { width: 30px; height: 30px; }
-.rail-market-name, .rail-market-price { display: flex; flex-direction: column; gap: 2px; }
-.rail-market-name { flex: 1; min-width: 0; }
-.rail-market-name strong, .rail-market-price strong { font-size: 13.5px; font-weight: 500; }
-.rail-market-name small { font-size: 11.5px; color: var(--dim); }
-.rail-market-price { align-items: flex-end; }
-.rail-market-price small { font-size: 11.5px; }
 /* collapsed: an icon strip; hovering opens the full panel over the page */
 .rail--collapsed:not(.rail--peek) { align-items: center; padding-bottom: 12px; }
 .rail--collapsed:not(.rail--peek) .rail-top { justify-content: center; padding: 12px 0 2px; }

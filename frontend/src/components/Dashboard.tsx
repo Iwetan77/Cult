@@ -23,7 +23,7 @@ import { HomeView, RoomRow } from './HomeView';
 import { AccountView, type AccountTab } from './AccountView';
 import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
-import { MarketsView } from './MarketsView';
+import { MarketsView, showMarketsTab } from './MarketsView';
 import { MarketPage, type MarketSocial } from './MarketPage';
 import { type TicketMarket } from './TradeTicket';
 import { RoomBadge } from './RoomBadge';
@@ -823,8 +823,8 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
       </div>
     </header>
 
-    <SideRail me={me} nav={nav} collapsed={collapsed} onToggle={toggleRail} activeRoom={view === 'chat' ? roomId : null} activeMarket={view === 'markets' ? marketPage : null}
-      onRoom={openRoom} onMarket={id => openMarket(id)} onCreate={() => setFormOpen('create')} onJoin={() => setFormOpen('join')}
+    <SideRail me={me} nav={nav} collapsed={collapsed} onToggle={toggleRail} activeRoom={view === 'chat' ? roomId : null}
+      onRoom={openRoom} onCreate={() => setFormOpen('create')} onJoin={() => setFormOpen('join')}
       settingsActive={view === 'account' && profileId === 'me' && accountTab === 'settings'} onSettings={() => openAccount('me', 'settings')} onSignOut={signOut} />
     {railOpenMobile && <button className="rail-scrim" aria-label="Close panel" onClick={() => setRailOpenMobile(false)} />}
 
@@ -842,7 +842,7 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
           <section className="view-main room-main">
             <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => go('groups')}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm" onClick={() => setGroupPanelOpen(true)}><PanelRightOpen size={14} /> {activeRoom?.kind === 'cult' ? 'Positions' : 'Rankings'}</button></div>
             {activeRoom ? <ClanChat key={activeRoom.id} room={activeRoom} liveMessage={activeRoom.kind === 'cult' ? liveMessage : null} selectedMarker={activeRoom.kind === 'cult' ? selected : null} onOpenMarker={openLinkedMarker} onMember={openAccount} onActivity={loadMeSoon} onInvite={activeRoom.kind === 'cult' ? copyInvite : undefined} canPin={!!clan?.isOwner && activeRoom.kind === 'cult'} meId={me.id} markers={activeRoom.kind === 'cult' ? snapshot?.markers : undefined}
-              onTrade={activeRoom.kind === 'cult' ? () => { setMarketSolo(false); openMarket(market?.id ?? snapshot?.markets[0]?.id ?? null); } : () => openMarket(null)} />
+              onTrade={() => { if (activeRoom.kind === 'cult') setMarketSolo(false); showMarketsTab('perpl'); openMarket(null); }} />
               : <div className="empty"><strong>This room is unavailable.</strong><span>Refresh your account or choose a country in Account.</span></div>}
           </section>
           {activeRoom && <div className={`view-side room-side ${groupPanelOpen ? 'open' : ''}`}>

@@ -15,6 +15,8 @@ import { PredictionsBrowse, type PredictionPick } from './PredictionsBrowse';
 type Tab = 'all' | 'perpl' | 'nadfun' | 'predictions';
 // Coming back from a market lands on the tab you left.
 let lastTab: Tab = 'all';
+// Open Markets on a given tab (e.g. Trade from a cult chat lands on Perps).
+export const showMarketsTab = (tab: Tab) => { lastTab = tab; };
 const TABS: { id: Tab; label: string; title: string }[] = [
   { id: 'all', label: 'All', title: 'Every market' },
   { id: 'perpl', label: 'Perps', title: 'Trade perps' },
