@@ -8,6 +8,7 @@ import type { BoardPeriod, CultStanding, DiscoverCult, Leaderboard, LeaderboardE
 import { dollars, percent, signedDollars } from '@/lib/format';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
+import { PerfBars, type PerfBar } from './PerfBars';
 
 // What you see before joining a public cult: who's in it and how they've
 // done, from the cult's own leaderboard (the sum of its members' verified,
@@ -26,34 +27,19 @@ const totals = (board: Leaderboard | undefined) => {
   return { pnl: board.entries.reduce((sum, e) => sum + e.realizedPnlUsd, 0), trades, winRate: trades > 0 ? wins / trades : null };
 };
 
-// Cumulative PnL at the points the periods give us (start, 30d ago, 7d ago,
-// now), so the line is coarse but real.
-type Point = { x: number; v: number; label: string; minor?: boolean };
-function curvePoints(period: BoardPeriod, all: number, d30: number, d7: number): Point[] {
-  if (period === '7d') return [{ x: 0, v: 0, label: '7d ago' }, { x: 1, v: d7, label: 'Now' }];
-  if (period === '30d') return [{ x: 0, v: 0, label: '30d ago' }, { x: 23 / 30, v: d30 - d7, label: '7d ago' }, { x: 1, v: d30, label: 'Now' }];
-  return [{ x: 0, v: 0, label: 'Start' }, { x: 0.6, v: all - d30, label: '30d ago' }, { x: 0.88, v: all - d7, label: '7d ago', minor: true }, { x: 1, v: all, label: 'Now' }];
-}
-
-function Curve({ points, up }: { points: Point[]; up: boolean }) {
-  const w = 600, h = 150, pad = 6;
-  const vs = points.map(p => p.v);
-  const min = Math.min(0, ...vs), max = Math.max(0, ...vs);
-  const x = (t: number) => pad + t * (w - pad * 2);
-  const y = (v: number) => pad + (1 - (v - min) / Math.max(1e-9, max - min)) * (h - pad * 2);
-  // Flat tangents at each point: smooth S-bends with no overshoot.
-  const line = points.map((p, i) => {
-    if (i === 0) return `M${x(p.x).toFixed(1)},${y(p.v).toFixed(1)}`;
-    const prev = points[i - 1]!;
-    const mid = (x(prev.x) + x(p.x)) / 2;
-    return `C${mid.toFixed(1)},${y(prev.v).toFixed(1)} ${mid.toFixed(1)},${y(p.v).toFixed(1)} ${x(p.x).toFixed(1)},${y(p.v).toFixed(1)}`;
-  }).join(' ');
-  return <svg className={`cpv-curve ${up ? 'is-up' : 'is-down'}`} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
-    <defs><linearGradient id="cpv-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="currentColor" stopOpacity=".26" /><stop offset="1" stopColor="currentColor" stopOpacity="0" /></linearGradient></defs>
-    <line x1={pad} x2={w - pad} y1={y(0)} y2={y(0)} className="cpv-zero" />
-    <path d={`${line} L${x(1)},${h} L${x(0)},${h} Z`} fill="url(#cpv-fill)" />
-    <path d={line} className="cpv-line" />
-  </svg>;
+// The cult's record split into the slices its leaderboard periods give us:
+// before the last 30 days, 30 to 8 days ago, and the last 7 days. Coarse,
+// but real. The chosen period lights its slices.
+type Totals = NonNullable<ReturnType<typeof totals>>;
+function slices(all: Totals, d30: Totals, d7: Totals, createdAt: string): PerfBar[] {
+  const bars: PerfBar[] = [];
+  const older = all.trades - d30.trades;
+  // A cult younger than 30 days has no "earlier" slice.
+  if (older > 0 || Date.parse(createdAt) < Date.now() - 30 * 86_400_000) bars.push({ key: 'earlier', label: 'Earlier', title: 'Before the last 30 days', value: all.pnl - d30.pnl, total: all.pnl - d30.pnl, note: `${older} ${older === 1 ? 'trade' : 'trades'}` });
+  const mid = d30.trades - d7.trades;
+  bars.push({ key: 'mid', label: '30–8d', title: '8 to 30 days ago', value: d30.pnl - d7.pnl, total: all.pnl - d7.pnl, note: `${mid} ${mid === 1 ? 'trade' : 'trades'}` });
+  bars.push({ key: 'week', label: 'Last 7d', title: 'Last 7 days', value: d7.pnl, total: all.pnl, note: `${d7.trades} ${d7.trades === 1 ? 'trade' : 'trades'}` });
+  return bars;
 }
 
 function Faces({ entries }: { entries: LeaderboardEntry[] }) {
@@ -83,10 +69,12 @@ export function CultPreview({ cult, standing, busy, onJoin, onClose, onProfile }
 
   const loaded = !!boards.all && !!boards['30d'] && !!boards['7d'];
   const shown = totals(boards[period]);
-  const points = useMemo(() => {
+  const bars = useMemo(() => {
     const all = totals(boards.all), d30 = totals(boards['30d']), d7 = totals(boards['7d']);
-    return all && d30 && d7 ? curvePoints(period, all.pnl, d30.pnl, d7.pnl) : null;
-  }, [boards, period]);
+    return all && d30 && d7 ? slices(all, d30, d7, cult.createdAt) : null;
+  }, [boards, cult.createdAt]);
+  // 7D lights the last slice, 30D the last two, All every one.
+  const litFrom = bars ? (period === '7d' ? bars.length - 1 : period === '30d' ? bars.length - 2 : 0) : 0;
   const people = boards.all?.entries ?? [];
   const top = boards[period]?.entries.filter(e => e.tradeCount > 0).slice(0, 3) ?? [];
   const since = new Date(cult.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -120,10 +108,9 @@ export function CultPreview({ cult, standing, busy, onJoin, onClose, onProfile }
         <div className="cpv-card-head"><h3>Performance</h3>
           <div className="seg seg--sm" role="tablist">{PERIODS.map(p => <button key={p.id} role="tab" aria-selected={period === p.id} className={period === p.id ? 'on' : ''} onClick={() => setPeriod(p.id)}>{p.label}</button>)}</div>
         </div>
-        {error ? <p className="notice-line">{error}</p> : !loaded || !shown || !points ? <><span className="skel cpv-skel-num" /><span className="skel cpv-skel-chart" /></> : <>
+        {error ? <p className="notice-line">{error}</p> : !loaded || !shown || !bars ? <><span className="skel cpv-skel-num" /><span className="skel cpv-skel-chart" /></> : <>
           <p className="cpv-pnl"><strong className={`num ${up ? 'up' : 'down'}`}>{signedDollars(shown.pnl)}</strong> <span>{periodNote} · {shown.trades} {shown.trades === 1 ? 'trade' : 'trades'} · {shown.winRate == null ? '—' : percent(shown.winRate * 100)} wins</span></p>
-          <Curve points={points} up={up} />
-          <div className="cpv-ticks">{points.map(p => <span key={p.label} className={p.minor ? 'minor' : undefined} style={{ left: `${p.x * 100}%` }}>{p.label}</span>)}</div>
+          <PerfBars bars={bars} lit={i => i >= litFrom} />
         </>}
       </section>
 

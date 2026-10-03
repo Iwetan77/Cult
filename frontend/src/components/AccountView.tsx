@@ -12,6 +12,7 @@ import { CountryPicker } from './CountryPicker';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
 import { TokenLogo } from './TokenLogo';
+import { PerfBars, type PerfBar } from './PerfBars';
 import type { TradeSheetTarget } from './TradeSheet';
 
 const predictionTitle = (p: PredictionPosition) => p.outcomeLabel === p.question ? p.question : `${p.outcomeLabel} · ${p.eventTitle}`;
@@ -26,22 +27,39 @@ type Props = {
 
 export type AccountTab = 'open' | 'closed' | 'settings';
 
-// Cumulative realized PnL across closed trades, as a soft area line.
-function PnlCurve({ points }: { points: { t: number; v: number }[] }) {
-  if (points.length < 2) return <div className="curve-empty">Close a few trades to draw your curve.</div>;
-  const w = 600, h = 160, pad = 8;
-  const ts = points.map(p => p.t), vs = points.map(p => p.v);
-  const minT = Math.min(...ts), maxT = Math.max(...ts), minV = Math.min(0, ...vs), maxV = Math.max(0, ...vs);
-  const x = (t: number) => pad + ((t - minT) / Math.max(1, maxT - minT)) * (w - pad * 2);
-  const y = (v: number) => pad + (1 - (v - minV) / Math.max(1e-9, maxV - minV)) * (h - pad * 2);
-  const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
-  const up = vs.at(-1)! >= 0;
-  return <svg className={`curve ${up ? 'is-up' : 'is-down'}`} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
-    <defs><linearGradient id="curve-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="currentColor" stopOpacity=".28" /><stop offset="1" stopColor="currentColor" stopOpacity="0" /></linearGradient></defs>
-    <line x1={pad} x2={w - pad} y1={y(0)} y2={y(0)} className="curve-zero" />
-    <path d={`${line} L${x(maxT)},${h} L${x(minT)},${h} Z`} fill="url(#curve-fill)" />
-    <path d={line} className="curve-line" />
-  </svg>;
+// Realized PnL per day, week or month (whichever gives a readable run of
+// bars for how long you've traded), with the running total behind each.
+const DAY = 86_400_000;
+function performanceBars(trades: ClosedTrade[], now: number): PerfBar[] {
+  if (!trades.length) return [];
+  const sorted = [...trades].sort((a, b) => a.closedAt - b.closedAt);
+  const days = (now - sorted[0]!.closedAt) / DAY;
+  const unit = days <= 10 ? 'day' : days <= 70 ? 'week' : 'month';
+  const startOf = (t: number) => {
+    const d = new Date(t); d.setHours(0, 0, 0, 0);
+    if (unit === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    if (unit === 'month') d.setDate(1);
+    return d.getTime();
+  };
+  const next = (t: number) => { const d = new Date(t); if (unit === 'day') d.setDate(d.getDate() + 1); else if (unit === 'week') d.setDate(d.getDate() + 7); else d.setMonth(d.getMonth() + 1); return d.getTime(); };
+  const starts: number[] = [];
+  for (let t = startOf(sorted[0]!.closedAt); t <= now; t = next(t)) starts.push(t);
+  // At least six bars so a new account still reads as a chart; at most eight.
+  while (starts.length < 6) { const d = new Date(starts[0]!); if (unit === 'day') d.setDate(d.getDate() - 1); else if (unit === 'week') d.setDate(d.getDate() - 7); else d.setMonth(d.getMonth() - 1); starts.unshift(d.getTime()); }
+  let total = 0, i = 0;
+  const bars = starts.map((start, index) => {
+    const end = next(start);
+    let value = 0, count = 0, wins = 0;
+    for (; i < sorted.length && sorted[i]!.closedAt < end; i++) { value += sorted[i]!.pnlUsd ?? 0; count++; if (sorted[i]!.isWin) wins++; }
+    total += value;
+    const d = new Date(start);
+    const label = unit === 'month' ? d.toLocaleDateString('en-US', { month: 'short' }) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const title = unit === 'month' ? d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : unit === 'week' ? `Week of ${label}` : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    // Phones: just the day, with the month where it starts or changes.
+    const short = unit === 'month' || index === 0 || d.getDate() <= 7 && (unit === 'week' || d.getDate() === 1) ? label : String(d.getDate());
+    return { key: String(start), label, short, title, value, total, note: count ? `${count} ${count === 1 ? 'trade' : 'trades'} · ${Math.round((wins / count) * 100)}% wins` : 'No closed trades' };
+  });
+  return bars.slice(-8);
 }
 
 export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, signOutLabel = 'Sign out' }: Props) {
@@ -105,12 +123,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
     if (top < 0 || top > window.innerHeight * 0.5) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [tab, loaded]);
 
-  const curve = useMemo(() => {
-    if (!profile) return [];
-    let sum = 0;
-    const sorted = [...profile.closedTrades].sort((a, b) => a.closedAt - b.closedAt);
-    return [{ t: (sorted[0]?.openedAt ?? sorted[0]?.closedAt ?? 0) - 3_600_000, v: 0 }, ...sorted.map(trade => ({ t: trade.closedAt, v: (sum += trade.pnlUsd ?? 0) }))];
-  }, [profile]);
+  const bars = useMemo(() => profile ? performanceBars(profile.closedTrades, Date.now()) : [], [profile]);
 
   const changePhoto = async (file: File) => {
     setPhotoBusy(true); setError(null);
@@ -187,7 +200,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
 
       <section className="card">
         <div className="card-head"><h2>Performance</h2><span className="count">Realized, closed trades</span></div>
-        <PnlCurve points={curve} />
+        {bars.length ? <PerfBars bars={bars} /> : <div className="curve-empty">Close a few trades to see your performance.</div>}
       </section>
 
       <section className="card" ref={tabsCard}>
