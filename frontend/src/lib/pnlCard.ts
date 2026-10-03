@@ -77,8 +77,8 @@ const W = 1080, H = 1350, PAD = 64;
 const WIN = { x: PAD, y: 196, w: W - PAD * 2, h: 660, r: 34 };
 const MINT = '#63f0d6', RED = '#ff6b6b', INK = '#071b17', TEXT = '#f4f6f8', DIM = 'rgba(244, 246, 248, 0.55)', BG = '#070808';
 
-// What fills the window: a GIF frame (or any image), with an optional credit.
-export type CardArt = { source: CanvasImageSource; width: number; height: number; credit?: string } | null;
+// What fills the window: a GIF frame (or any image).
+export type CardArt = { source: CanvasImageSource; width: number; height: number } | null;
 // window: the GIF window in output pixels (with a margin for its rim).
 export type CardRenderer = { width: number; height: number; window: { x: number; y: number; w: number; h: number }; draw: (ctx: CanvasRenderingContext2D, art: CardArt) => void };
 
@@ -142,11 +142,11 @@ function circleImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null
   ctx.restore();
 }
 
-// Fill the window, cropping at most ~18% so captions on square GIFs survive;
-// anything left over stays the window's dark background.
+// Fill the window edge to edge, then zoom in a little more so channel
+// logos and watermarks burnt into a GIF's corners fall outside it.
+const ZOOM = 1.16;
 function drawCover(ctx: CanvasRenderingContext2D, art: NonNullable<CardArt>) {
-  const cover = Math.max(WIN.w / art.width, WIN.h / art.height), contain = Math.min(WIN.w / art.width, WIN.h / art.height);
-  const s = Math.min(cover, contain * 1.18);
+  const s = Math.max(WIN.w / art.width, WIN.h / art.height) * ZOOM;
   const w = art.width * s, h = art.height * s;
   ctx.drawImage(art.source, WIN.x + (WIN.w - w) / 2, WIN.y + (WIN.h - h) / 2, w, h);
 }
@@ -302,11 +302,6 @@ export async function prepareCard(r: TradeResult, scale = 1): Promise<CardRender
       // Side chip and token over the window's top corners.
       pill(out, chip, WIN.x + 24, WIN.y + 24, { bg: shortSide ? RED : MINT, color: shortSide ? '#2a0707' : INK, font: `700 24px ${body}` });
       if (!pred && art) circleImage(out, token, r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), WIN.x + WIN.w - 24 - 64, WIN.y + 24, 64, body);
-      if (art?.credit) {
-        out.textAlign = 'right'; out.textBaseline = 'alphabetic';
-        out.font = `500 20px ${body}`; out.fillStyle = 'rgba(244, 246, 248, 0.7)';
-        out.fillText(art.credit, WIN.x + WIN.w - 22, WIN.y + WIN.h - 20);
-      }
       out.setTransform(1, 0, 0, 1, 0, 0);
     },
   };
@@ -352,13 +347,13 @@ function paletteMapper(palette: number[][]) {
 // the still parts don't shimmer; after the first full frame only the window
 // is written (the rest of the card never changes), which keeps the file
 // small and the encode quick.
-export async function encodePnlGif(r: TradeResult, gif: { width: number; height: number; frames: { image: CanvasImageSource; delay: number }[] }, credit: string, onProgress?: (done: number) => void): Promise<Blob> {
+export async function encodePnlGif(r: TradeResult, gif: { width: number; height: number; frames: { image: CanvasImageSource; delay: number }[] }, onProgress?: (done: number) => void): Promise<Blob> {
   const { GIFEncoder, quantize } = await import('gifenc');
   const card = await prepareCard(r, 0.5);
   const canvas = document.createElement('canvas');
   canvas.width = card.width; canvas.height = card.height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  const art = (i: number): CardArt => ({ source: gif.frames[i]!.image, width: gif.width, height: gif.height, credit });
+  const art = (i: number): CardArt => ({ source: gif.frames[i]!.image, width: gif.width, height: gif.height });
   const win = card.window;
   const read = (i: number, full: boolean) => { card.draw(ctx, art(i)); return full ? ctx.getImageData(0, 0, card.width, card.height).data : ctx.getImageData(win.x, win.y, win.w, win.h).data; };
 

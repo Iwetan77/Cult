@@ -53,7 +53,10 @@ export async function pickGif(mood: GifMood, skip: string[] = []): Promise<GifPi
     if (!response?.ok) continue;
     const body = await response.json().catch(() => null) as { data?: GiphyGif[] } | null;
     const picks = (body?.data ?? []).map(rendition).filter((p): p is GifPick => !!p);
-    const fresh = picks.filter(p => !avoid.has(p.id));
+    // Wide GIFs suit the card's wide window: the zoom that crops corner logos
+    // then only trims a thin strip, so bottom captions stay in view.
+    const wide = picks.filter(p => p.width / p.height >= 1.25);
+    const fresh = (wide.length ? wide : picks).filter(p => !avoid.has(p.id));
     const pool = fresh.length ? fresh : picks.filter(p => !skip.includes(p.id));
     if (!pool.length) continue;
     const pick = pool[Math.floor(Math.random() * pool.length)]!;
