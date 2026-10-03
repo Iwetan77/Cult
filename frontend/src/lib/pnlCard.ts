@@ -1,4 +1,4 @@
-import type { Fill, Holding, PredictionSale, TradeSide, Venue } from './contracts';
+import type { ChartMarker, Fill, Holding, PredictionSale, TradeSide, Venue } from './contracts';
 import { cents } from './polymarket';
 import { dollars, signedDollars } from './format';
 import { logoFor } from './logos';
@@ -15,6 +15,8 @@ export type TradeResult = {
   traderName: string; traderAvatarUrl: string | null;
   // Set for a prediction-market sale: prices are 0..1 and shown in cents.
   prediction?: { title: string; sideLabel: string; yes: boolean; shares: number };
+  // A position still open, shared as it stands: exit is the mark price.
+  live?: boolean;
 };
 
 export function resultOfSale(sale: PredictionSale, trader: { name: string; avatarUrl: string | null }): TradeResult {
@@ -29,6 +31,8 @@ export function resultOfSale(sale: PredictionSale, trader: { name: string; avata
   };
 }
 
+// With no fill, the position is priced at its mark: a close preview, or a
+// live card for a position you keep open.
 export function resultOfClose(holding: Holding, fill: Fill | null, trader: { name: string; avatarUrl: string | null }): TradeResult {
   const perp = holding.venue === 'perpl';
   const entry = holding.entryPriceAusd;
@@ -47,7 +51,21 @@ export function resultOfClose(holding: Holding, fill: Fill | null, trader: { nam
   };
 }
 
-export const roiText = (r: TradeResult) => r.roiPct == null ? null : `${r.roiPct > 0 ? '+' : ''}${r.roiPct.toFixed(1)}%`;
+// Your open position as the chart shows it, when your holdings haven't caught up yet.
+export function resultOfMarker(m: ChartMarker, symbol: string, trader: { name: string; avatarUrl: string | null }): TradeResult {
+  const perp = m.venue === 'perpl';
+  const leverage = perp ? Math.max(1, m.leverage || 1) : 1;
+  const cost = m.entryPrice != null && m.size ? (m.entryPrice * m.size) / leverage : null;
+  const pnl = perp ? m.pnlUsd : null;
+  return {
+    symbol, venue: m.venue, side: m.side, leverage: perp ? leverage : null,
+    entryPrice: m.entryPrice, exitPrice: m.markPrice, sizeUsd: m.valueUsd ?? (m.size != null ? m.size * m.markPrice : null),
+    pnlUsd: pnl, roiPct: pnl != null && cost ? (pnl / cost) * 100 : null, closedAt: Date.now(),
+    traderName: trader.name, traderAvatarUrl: trader.avatarUrl, live: true,
+  };
+}
+
+export const roiText =(r: TradeResult) => r.roiPct == null ? null : `${r.roiPct > 0 ? '+' : ''}${r.roiPct.toFixed(1)}%`;
 const priceText = (v: number | null) => v == null ? '—' : dollars(v, v < 1 ? 6 : 2);
 
 const W = 1080, H = 1350, PAD = 84;
@@ -122,7 +140,7 @@ export async function drawPnlCard(r: TradeResult): Promise<Blob> {
   // Top: logo, "Closed trade".
   if (logo) ctx.drawImage(logo, PAD, 96, 150, 150 * (logo.height / logo.width || 30 / 58));
   else { ctx.fillStyle = TEXT; ctx.font = `400 64px ${display}`; ctx.textBaseline = 'top'; ctx.fillText('CULT', PAD, 96); }
-  pill(ctx, 'CLOSED TRADE', W - PAD, 100, { bg: 'rgba(7, 8, 8, 0.55)', color: TEXT, stroke: 'rgba(255, 255, 255, 0.22)', font: `700 24px ${body}`, align: 'right' });
+  pill(ctx, r.live ? 'OPEN POSITION' : 'CLOSED TRADE', W - PAD, 100, { bg: 'rgba(7, 8, 8, 0.55)', color: TEXT, stroke: 'rgba(255, 255, 255, 0.22)', font: `700 24px ${body}`, align: 'right' });
 
   // Market.
   const marketY = 330;
@@ -179,7 +197,7 @@ export async function drawPnlCard(r: TradeResult): Promise<Blob> {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 2; ctx.stroke();
   const cols: [string, string][] = pred
     ? [['AVG PRICE', r.entryPrice == null ? '—' : cents(r.entryPrice)], ['SOLD AT', r.exitPrice == null ? '—' : cents(r.exitPrice)], ['SHARES', pred.shares.toFixed(0)]]
-    : [['ENTRY', priceText(r.entryPrice)], ['EXIT', priceText(r.exitPrice)], [r.venue === 'perpl' ? 'SIZE' : 'VALUE', dollars(r.sizeUsd)]];
+    : [['ENTRY', priceText(r.entryPrice)], [r.live ? 'MARK' : 'EXIT', priceText(r.exitPrice)], [r.venue === 'perpl' ? 'SIZE' : 'VALUE', dollars(r.sizeUsd)]];
   const colW = (W - PAD * 2) / 3;
   cols.forEach(([label, value], i) => {
     const x = PAD + colW * i + 40;
@@ -198,7 +216,7 @@ export async function drawPnlCard(r: TradeResult): Promise<Blob> {
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = TEXT; ctx.font = `500 40px ${body}`; ctx.fillText(r.traderName, PAD + 124, footY + 44);
   ctx.fillStyle = DIM; ctx.font = `400 28px ${body}`;
-  ctx.fillText(`Closed ${new Date(r.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`, PAD + 124, footY + 86);
+  ctx.fillText(`${r.live ? 'As of' : 'Closed'} ${new Date(r.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`, PAD + 124, footY + 86);
   ctx.textAlign = 'right'; ctx.fillStyle = MINT; ctx.font = `400 40px ${display}`;
   ctx.fillText('TRADE WITH', W - PAD, footY + 44);
   ctx.fillStyle = TEXT; ctx.fillText('YOUR CULT', W - PAD, footY + 88);
