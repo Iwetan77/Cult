@@ -89,7 +89,7 @@ export function CultPreview({ cult, standing, busy, onJoin, onClose, onProfile }
   }, [boards, period]);
   const people = boards.all?.entries ?? [];
   const top = boards[period]?.entries.filter(e => e.tradeCount > 0).slice(0, 3) ?? [];
-  const since = new Date(cult.createdAt).toLocaleDateString([], { month: 'short', year: 'numeric' });
+  const since = new Date(cult.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   const up = (shown?.pnl ?? 0) >= 0;
 
   const allTime = totals(boards.all);
@@ -104,9 +104,8 @@ export function CultPreview({ cult, standing, busy, onJoin, onClose, onProfile }
         <div className="cpv-hero-id">
           <span className="cpv-badge"><RoomBadge icon={cult.name[0]!.toUpperCase()} kind="cult" size="lg" /></span>
           <div className="cpv-hero-copy">
-            <span className="eyebrow">Public cult · since {since}</span>
-            <h2>{cult.name}</h2>
-            <span className="cpv-meta">{people.length > 0 && <Faces entries={people} />}{traders}</span>
+            <div className="cpv-name"><h2>{cult.name}</h2><span className="cpv-free">Free</span></div>
+            <span className="cpv-meta">{people.length > 0 && <Faces entries={people} />}<span className="cpv-meta-text"><span>{traders}</span><span className="cpv-meta-public"><i>·</i>Public</span><span><i>·</i>Since {since}</span></span></span>
           </div>
         </div>
       </header>
@@ -140,15 +139,15 @@ export function CultPreview({ cult, standing, busy, onJoin, onClose, onProfile }
 
       <section className="cpv-section">
         <div className="cpv-card-head"><h3><Lock size={14} /> Unlocks when you join</h3></div>
-        <ul className="cpv-perks">
-          <li><MessageCircle size={17} /><span><strong>Cult chat</strong><small>Talk trades with every member</small></span></li>
-          <li><CandlestickChart size={17} /><span><strong>Their positions on your chart</strong><small>Live entries, exits and PnL</small></span></li>
-          <li><Repeat2 size={17} /><span><strong>Auto-follow, if you want it</strong><small>Off until you set your own limits</small></span></li>
-        </ul>
+        <div className="cpv-perks">
+          <div><span className="cpv-perk-icon"><MessageCircle size={17} /></span><strong>Cult chat</strong><small>Talk trades with every member</small></div>
+          <div><span className="cpv-perk-icon"><CandlestickChart size={17} /></span><strong>Live positions</strong><small>Members&rsquo; trades on your chart, with PnL</small></div>
+          <div><span className="cpv-perk-icon"><Repeat2 size={17} /></span><strong>Auto-follow</strong><small>Optional, off until you set limits</small></div>
+        </div>
       </section>
 
       <footer className="cpv-foot">
-        <span className="cpv-foot-copy">{people.length > 0 && <Faces entries={people} />}<span className="cpv-foot-text"><strong>{traders} already in</strong><small>Free to join · you keep your own wallet</small></span></span>
+        <span className="cpv-foot-copy">{people.length > 0 && <Faces entries={people} />}<span className="cpv-foot-text"><strong>{traders} already in</strong><small>You keep your own wallet</small></span></span>
         <button className="btn btn-primary" disabled={busy} onClick={onJoin}>{busy ? 'Joining…' : 'Join cult'}</button>
       </footer>
     </section>
