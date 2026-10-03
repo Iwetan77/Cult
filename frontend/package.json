@@ -11,6 +11,8 @@
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",
     "@privy-io/react-auth": "^3.45.0",
+    "gifenc": "^1.0.3",
+    "gifuct-js": "^2.1.2",
     "lightweight-charts": "^5.0.0",
     "lucide-react": "latest",
     "next": "^15.5.0",

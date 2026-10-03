@@ -2,11 +2,14 @@ import type { ChartMarker, Fill, Holding, PredictionSale, TradeSide, Venue } fro
 import { cents } from './polymarket';
 import { dollars, signedDollars } from './format';
 import { logoFor } from './logos';
+import { yieldToPage } from './gifFrames';
 
-// The PnL card shown after you close a trade, drawn on a canvas so it can be
-// saved or shared as an image. Built in the app from the position as it was
-// just before closing and the closing fill (the public share links only
-// cover open positions).
+// The PnL card: a trading card for one trade, drawn on a canvas so it can be
+// saved or shared. Laid out like a collectible: a strip with leverage and a
+// power bar, a big window (a reaction GIF from GIPHY when there is one), then
+// the market, the return, and entry / exit / size beside the trader. Built in
+// the app from the position just before closing and the closing fill (the
+// public share links only cover open positions).
 
 export type TradeResult = {
   symbol: string; venue: Venue; side: TradeSide; leverage: number | null;
@@ -65,11 +68,19 @@ export function resultOfMarker(m: ChartMarker, symbol: string, trader: { name: s
   };
 }
 
-export const roiText =(r: TradeResult) => r.roiPct == null ? null : `${r.roiPct > 0 ? '+' : ''}${r.roiPct.toFixed(1)}%`;
+
+export const roiText = (r: TradeResult) => r.roiPct == null ? null : `${r.roiPct > 0 ? '+' : ''}${r.roiPct.toFixed(1)}%`;
 const priceText = (v: number | null) => v == null ? '—' : dollars(v, v < 1 ? 6 : 2);
 
-const W = 1080, H = 1350, PAD = 84;
-const MINT = '#63f0d6', RED = '#ff6b6b', INK = '#071b17', TEXT = '#f4f6f8', DIM = 'rgba(244, 246, 248, 0.55)';
+// Designed at 1080×1350 (4:5); drawn at any scale.
+const W = 1080, H = 1350, PAD = 64;
+const WIN = { x: PAD, y: 196, w: W - PAD * 2, h: 660, r: 34 };
+const MINT = '#63f0d6', RED = '#ff6b6b', INK = '#071b17', TEXT = '#f4f6f8', DIM = 'rgba(244, 246, 248, 0.55)', BG = '#070808';
+
+// What fills the window: a GIF frame (or any image), with an optional credit.
+export type CardArt = { source: CanvasImageSource; width: number; height: number; credit?: string } | null;
+// window: the GIF window in output pixels (with a margin for its rim).
+export type CardRenderer = { width: number; height: number; window: { x: number; y: number; w: number; h: number }; draw: (ctx: CanvasRenderingContext2D, art: CardArt) => void };
 
 // next/font gives the faces generated names; read them off the page.
 const family = (variable: string, fallback: string) => {
@@ -91,15 +102,31 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.roundRect(x, y, w, h, r);
 }
 
-function pill(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, opts: { bg: string; color: string; stroke?: string; font: string; align?: 'left' | 'right' }) {
+// Letter-spaced caps where the browser supports it.
+function spaced(ctx: CanvasRenderingContext2D, px: number, draw: () => void) {
+  const c = ctx as CanvasRenderingContext2D & { letterSpacing?: string };
+  const before = c.letterSpacing;
+  if (before !== undefined) c.letterSpacing = `${px}px`;
+  draw();
+  if (before !== undefined) c.letterSpacing = before;
+}
+
+function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
+  return `${t.trimEnd()}…`;
+}
+
+function pill(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, opts: { bg: string; color: string; stroke?: string; font: string; h?: number; align?: 'left' | 'right' }) {
   ctx.font = opts.font;
-  const w = ctx.measureText(text).width + 48, h = 56;
+  const h = opts.h ?? 52, w = ctx.measureText(text).width + h * 0.9;
   const left = opts.align === 'right' ? x - w : x;
   roundRect(ctx, left, y, w, h, h / 2);
   ctx.fillStyle = opts.bg; ctx.fill();
   if (opts.stroke) { ctx.strokeStyle = opts.stroke; ctx.lineWidth = 2; ctx.stroke(); }
   ctx.fillStyle = opts.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  ctx.fillText(text, left + 24, y + h / 2 + 2);
+  ctx.fillText(text, left + h * 0.45, y + h / 2 + 2);
   return w;
 }
 
@@ -115,111 +142,251 @@ function circleImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null
   ctx.restore();
 }
 
-export async function drawPnlCard(r: TradeResult): Promise<Blob> {
+// Fill the window, cropping at most ~18% so captions on square GIFs survive;
+// anything left over stays the window's dark background.
+function drawCover(ctx: CanvasRenderingContext2D, art: NonNullable<CardArt>) {
+  const cover = Math.max(WIN.w / art.width, WIN.h / art.height), contain = Math.min(WIN.w / art.width, WIN.h / art.height);
+  const s = Math.min(cover, contain * 1.18);
+  const w = art.width * s, h = art.height * s;
+  ctx.drawImage(art.source, WIN.x + (WIN.w - w) / 2, WIN.y + (WIN.h - h) / 2, w, h);
+}
+
+export async function prepareCard(r: TradeResult, scale = 1): Promise<CardRenderer> {
   const display = family('--font-insidia', 'Impact, sans-serif');
   const body = family('--font-aeonik', 'system-ui, sans-serif');
   await Promise.all([document.fonts.load(`400 200px ${display}`), document.fonts.load(`500 40px ${body}`), document.fonts.load(`700 40px ${body}`)]).catch(() => undefined);
   const [rays, logo, token, avatar] = await Promise.all([loadImage('/landing/rays-bg.png'), loadImage('/landing/cult-logo.svg'), loadImage(logoFor(r.symbol)), loadImage(r.traderAvatarUrl)]);
 
-  const canvas = document.createElement('canvas');
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext('2d')!;
+  const width = Math.round(W * scale), height = Math.round(H * scale);
+  const base = document.createElement('canvas');
+  base.width = width; base.height = height;
+  const ctx = base.getContext('2d')!;
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const up = (r.pnlUsd ?? 0) >= 0;
   const accent = up ? MINT : RED;
-
-  // Background: black, the landing's rays fading in from the top, an accent glow.
-  ctx.fillStyle = '#070808'; ctx.fillRect(0, 0, W, H);
-  if (rays) { ctx.globalAlpha = up ? 0.5 : 0.28; ctx.drawImage(rays, -120, -260, W + 240, (W + 240) * rays.height / rays.width); ctx.globalAlpha = 1; }
-  const fade = ctx.createLinearGradient(0, 0, 0, 760);
-  fade.addColorStop(0, 'rgba(7, 8, 8, 0.15)'); fade.addColorStop(1, '#070808');
-  ctx.fillStyle = fade; ctx.fillRect(0, 0, W, 760);
-  const glow = ctx.createRadialGradient(W * 0.82, 640, 0, W * 0.82, 640, 620);
-  glow.addColorStop(0, up ? 'rgba(99, 240, 214, 0.20)' : 'rgba(255, 107, 107, 0.20)'); glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
-
-  // Top: logo, "Closed trade".
-  if (logo) ctx.drawImage(logo, PAD, 96, 150, 150 * (logo.height / logo.width || 30 / 58));
-  else { ctx.fillStyle = TEXT; ctx.font = `400 64px ${display}`; ctx.textBaseline = 'top'; ctx.fillText('CULT', PAD, 96); }
-  pill(ctx, r.live ? 'OPEN POSITION' : 'CLOSED TRADE', W - PAD, 100, { bg: 'rgba(7, 8, 8, 0.55)', color: TEXT, stroke: 'rgba(255, 255, 255, 0.22)', font: `700 24px ${body}`, align: 'right' });
-
-  // Market.
-  const marketY = 330;
+  const accentRgb = up ? '99, 240, 214' : '255, 107, 107';
   const pred = r.prediction;
-  circleImage(ctx, pred ? null : token, pred ? (pred.yes ? 'Y' : 'N') : r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), PAD, marketY, 104, body);
-  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  let titleLines = [r.symbol];
-  if (pred) {
-    // The question, wrapped to two lines.
-    ctx.fillStyle = TEXT; ctx.font = `500 46px ${body}`;
-    const maxW = W - PAD * 2 - 132, words = pred.title.split(/\s+/), lines: string[] = [''];
-    for (const word of words) {
-      const next = lines[lines.length - 1] ? `${lines[lines.length - 1]} ${word}` : word;
-      if (ctx.measureText(next).width <= maxW || !lines[lines.length - 1]) lines[lines.length - 1] = next;
-      else if (lines.length < 2) lines.push(word);
-      else { let last = lines[1]!; while (ctx.measureText(`${last}…`).width > maxW && last.length > 1) last = last.slice(0, -1); lines[1] = `${last}…`; break; }
-    }
-    titleLines = lines;
-    lines.forEach((line, i) => ctx.fillText(line, PAD + 132, marketY + 44 + i * 56));
-  } else {
-    ctx.fillStyle = TEXT; ctx.font = `500 62px ${body}`;
-    ctx.fillText(r.symbol, PAD + 132, marketY + 50);
-  }
-  const chipY = marketY + 66 + (titleLines.length - 1) * 56;
-  const side = pred ? pred.sideLabel.toUpperCase() : r.side === 'buy' ? 'BUY' : `${r.side.toUpperCase()}${r.leverage ? ` ${r.leverage}X` : ''}`;
-  const shortSide = pred ? !pred.yes : r.side === 'short';
-  const sideBg = shortSide ? RED : MINT, sideInk = shortSide ? '#2a0707' : INK;
-  const chipW = pill(ctx, side, PAD + 132, chipY, { bg: sideBg, color: sideInk, font: `700 24px ${body}` });
-  ctx.fillStyle = DIM; ctx.font = `400 28px ${body}`; ctx.textBaseline = 'middle';
-  ctx.fillText(pred ? 'Prediction · Polymarket' : r.venue === 'perpl' ? 'Perpetual' : 'Meme', PAD + 132 + chipW + 18, chipY + 30);
-
-  // The number.
   const roi = roiText(r);
-  const headline = roi ?? (r.pnlUsd != null ? signedDollars(r.pnlUsd) : `SOLD ${dollars(r.sizeUsd)}`);
-  let size = 230;
-  ctx.font = `400 ${size}px ${display}`;
-  while (ctx.measureText(headline).width > W - PAD * 2 && size > 110) { size -= 10; ctx.font = `400 ${size}px ${display}`; }
-  ctx.fillStyle = roi || r.pnlUsd != null ? accent : TEXT; ctx.textBaseline = 'alphabetic';
-  ctx.shadowColor = up ? 'rgba(99, 240, 214, 0.35)' : 'rgba(255, 107, 107, 0.35)'; ctx.shadowBlur = 60;
-  ctx.fillText(headline, PAD - 6, 720);
-  ctx.shadowBlur = 0;
-  if (roi && r.pnlUsd != null) {
-    ctx.fillStyle = TEXT; ctx.font = `500 60px ${body}`;
-    ctx.fillText(signedDollars(r.pnlUsd), PAD, 812);
-    const wPnl = ctx.measureText(signedDollars(r.pnlUsd)).width;
-    ctx.fillStyle = DIM; ctx.font = `400 34px ${body}`;
-    ctx.fillText(up ? 'profit' : 'loss', PAD + wPnl + 18, 812);
-  }
 
-  // Entry / exit / size.
-  const boxY = 880, boxH = 176;
-  roundRect(ctx, PAD, boxY, W - PAD * 2, boxH, 36);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.045)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = 2; ctx.stroke();
-  const cols: [string, string][] = pred
-    ? [['AVG PRICE', r.entryPrice == null ? '—' : cents(r.entryPrice)], ['SOLD AT', r.exitPrice == null ? '—' : cents(r.exitPrice)], ['SHARES', pred.shares.toFixed(0)]]
-    : [['ENTRY', priceText(r.entryPrice)], [r.live ? 'MARK' : 'EXIT', priceText(r.exitPrice)], [r.venue === 'perpl' ? 'SIZE' : 'VALUE', dollars(r.sizeUsd)]];
-  const colW = (W - PAD * 2) / 3;
-  cols.forEach(([label, value], i) => {
-    const x = PAD + colW * i + 40;
-    if (i > 0) { ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fillRect(PAD + colW * i, boxY + 32, 2, boxH - 64); }
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = DIM; ctx.font = `700 22px ${body}`; ctx.fillText(label, x, boxY + 68);
-    ctx.fillStyle = TEXT; ctx.font = `500 40px ${body}`;
-    let v = value; while (ctx.measureText(v).width > colW - 60 && v.length > 4) v = v.slice(0, -1);
-    ctx.fillText(v === value ? v : `${v}…`, x, boxY + 126);
+  // Card: black, an accent glow from the top right, a thin accent rim.
+  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.85, 120, 0, W * 0.85, 120, 760);
+  glow.addColorStop(0, `rgba(${accentRgb}, 0.16)`); glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  const low = ctx.createRadialGradient(W * 0.1, H - 120, 0, W * 0.1, H - 120, 640);
+  low.addColorStop(0, `rgba(${accentRgb}, 0.08)`); low.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = low; ctx.fillRect(0, 0, W, H);
+  roundRect(ctx, 14, 14, W - 28, H - 28, 46);
+  ctx.strokeStyle = `rgba(${accentRgb}, 0.28)`; ctx.lineWidth = 3; ctx.stroke();
+
+  // Top strip, left: a slanted power bar (how big the move was) and leverage.
+  const segs = 14, segW = 30, segH = 26, gap = 7, skew = 9;
+  const lit = Math.max(1, Math.min(segs, Math.round((Math.abs(r.roiPct ?? (r.pnlUsd ? 20 : 0)) / 60) * segs)));
+  for (let i = 0; i < segs; i++) {
+    const x = PAD + i * (segW + gap);
+    ctx.beginPath(); ctx.moveTo(x + skew, 70); ctx.lineTo(x + segW + skew, 70); ctx.lineTo(x + segW, 70 + segH); ctx.lineTo(x, 70 + segH); ctx.closePath();
+    ctx.fillStyle = i < lit ? accent : 'rgba(255, 255, 255, 0.1)'; ctx.fill();
+  }
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  const [levLabel, levValue] = pred ? ['BET', pred.sideLabel.toUpperCase()] : r.venue === 'perpl' ? ['LEV', `${r.leverage ?? 1}X`] : ['SPOT', 'BUY'];
+  spaced(ctx, 4, () => {
+    ctx.font = `700 30px ${body}`; ctx.fillStyle = DIM; ctx.fillText(levLabel, PAD, 150);
+    const lw = ctx.measureText(`${levLabel} `).width;
+    ctx.fillStyle = TEXT; ctx.fillText(fit(ctx, levValue, 420), PAD + lw + 6, 150);
   });
 
-  // Trader.
-  const footY = 1150;
-  const initials = r.traderName.trim().split(/[\s._-]+/).slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('') || '?';
-  circleImage(ctx, avatar, initials, PAD, footY, 96, body);
-  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = TEXT; ctx.font = `500 40px ${body}`; ctx.fillText(r.traderName, PAD + 124, footY + 44);
-  ctx.fillStyle = DIM; ctx.font = `400 28px ${body}`;
-  ctx.fillText(`${r.live ? 'As of' : 'Closed'} ${new Date(r.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`, PAD + 124, footY + 86);
-  ctx.textAlign = 'right'; ctx.fillStyle = MINT; ctx.font = `400 40px ${display}`;
-  ctx.fillText('TRADE WITH', W - PAD, footY + 44);
-  ctx.fillStyle = TEXT; ctx.fillText('YOUR CULT', W - PAD, footY + 88);
+  // Top strip, right: the logo, and whether the trade is closed or live.
+  if (logo) { const lw = 110, lh = lw * (logo.height / logo.width || 30 / 58); ctx.drawImage(logo, W - PAD - lw, 58, lw, lh); }
+  else { ctx.fillStyle = TEXT; ctx.font = `400 56px ${display}`; ctx.textAlign = 'right'; ctx.fillText('CULT', W - PAD, 116); }
+  ctx.textAlign = 'right';
+  spaced(ctx, 4, () => { ctx.font = `700 22px ${body}`; ctx.fillStyle = r.live ? accent : DIM; ctx.fillText(r.live ? '● LIVE POSITION' : 'CLOSED TRADE', W - PAD, 150); });
 
-  return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not draw the card.')), 'image/png'));
+  // Window background, and the still art used when there is no GIF.
+  ctx.save();
+  roundRect(ctx, WIN.x, WIN.y, WIN.w, WIN.h, WIN.r); ctx.clip();
+  ctx.fillStyle = '#0c0d0e'; ctx.fillRect(WIN.x, WIN.y, WIN.w, WIN.h);
+  ctx.restore();
+  const still = document.createElement('canvas');
+  still.width = WIN.w; still.height = WIN.h;
+  const sctx = still.getContext('2d')!;
+  sctx.fillStyle = '#0c0d0e'; sctx.fillRect(0, 0, WIN.w, WIN.h);
+  if (rays) { sctx.globalAlpha = up ? 0.6 : 0.3; sctx.drawImage(rays, -80, -140, WIN.w + 160, (WIN.w + 160) * rays.height / rays.width); sctx.globalAlpha = 1; }
+  const fade = sctx.createLinearGradient(0, 0, 0, WIN.h);
+  fade.addColorStop(0, 'rgba(12, 13, 14, 0)'); fade.addColorStop(1, 'rgba(12, 13, 14, 0.9)');
+  sctx.fillStyle = fade; sctx.fillRect(0, 0, WIN.w, WIN.h);
+  if (pred) {
+    sctx.fillStyle = accent; sctx.font = `400 260px ${display}`; sctx.textAlign = 'center'; sctx.textBaseline = 'middle';
+    sctx.fillText(pred.sideLabel.toUpperCase().slice(0, 6), WIN.w / 2, WIN.h / 2 + 10);
+  } else {
+    circleImage(sctx, token, r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), WIN.w / 2 - 110, WIN.h / 2 - 110, 220, body);
+  }
+
+  // Market line, like a card's set and number.
+  const marketY = 930;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  const kind = pred ? 'POLYMARKET' : r.venue === 'perpl' ? 'PERPETUAL' : 'MEME';
+  const when = new Date(r.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
+  spaced(ctx, 3, () => {
+    ctx.font = `700 26px ${body}`;
+    const dateW = ctx.measureText(when).width;
+    ctx.fillStyle = DIM; ctx.textAlign = 'right'; ctx.fillText(when, W - PAD, marketY);
+    ctx.textAlign = 'left'; ctx.fillStyle = TEXT;
+    const name = pred ? pred.title.toUpperCase() : r.symbol.toUpperCase();
+    ctx.fillText(fit(ctx, `${name} · ${kind}`, W - PAD * 2 - dateW - 40), PAD, marketY);
+  });
+
+  // The return, big, with the dollar figure beside it.
+  const headline = roi ?? (r.pnlUsd != null ? signedDollars(r.pnlUsd) : `SOLD ${dollars(r.sizeUsd)}`);
+  const side = roi && r.pnlUsd != null ? { label: up ? 'PROFIT' : 'LOSS', value: signedDollars(r.pnlUsd) } : null;
+  ctx.font = `500 54px ${body}`;
+  const sideW = side ? Math.max(ctx.measureText(side.value).width, 120) + 32 : 0;
+  let size = 200;
+  ctx.font = `400 ${size}px ${display}`;
+  while (ctx.measureText(headline).width > W - PAD * 2 - sideW && size > 96) { size -= 8; ctx.font = `400 ${size}px ${display}`; }
+  const headY = 1098;
+  ctx.fillStyle = roi || r.pnlUsd != null ? accent : TEXT;
+  // A light glow: a strong one bands into blotches in a 256-colour GIF.
+  ctx.shadowColor = `rgba(${accentRgb}, 0.22)`; ctx.shadowBlur = 34;
+  ctx.fillText(headline, PAD - 4, headY);
+  ctx.shadowBlur = 0;
+  if (side) {
+    ctx.textAlign = 'right';
+    spaced(ctx, 4, () => { ctx.font = `700 22px ${body}`; ctx.fillStyle = DIM; ctx.fillText(side.label, W - PAD, headY - 64); });
+    ctx.font = `500 54px ${body}`; ctx.fillStyle = TEXT; ctx.fillText(side.value, W - PAD, headY - 6);
+    ctx.textAlign = 'left';
+  }
+
+  // Bottom row: three stat boxes and the trader, like the card's icon row.
+  const rowY = 1150, rowH = 140, who = rowH;
+  const cols: [string, string][] = pred
+    ? [['AVG PRICE', r.entryPrice == null ? '—' : cents(r.entryPrice)], [r.live ? 'NOW' : 'SOLD AT', r.exitPrice == null ? '—' : cents(r.exitPrice)], ['SHARES', pred.shares.toFixed(0)]]
+    : [['ENTRY', priceText(r.entryPrice)], [r.live ? 'MARK' : 'EXIT', priceText(r.exitPrice)], [r.venue === 'perpl' ? 'SIZE' : 'VALUE', dollars(r.sizeUsd)]];
+  const boxGap = 16, boxW = (W - PAD * 2 - who - 20 - boxGap * 2) / 3;
+  cols.forEach(([label, value], i) => {
+    const x = PAD + i * (boxW + boxGap);
+    roundRect(ctx, x, rowY, boxW, rowH, 22);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.04)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.textAlign = 'left';
+    spaced(ctx, 3, () => { ctx.font = `700 20px ${body}`; ctx.fillStyle = DIM; ctx.fillText(label, x + 24, rowY + 50); });
+    ctx.font = `500 36px ${body}`; ctx.fillStyle = TEXT; ctx.fillText(fit(ctx, value, boxW - 44), x + 24, rowY + 106);
+  });
+  const whoX = W - PAD - who;
+  roundRect(ctx, whoX, rowY, who, rowH, 22);
+  ctx.strokeStyle = `rgba(${accentRgb}, 0.5)`; ctx.lineWidth = 3; ctx.stroke();
+  const initials = r.traderName.trim().split(/[\s._-]+/).slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('') || '?';
+  circleImage(ctx, avatar, initials, whoX + (who - 68) / 2, rowY + 16, 68, body);
+  ctx.font = `500 22px ${body}`; ctx.fillStyle = TEXT; ctx.textAlign = 'center';
+  ctx.fillText(fit(ctx, r.traderName, who - 20), whoX + who / 2, rowY + 118);
+
+  const shortSide = pred ? !pred.yes : r.side === 'short';
+  const chip = pred ? pred.sideLabel.toUpperCase() : r.side === 'buy' ? 'BUY' : `${r.side.toUpperCase()}${r.leverage ? ` ${r.leverage}X` : ''}`;
+
+  return {
+    width, height,
+    window: { x: Math.floor((WIN.x - 4) * scale), y: Math.floor((WIN.y - 4) * scale), w: Math.ceil((WIN.w + 8) * scale), h: Math.ceil((WIN.h + 8) * scale) },
+    draw(out, art) {
+      out.setTransform(1, 0, 0, 1, 0, 0);
+      out.drawImage(base, 0, 0);
+      out.setTransform(scale, 0, 0, scale, 0, 0);
+      out.save();
+      roundRect(out, WIN.x, WIN.y, WIN.w, WIN.h, WIN.r); out.clip();
+      if (art) drawCover(out, art); else out.drawImage(still, WIN.x, WIN.y);
+      // A soft fade at the bottom so the window sits into the card.
+      const shade = out.createLinearGradient(0, WIN.y + WIN.h - 170, 0, WIN.y + WIN.h);
+      shade.addColorStop(0, 'rgba(7, 8, 8, 0)'); shade.addColorStop(1, 'rgba(7, 8, 8, 0.6)');
+      out.fillStyle = shade; out.fillRect(WIN.x, WIN.y + WIN.h - 170, WIN.w, 170);
+      out.restore();
+      roundRect(out, WIN.x, WIN.y, WIN.w, WIN.h, WIN.r);
+      out.strokeStyle = 'rgba(255, 255, 255, 0.16)'; out.lineWidth = 3; out.stroke();
+      // Side chip and token over the window's top corners.
+      pill(out, chip, WIN.x + 24, WIN.y + 24, { bg: shortSide ? RED : MINT, color: shortSide ? '#2a0707' : INK, font: `700 24px ${body}` });
+      if (!pred && art) circleImage(out, token, r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), WIN.x + WIN.w - 24 - 64, WIN.y + 24, 64, body);
+      if (art?.credit) {
+        out.textAlign = 'right'; out.textBaseline = 'alphabetic';
+        out.font = `500 20px ${body}`; out.fillStyle = 'rgba(244, 246, 248, 0.7)';
+        out.fillText(art.credit, WIN.x + WIN.w - 22, WIN.y + WIN.h - 20);
+      }
+      out.setTransform(1, 0, 0, 1, 0, 0);
+    },
+  };
+}
+
+const toBlob = (canvas: HTMLCanvasElement, type: string) => new Promise<Blob>((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not draw the card.')), type));
+
+// A still PNG: the full-size card with the given art (or the still art).
+export async function drawPnlCard(r: TradeResult, art: CardArt = null): Promise<Blob> {
+  const card = await prepareCard(r, 1);
+  const canvas = document.createElement('canvas');
+  canvas.width = card.width; canvas.height = card.height;
+  card.draw(canvas.getContext('2d')!, art);
+  return toBlob(canvas, 'image/png');
+}
+
+// Nearest palette colour per pixel, with one cache (by RGB565) shared across
+// every frame: the same colours repeat frame to frame, so lookups stay cheap.
+function paletteMapper(palette: number[][]) {
+  const cache = new Int16Array(65536).fill(-1);
+  return (rgba: Uint8ClampedArray) => {
+    const n = rgba.length >> 2, out = new Uint8Array(n);
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const r = rgba[p]!, g = rgba[p + 1]!, b = rgba[p + 2]!;
+      const key = ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3);
+      let idx = cache[key]!;
+      if (idx < 0) {
+        let best = 0, bestD = Infinity;
+        for (let j = 0; j < palette.length; j++) {
+          const c = palette[j]!, dr = r - c[0]!, dg = g - c[1]!, db = b - c[2]!;
+          const d = dr * dr + dg * dg + db * db;
+          if (d < bestD) { bestD = d; best = j; }
+        }
+        idx = cache[key] = best;
+      }
+      out[i] = idx;
+    }
+    return out;
+  };
+}
+
+// The animated card as a GIF at half size (540×675). One shared palette so
+// the still parts don't shimmer; after the first full frame only the window
+// is written (the rest of the card never changes), which keeps the file
+// small and the encode quick.
+export async function encodePnlGif(r: TradeResult, gif: { width: number; height: number; frames: { image: CanvasImageSource; delay: number }[] }, credit: string, onProgress?: (done: number) => void): Promise<Blob> {
+  const { GIFEncoder, quantize } = await import('gifenc');
+  const card = await prepareCard(r, 0.5);
+  const canvas = document.createElement('canvas');
+  canvas.width = card.width; canvas.height = card.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  const art = (i: number): CardArt => ({ source: gif.frames[i]!.image, width: gif.width, height: gif.height, credit });
+  const win = card.window;
+  const read = (i: number, full: boolean) => { card.draw(ctx, art(i)); return full ? ctx.getImageData(0, 0, card.width, card.height).data : ctx.getImageData(win.x, win.y, win.w, win.h).data; };
+
+  // Palette from a few frames spread through the clip.
+  const picks = [...new Set([0, Math.floor(gif.frames.length / 3), Math.floor((gif.frames.length * 2) / 3), gif.frames.length - 1])];
+  const samples = picks.map(i => read(i, true));
+  const sample = new Uint8ClampedArray(samples.reduce((n, s) => n + s.length / 2, 0));
+  let o = 0;
+  for (const s of samples) for (let p = 0; p < s.length; p += 8) { sample[o++] = s[p]!; sample[o++] = s[p + 1]!; sample[o++] = s[p + 2]!; sample[o++] = s[p + 3]!; }
+  const palette = quantize(sample.subarray(0, o), 256);
+  const map = paletteMapper(palette);
+
+  const encoder = GIFEncoder();
+  for (let i = 0; i < gif.frames.length; i++) {
+    const delay = gif.frames[i]!.delay;
+    if (i === 0) encoder.writeFrame(map(read(0, true)), card.width, card.height, { palette, delay });
+    else {
+      // gifenc always places a frame at 0,0: write the window's size, then
+      // set its position in the image descriptor (after the 8-byte control
+      // block: 0x2C, then left and top, little-endian).
+      const at = encoder.bytesView().length;
+      encoder.writeFrame(map(read(i, false)), win.w, win.h, { delay });
+      const bytes = encoder.bytesView();
+      if (bytes[at + 8] === 0x2c) { bytes[at + 9] = win.x & 0xff; bytes[at + 10] = win.x >> 8; bytes[at + 11] = win.y & 0xff; bytes[at + 12] = win.y >> 8; }
+    }
+    onProgress?.((i + 1) / gif.frames.length);
+    await yieldToPage();
+  }
+  encoder.finish();
+  return new Blob([encoder.bytes() as BlobPart], { type: 'image/gif' });
 }

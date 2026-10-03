@@ -1,11 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Copy, Download, Link2, Share2, X } from 'lucide-react';
-import { drawPnlCard, roiText, type TradeResult } from '@/lib/pnlCard';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Copy, Download, Link2, Shuffle, Share2, X } from 'lucide-react';
+import { drawPnlCard, encodePnlGif, prepareCard, roiText, type CardRenderer, type TradeResult } from '@/lib/pnlCard';
+import { giphyEnabled, moodOf, pickGif, type GifPick } from '@/lib/giphy';
+import { loadGifFrames, type GifFrames } from '@/lib/gifFrames';
 import { dollars, signedDollars } from '@/lib/format';
 
-// The PnL card as an image, ready to share, copy or save. Three moments:
+// The PnL card, ready to share, copy or save. With a GIPHY key it carries a
+// reaction GIF picked for how the trade went (a new one each time, or tap
+// "New GIF") and exports as an animated GIF; otherwise it's a still PNG.
+// Three moments:
 // - closed: right after a close or a sale.
 // - live: sharing a position you keep open (from the chart).
 // - confirm: before a close, the card you'd get at the current mark, with
@@ -21,21 +26,78 @@ type Props = {
   onClose: () => void;
 };
 
+const CREDIT = 'via GIPHY';
+type Gif = { pick: GifPick; frames: GifFrames };
+
 export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLabel = 'Close position', onConfirm, onShareLink, onClose }: Props) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [renderer, setRenderer] = useState<CardRenderer | null>(null);
+  const [gif, setGif] = useState<Gif | null>(null);
+  const [gifLoading, setGifLoading] = useState(giphyEnabled());
+  const [reroll, setReroll] = useState(0);
+  const shown = useRef<string[]>([]);
   const [blob, setBlob] = useState<Blob | null>(null);
-  const [url, setUrl] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const mood = moodOf(result.roiPct, result.pnlUsd);
+  const exporting = mode !== 'confirm';
 
+  // A GIF for this mood: a new pick when the mood changes or on "New GIF";
+  // the same one carries over from the close preview to the final card.
   useEffect(() => {
-    let active = true, made: string | null = null;
-    drawPnlCard(result).then(image => {
+    if (!giphyEnabled()) return;
+    let active = true;
+    setGifLoading(true); setNote(null);
+    pickGif(mood, shown.current).then(async pick => {
+      if (!pick) throw new Error('No GIF this time.');
+      const frames = await loadGifFrames(pick.url);
       if (!active) return;
-      made = URL.createObjectURL(image);
-      setBlob(image); setUrl(made);
-    }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not draw the card.'); });
-    return () => { active = false; if (made) URL.revokeObjectURL(made); };
+      shown.current = [...shown.current, pick.id];
+      setGif({ pick, frames });
+    }).catch(() => { if (active) setNote(current => current ?? 'Couldn’t load a GIF, so this card is a still image.'); })
+      .finally(() => { if (active) setGifLoading(false); });
+    return () => { active = false; };
+  }, [mood, reroll]);
+
+  // The card itself (redrawn when the numbers change), for the preview.
+  useEffect(() => {
+    let active = true;
+    setRenderer(null);
+    prepareCard(result, 0.8).then(card => { if (active) setRenderer(card); }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not draw the card.'); });
+    return () => { active = false; };
   }, [result]);
+
+  // Play the preview: each GIF frame in the window, at its own pace.
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el || !renderer) return;
+    el.width = renderer.width; el.height = renderer.height;
+    const ctx = el.getContext('2d')!;
+    const art = (i: number) => gif ? { source: gif.frames.frames[i]!.image, width: gif.frames.width, height: gif.frames.height, credit: CREDIT } : null;
+    renderer.draw(ctx, art(0));
+    if (!gif || gif.frames.frames.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let frame = 0, timer = 0;
+    const next = () => {
+      timer = window.setTimeout(() => { frame = (frame + 1) % gif.frames.frames.length; renderer.draw(ctx, art(frame)); next(); }, gif.frames.frames[frame]!.delay);
+    };
+    next();
+    return () => window.clearTimeout(timer);
+  }, [renderer, gif]);
+
+  // The file to share: made ahead of the tap, since sharing has to start
+  // right from it. An animated GIF when there is one, else a PNG.
+  useEffect(() => {
+    // A new GIF on the way: the old file must not be shared meanwhile.
+    if (gifLoading) { setBlob(null); return; }
+    if (!exporting) return;
+    let active = true;
+    setBlob(null); setProgress(gif ? 0 : null);
+    (gif ? encodePnlGif(result, gif.frames, CREDIT, done => { if (active) setProgress(done); }) : drawPnlCard(result))
+      .then(made => { if (active) { setBlob(made); setProgress(null); } })
+      .catch(reason => { if (active) { setProgress(null); setError(reason instanceof Error ? reason.message : 'Could not make the card.'); } });
+    return () => { active = false; };
+  }, [exporting, gifLoading, gif, result]);
   useEffect(() => { setNote(null); }, [mode]);
 
   useEffect(() => {
@@ -44,10 +106,12 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose, busy]);
 
-  const fileName = `cult-${result.symbol.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 48)}-${new Date(result.closedAt).toISOString().slice(0, 10)}.png`;
-  const file = blob ? new File([blob], fileName, { type: 'image/png' }) : null;
+  const animated = blob?.type === 'image/gif';
+  const fileName = `cult-${result.symbol.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 48)}-${new Date(result.closedAt).toISOString().slice(0, 10)}.${animated ? 'gif' : 'png'}`;
+  const file = useMemo(() => blob ? new File([blob], fileName, { type: blob.type }) : null, [blob, fileName]);
   const canShare = !!file && typeof navigator !== 'undefined' && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
-  const canCopy = typeof window !== 'undefined' && 'ClipboardItem' in window && !!navigator.clipboard?.write;
+  // Clipboards take PNGs, not GIFs: Copy is only for the still card.
+  const canCopy = !!blob && !animated && typeof window !== 'undefined' && 'ClipboardItem' in window && !!navigator.clipboard?.write;
   const roi = roiText(result);
   const up = (result.pnlUsd ?? 0) >= 0;
   const amount = result.pnlUsd == null ? null : <b className={up ? 'up' : 'down'}>{up ? signedDollars(result.pnlUsd) : dollars(Math.abs(result.pnlUsd))}</b>;
@@ -55,7 +119,7 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
   const share = async () => {
     if (!file) return;
     try { await navigator.share({ files: [file], title: `${result.symbol} on Cult` }); }
-    catch (reason) { if (!(reason instanceof DOMException && reason.name === 'AbortError')) setNote('Sharing didn’t work here. Save the image instead.'); }
+    catch (reason) { if (!(reason instanceof DOMException && reason.name === 'AbortError')) setNote(`Sharing didn’t work here. Save the ${animated ? 'GIF' : 'image'} instead.`); }
   };
   const copy = async () => {
     if (!blob) return;
@@ -63,10 +127,12 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
     catch { setNote('Couldn’t copy here. Save the image instead.'); }
   };
   const save = () => {
-    if (!url) return;
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url; link.download = fileName;
     document.body.appendChild(link); link.click(); link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
     setNote('Saved to your downloads.');
   };
 
@@ -77,6 +143,8 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
     : mode === 'live'
       ? (amount ? <>You&rsquo;re {up ? 'up' : 'down'} {amount}{roi ? <> ({roi})</> : null} right now. Share your card.</> : 'Share your position as it stands.')
       : (amount ? <>You {up ? 'made' : 'lost'} {amount}{roi ? <> ({roi})</> : null}. Here&rsquo;s your card.</> : 'Your position is closed.');
+  const making = progress != null ? `Making your GIF… ${Math.round(progress * 100)}%` : null;
+  const kind = animated ? 'GIF' : 'image';
 
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section className={`dialog pnl-sheet is-${mode}`} role="dialog" aria-modal="true" aria-label={mode === 'confirm' ? `Close ${title}?` : eyebrow}>
@@ -86,16 +154,24 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
         <h2 className={result.prediction ? 'is-long' : undefined}>{mode === 'confirm' ? `Close ${title}?` : title}</h2>
         <p className="field-note">{line}</p>
       </div>
-      <div className="pnl-sheet-card">
-        {/* eslint-disable-next-line @next/next/no-img-element -- a generated blob, not a static asset */}
-        {url ? <img src={url} alt={`PnL card: ${result.symbol} ${roi ?? ''}`} /> : error ? <p className="notice-line">{error}</p> : <span className="skel" />}      </div>
+      <div className={`pnl-sheet-card${renderer ? '' : ' is-loading'}`}>
+        <canvas ref={canvas} aria-label={`PnL card: ${result.symbol} ${roi ?? ''}`} role="img" />
+        {!renderer && (error ? <p className="notice-line">{error}</p> : <span className="skel" />)}
+        {renderer && gifLoading && <span className="pnl-sheet-gifwait">Finding a GIF…</span>}
+      </div>
+      {giphyEnabled() && <div className="pnl-sheet-gifbar">
+        <span className="pnl-sheet-giphy">Powered by <b>GIPHY</b></span>
+        <button className="btn btn-ghost btn-sm" disabled={gifLoading || busy || progress != null} onClick={() => setReroll(value => value + 1)}><Shuffle size={14} /> New GIF</button>
+      </div>}
       {mode === 'confirm' ? <div className="pnl-sheet-actions" key="confirm">
         <button className="btn btn-ghost" disabled={busy} onClick={onClose}>Keep open</button>
         <button className="btn btn-danger" disabled={busy} onClick={onConfirm}>{busy ? 'Closing…' : confirmLabel}</button>
       </div> : <div className="pnl-sheet-actions" key="share">
-        {canShare ? <button className="btn btn-primary" disabled={!blob} onClick={() => void share()}><Share2 size={16} /> Share</button>
-          : canCopy ? <button className="btn btn-primary" disabled={!blob} onClick={() => void copy()}><Copy size={16} /> Copy image</button> : null}
-        <button className="btn btn-ghost" disabled={!url} onClick={save}><Download size={16} /> Save image</button>
+        {!blob ? <button className="btn btn-primary" disabled>{making ?? 'Preparing…'}</button>
+          : canShare ? <button className="btn btn-primary" onClick={() => void share()}><Share2 size={16} /> Share {kind}</button>
+            : canCopy ? <button className="btn btn-primary" onClick={() => void copy()}><Copy size={16} /> Copy image</button>
+              : <button className="btn btn-primary" onClick={save}><Download size={16} /> Save {kind}</button>}
+        {(canShare || canCopy) && <button className="btn btn-ghost" onClick={save}><Download size={16} /> Save</button>}
         {mode === 'live' && onShareLink && <button className="btn btn-ghost" disabled={busy} onClick={onShareLink}><Link2 size={16} /> Link</button>}
       </div>}
       {note && <p className="pnl-sheet-note" role="status">{note}</p>}
