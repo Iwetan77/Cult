@@ -7,14 +7,23 @@ import { cachedList } from '@/lib/marketCache';
 import type { MarketListing } from '@/lib/contracts';
 import { compactDollars, price, signedPct } from '@/lib/format';
 import { TokenLogo } from './TokenLogo';
+import { PredictionsBrowse, type PredictionPick } from './PredictionsBrowse';
 
-// Every market on both venues, searchable. Drawn at once from the last list
+// Every market on both venues, searchable, plus prediction markets. Drawn at once from the last list
 // we saw; a fresh one replaces it quietly.
 
-type Tab = 'all' | 'perpl' | 'nadfun';
+type Tab = 'all' | 'perpl' | 'nadfun' | 'predictions';
+// Coming back from a market lands on the tab you left.
+let lastTab: Tab = 'all';
+const TABS: { id: Tab; label: string; title: string }[] = [
+  { id: 'all', label: 'All', title: 'Every market' },
+  { id: 'perpl', label: 'Perps', title: 'Trade perps' },
+  { id: 'nadfun', label: 'Memes', title: 'Trade memes' },
+  { id: 'predictions', label: 'Predictions', title: 'Call it' },
+];
 type Sort = 'volume' | 'gainers' | 'losers';
 
-type Props = { search: string; onOpen: (id: string) => void };
+type Props = { search: string; onOpen: (id: string) => void; onPredict: (slug: string, pick?: PredictionPick) => void; predictionRevision: number };
 
 export function Change({ pct }: { pct: number | null }) {
   if (pct == null) return <small className="change">—</small>;
@@ -22,10 +31,11 @@ export function Change({ pct }: { pct: number | null }) {
   return <small className={`change ${up ? 'up' : 'down'}`}>{up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}{signedPct(pct)}</small>;
 }
 
-export function MarketsView({ search, onOpen }: Props) {
-  const [tab, setTab] = useState<Tab>('all');
+export function MarketsView({ search, onOpen, onPredict, predictionRevision }: Props) {
+  const [tab, setTabState] = useState<Tab>(lastTab);
+  const setTab = (next: Tab) => { lastTab = next; setTabState(next); };
   const [sort, setSort] = useState<Sort>('volume');
-  const venue = tab === 'all' ? undefined : tab;
+  const venue = tab === 'perpl' || tab === 'nadfun' ? tab : undefined;
   const [list, setList] = useState<MarketListing[] | null>(() => cachedList(search, venue));
   const [error, setError] = useState<string | null>(null);
 
@@ -52,9 +62,11 @@ export function MarketsView({ search, onOpen }: Props) {
   return <div className="view one-col">
     <section className="view-main">
       <header className="page-head">
-        <div><span className="eyebrow">Markets</span><h1 className="display">Trade perps &amp; memes</h1></div>
-        <div className="seg">{(['all', 'perpl', 'nadfun'] as Tab[]).map(t => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t === 'all' ? 'All' : t === 'perpl' ? 'Perps' : 'Memes'}</button>)}</div>
+        <div><span className="eyebrow">Markets</span><h1 className="display">{TABS.find(t => t.id === tab)!.title}</h1></div>
+        <div className="seg seg--scroll">{TABS.map(t => <button key={t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>{t.label}</button>)}</div>
       </header>
+
+      {tab === 'predictions' ? <PredictionsBrowse search={search} revision={predictionRevision} onOpen={onPredict} /> : <>
 
       {highlights.length > 0 && !search.trim() && <div className="highlights reveal">{highlights.map(h => <button key={h.label} className="highlight" onClick={() => onOpen(h.m.id)}>
         <span className="eyebrow">{h.icon}{h.label}</span>
@@ -78,6 +90,7 @@ export function MarketsView({ search, onOpen }: Props) {
             </button>)}
         </div>}
       </section>
+      </>}
     </section>
   </div>;
 }

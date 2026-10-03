@@ -30,7 +30,11 @@ import { RoomBadge } from './RoomBadge';
 import { DepositSheet } from './DepositSheet';
 import { WithdrawSheet } from './WithdrawSheet';
 import { PnlCardSheet } from './PnlCardSheet';
-import { resultOfClose, type TradeResult } from '@/lib/pnlCard';
+import { PredictionPage } from './PredictionPage';
+import type { PredictionPick } from './PredictionsBrowse';
+import { resultOfClose, resultOfSale, type TradeResult } from '@/lib/pnlCard';
+import { buyPrediction, sellPrediction } from '@/lib/api';
+import type { PredictionOrder, PredictionPosition } from '@/lib/contracts';
 import { Landing } from './Landing';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
@@ -101,6 +105,10 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   // The PnL card shown after a close.
   const [closedResult, setClosedResult] = useState<TradeResult | null>(null);
+  // Prediction markets: the outcome/side picked from a card, and a counter
+  // that tells their views to reload positions after a trade.
+  const [predictionPick, setPredictionPick] = useState<PredictionPick | null>(null);
+  const [predictionRev, setPredictionRev] = useState(0);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const permissionResolve = useRef<((allowed: boolean) => void) | null>(null);
   const decidePermission = (allowed: boolean) => {
@@ -131,6 +139,8 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
     go('markets');
     if (id) { setMarketId(id); setSelectedId(null); }
   };
+  // Prediction pages share the market slot as "pm:<event slug>"; they have no cult chart.
+  const openPrediction = (slug: string, pick?: PredictionPick) => { setPredictionPick(pick ?? null); setMarketPage(`pm:${slug}`); go('markets'); };
   const [profileId, setProfileId] = useState('me');
   const [accountTab, setAccountTab] = useState<AccountTab>('open');
   const [tradeSheetTarget, setTradeSheetTarget] = useState<TradeSheetTarget | null>(null);
@@ -601,6 +611,19 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
     await loadMe();
     showCard(holding, fill);
   });
+  const placePrediction = (order: PredictionOrder) => perform('predict', async () => {
+    await buyPrediction(await token(), order);
+    await loadMe();
+    setPredictionRev(value => value + 1);
+    const posted = order.cultIds?.length === 0 ? 'Only you see it.' : 'Posted to your cults.';
+    setNotice(`Bet placed: ${order.sideLabel} at ${Math.round(order.price * 100)}¢. ${posted}`);
+  });
+  const sellPredictionPosition = (position: PredictionPosition, price: number) => perform('predict-sell', async () => {
+    const sale = await sellPrediction(await token(), position.id, price);
+    await loadMe();
+    setPredictionRev(value => value + 1);
+    setClosedResult(resultOfSale(sale, { name: me?.name ?? 'You', avatarUrl: me?.avatarUrl ?? null }));
+  });
   const closeTrade = (holding: Holding) => perform('close', async () => {
     const fill = await closePosition(await token(), holding.market);
     if (clanId) await loadChart(clanId, marketId ?? undefined);
@@ -736,7 +759,7 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
   const askedFor = useRef<string | null>(null);
   useEffect(() => {
     const key = `${clanId}:${marketPage}`;
-    if (view !== 'markets' || !marketPage || marketSolo || !clanId || askedFor.current === key) return;
+    if (view !== 'markets' || !marketPage || marketPage.startsWith('pm:') || marketSolo || !clanId || askedFor.current === key) return;
     askedFor.current = key;
     if (marketPage.toLowerCase() !== marketId?.toLowerCase()) { setMarketId(marketPage); setSelectedId(null); }
   }, [view, marketPage, marketSolo, clanId, marketId]);
@@ -808,7 +831,9 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
     <main className="stage" key={view === 'chat' ? `chat:${roomId}` : view === 'markets' ? `m:${marketPage ?? ''}` : view === 'account' ? `a:${profileId}` : view}>
       {!me ? <div className="view two-col"><section className="view-main"><div className="skel skel-head" /><div className="skel skel-strip" /><div className="skel skel-chart" /></section><aside className="view-side"><div className="skel skel-card" /><div className="skel skel-card" /></aside></div>
         : view === 'home' ? <HomeView me={me} holdings={holdings} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
-        : view === 'markets' ? (marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => openMarket(null)} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView search={search} onOpen={openMarket} />)
+        : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))}
+            onBack={() => openMarket(null)} onBuy={placePrediction} onSell={sellPredictionPosition} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
+          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => openMarket(null)} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><span className="eyebrow">Your cults</span><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{me.rooms.filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />

@@ -1,4 +1,5 @@
-import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, BoardPeriod, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue, WithdrawRequest, WithdrawResult } from './contracts';
+import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, BoardPeriod, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue, WithdrawRequest, WithdrawResult, PredictionBet, PredictionOrder, PredictionPosition, PredictionSale } from './contracts';
+import { cents } from './polymarket';
 import { cachedList } from './marketCache';
 
 // Demo mode: the whole app, signed out, on realistic sample data. Every API
@@ -171,6 +172,7 @@ type State = {
   me: Me; base: Record<string, number>; seeds: Seed[]; positions: Position[];
   messages: Record<string, ChatMessage[]>; pinned: Record<string, ChatPage['pinned']>;
   members: Record<string, string[]>; discover: DiscoverCult[]; challenges: Record<string, MirrorPolicy>; next: number;
+  predictions?: PredictionPosition[];
 };
 let state: State | null = null;
 
@@ -524,6 +526,63 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
   if (a === 'nadfun') return done({ markets: [] });
   if (a === 'perpl') return done({ step: 'ready', wallet: DEMO_ADDRESS, perplAccountId: '4821', collateralBalance: '0', minAccountOpen: '0', actions: [] });
   if (a === 'privy') return done({ signerId: 'demo', policyIds: [], capAusd: 1000, maxBuyMon: 1000, monPriceAusd: 0.42 });
+  // Prediction markets: prices come from the client (live Polymarket odds).
+  if (a === 'predictions') {
+    const list = (s.predictions ??= []);
+    const what = (p: { outcomeLabel: string; question: string; eventTitle: string }) => p.outcomeLabel === p.question ? `"${p.question}"` : `${p.outcomeLabel} in "${p.eventTitle}"`;
+    if (b === 'positions') return done({ positions: list });
+    if (b === 'orders' && method === 'POST') {
+      const order = body as unknown as PredictionOrder;
+      const price = Number(order.price), amount = Number(order.amountUsd);
+      if (!(price > 0 && price < 1)) throw new DemoError('This outcome can\u2019t be bought right now.');
+      if (!(amount >= 1)) throw new DemoError('The smallest bet is $1.');
+      const bal = s.me.balances!;
+      if (amount > bal.walletUsd + 1e-9) throw new DemoError('Not enough funds for this bet.');
+      bal.walletUsd -= amount;
+      const shares = amount / price;
+      const existing = list.find(p => p.marketId === order.marketId && p.side === order.side);
+      let position: PredictionPosition;
+      if (existing) { existing.shares += shares; existing.costUsd += amount; existing.avgPrice = existing.costUsd / existing.shares; position = existing; }
+      else {
+        position = { id: `pp-${++s.next}`, marketId: order.marketId, eventSlug: order.eventSlug, eventTitle: order.eventTitle, outcomeLabel: order.outcomeLabel, question: order.question, image: order.image, side: order.side, sideLabel: order.sideLabel, shares, avgPrice: price, costUsd: amount, openedAt: Date.now() };
+        list.unshift(position);
+      }
+      const cultIds = Array.isArray(order.cultIds) ? order.cultIds : s.me.clans.map(c => c.id);
+      for (const cultId of cultIds) post(s, `cult:${cultId}`, ME_ID, `bet ${order.sideLabel.toUpperCase()} on ${what(order)} at ${cents(price)}`, 'system');
+      return done(position);
+    }
+    if (b === 'sell' && method === 'POST') {
+      const position = list.find(p => p.id === body.positionId);
+      if (!position) throw new DemoError('That position is already closed.', 404);
+      const price = Number(body.price);
+      if (!(price >= 0 && price <= 1)) throw new DemoError('No price to sell at right now.');
+      const proceeds = position.shares * price;
+      s.me.balances!.walletUsd += proceeds;
+      s.predictions = list.filter(p => p !== position);
+      for (const clan of s.me.clans) post(s, `cult:${clan.id}`, ME_ID, `sold ${position.sideLabel.toUpperCase()} on ${what(position)} at ${cents(price)}`, 'system');
+      return done<PredictionSale>({ position, price, proceedsUsd: proceeds, pnlUsd: proceeds - position.costUsd });
+    }
+    if (b === 'bets' && method === 'POST') {
+      // Cult-mates' bets, steady for an event: who, which outcome, which side.
+      const outcomes = (body.outcomes as { id: string; label: string; yesPrice: number; yesLabel: string; noLabel: string }[]).slice(0, 4);
+      const seen = new Set<string>();
+      const bets: PredictionBet[] = [];
+      for (const clan of s.me.clans) for (const memberId of s.members[clan.id] ?? []) {
+        if (memberId === ME_ID || seen.has(memberId) || !outcomes.length) continue;
+        seen.add(memberId);
+        const r = rng(hash(String(body.eventSlug) + memberId));
+        if (r() < 0.4) continue;
+        const outcome = outcomes[Math.floor(r() * Math.min(outcomes.length, 3))]!;
+        const yes = r() < 0.62;
+        const now = yes ? outcome.yesPrice : 1 - outcome.yesPrice;
+        const p = person(memberId);
+        bets.push({ memberId, memberName: p.name, avatarUrl: p.avatar, cultName: clan.name, marketId: outcome.id, outcomeLabel: outcome.label,
+          side: yes ? 'yes' : 'no', sideLabel: yes ? outcome.yesLabel : outcome.noLabel,
+          shares: Math.round(40 + r() * 900), avgPrice: Math.min(0.97, Math.max(0.02, now * (0.72 + r() * 0.45))) });
+      }
+      return done({ bets });
+    }
+  }
   if (a === 'wallet' && b === 'withdraw' && method === 'POST') {
     const bal = s.me.balances!;
     const amount = Number(body.amount), to = String(body.to ?? ''), symbol = body.symbol as WithdrawRequest['symbol'];
