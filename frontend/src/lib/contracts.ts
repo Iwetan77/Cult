@@ -143,6 +143,7 @@ export type PredictionOrder = {
   side: PredictionSide; sideLabel: string; price: number; amountUsd: number; cultIds?: string[];
 };
 export type PredictionSale = { position: PredictionPosition; price: number; proceedsUsd: number; pnlUsd: number };
+export type PredictionClosed = PredictionSale & { closedAt: number };
 export type PredictionBet = {
   memberId: string; memberName: string; avatarUrl: string | null; cultName: string;
   marketId: string; outcomeLabel: string; side: PredictionSide; sideLabel: string; shares: number; avgPrice: number;
