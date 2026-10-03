@@ -56,6 +56,16 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
       .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Profile unavailable.'); });
     return () => { active = false; };
   }, [id]);
+  // Your positions changed (a close, a new trade): refresh the lists quietly.
+  const holdingsKey = holdings.map(h => `${h.venue}:${h.market}`).sort().join(',');
+  const firstHoldings = useRef(holdingsKey);
+  useEffect(() => {
+    if (id !== 'me' || holdingsKey === firstHoldings.current) return;
+    firstHoldings.current = holdingsKey;
+    let active = true;
+    getAccessToken().then(token => token ? getProfile(token, id) : null).then(value => { if (active && value) setProfile(value); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [id, holdingsKey]);
   // Settings sits below the fold; bring it up when it is picked (e.g. from the side panel).
   const loaded = profile != null;
   useEffect(() => {
@@ -146,11 +156,16 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
           <button className={tab === 'closed' ? 'on' : ''} onClick={() => setTab('closed')}>Closed<b>{profile.closedTrades.length}</b></button>
           {profile.isMe && <button className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>Settings</button>}
         </div>
-        {tab === 'open' ? (profile.openTrades.length ? <div className="ttable">{profile.openTrades.map(trade => { const holding = profile.isMe ? holdingFor(trade) : undefined; return <div className="ttable-row" key={trade.tradeId}>
-          <button className="ttable-main" onClick={() => onTrade({ kind: 'trade', tradeId: trade.tradeId })}><TokenLogo symbol={trade.symbol} /><span><strong>{trade.symbol}</strong><small>{trade.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · opened {new Date(trade.openedAt).toLocaleDateString()}</small></span></button>
+        {tab === 'open' ? (profile.openTrades.length ? <div className="ttable">{profile.openTrades.map(trade => {
+          const holding = profile.isMe ? holdingFor(trade) : undefined;
+          // The whole row opens the trade; Close only closes.
+          const open = () => onTrade({ kind: 'trade', tradeId: trade.tradeId });
+          return <div className="ttable-row is-link" key={trade.tradeId} role="button" tabIndex={0} aria-label={`Open ${trade.symbol} trade`}
+            onClick={open} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
+          <span className="ttable-main"><TokenLogo symbol={trade.symbol} /><span><strong>{trade.symbol}</strong><small>{trade.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · opened {new Date(trade.openedAt).toLocaleDateString()}</small></span></span>
           <span className={`side-chip ${trade.side}`}>{trade.side.toUpperCase()}{trade.venue === 'perpl' ? ` ${trade.leverage}x` : ''}</span>
           <span className={`num strong ${(holding?.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}`}>{holding?.pnlAusd != null ? signedDollars(holding.pnlAusd) : ''}</span>
-          {holding ? <button className="btn btn-ghost btn-sm" onClick={() => onCloseHolding(holding)}>Close</button> : <ArrowRight size={15} className="muted" />}
+          {holding ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onCloseHolding(holding); }}>Close</button> : <ArrowRight size={15} className="muted" />}
         </div>; })}</div> : <div className="empty"><span>No open trades.</span></div>)
         : tab === 'closed' ? (profile.closedTrades.length ? <div className="ttable">{profile.closedTrades.map((trade, index) => <button className="ttable-row" key={`${trade.openTx}:${index}`} onClick={() => onTrade(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'closed', trade, member: { id: profile.id, name: profile.name, avatarUrl: profile.avatarUrl, address: profile.address } })}>
           <span className="ttable-main"><TokenLogo symbol={trade.symbol} /><span><strong>{trade.symbol}{trade.copied && <em className="copied">copied</em>}</strong><small>{trade.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · {new Date(trade.closedAt).toLocaleDateString()}</small></span></span>

@@ -12,13 +12,12 @@ import { PredictionsBrowse, type PredictionPick } from './PredictionsBrowse';
 // Every market on both venues, searchable, plus prediction markets. Drawn at once from the last list
 // we saw; a fresh one replaces it quietly.
 
-type Tab = 'all' | 'perpl' | 'nadfun' | 'predictions';
+type Tab = 'perpl' | 'nadfun' | 'predictions';
 // Coming back from a market lands on the tab you left.
-let lastTab: Tab = 'all';
+let lastTab: Tab = 'perpl';
 // Open Markets on a given tab (e.g. Trade from a cult chat lands on Perps).
 export const showMarketsTab = (tab: Tab) => { lastTab = tab; };
 const TABS: { id: Tab; label: string; title: string }[] = [
-  { id: 'all', label: 'All', title: 'Every market' },
   { id: 'perpl', label: 'Perps', title: 'Trade perps' },
   { id: 'nadfun', label: 'Memes', title: 'Trade memes' },
   { id: 'predictions', label: 'Predictions', title: 'Call it' },

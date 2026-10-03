@@ -746,6 +746,8 @@ button.mtable-row:hover .mtable-go { opacity: 1; background: var(--mint); color:
 .ttable { display: flex; flex-direction: column; margin: 0 -8px; }
 .ttable-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 100px 70px; align-items: center; gap: 12px; padding: 10px 8px; border: 0; border-radius: 14px; background: none; text-align: left; font-size: 14px; }
 button.ttable-row:hover, .ttable-row:hover { background: rgba(255, 255, 255, 0.03); }
+button.ttable-row, .ttable-row.is-link { cursor: pointer; }
+.ttable-row.is-link:focus-visible { outline: 2px solid rgba(99, 240, 214, 0.6); outline-offset: -2px; }
 .ttable-row > :nth-child(3), .ttable-row > :nth-child(4) { justify-self: end; }
 .ttable-main { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0; border: 0; background: none; text-align: left; }
 .ttable-main > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
