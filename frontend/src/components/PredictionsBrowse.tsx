@@ -47,7 +47,7 @@ export function PredictionsBrowse({ search, revision, onOpen }: Props) {
 
   useEffect(() => {
     let active = true;
-    getAccessToken().then(token => token ? getPredictionPositions(token) : { positions: [] }).then(r => { if (active) setPositions(r.positions); }).catch(() => undefined);
+    getAccessToken().then(token => token ? getPredictionPositions(token) : { positions: [], closed: [] }).then(r => { if (active) setPositions(r.positions); }).catch(() => undefined);
     return () => { active = false; };
   }, [revision]);
 

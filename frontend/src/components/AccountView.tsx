@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
 import { ArrowRight, ArrowUpRight, Camera, LogOut, ShieldCheck, Wallet } from 'lucide-react';
-import { deleteAvatar, getProfile, uploadAvatar } from '@/lib/api';
-import type { Holding, Profile } from '@/lib/contracts';
+import { deleteAvatar, getPredictionPositions, getProfile, uploadAvatar } from '@/lib/api';
+import type { ClosedTrade, Holding, PredictionClosed, PredictionPosition, Profile } from '@/lib/contracts';
+import { getEvent, type PredictionOutcome } from '@/lib/polymarket';
+import { EventArt, type PredictionPick } from './PredictionsBrowse';
 import { percent, shortAddress, signedDollars, signedPct } from '@/lib/format';
 import { CountryPicker } from './CountryPicker';
 import { Avatar } from './Avatar';
@@ -12,10 +14,13 @@ import { RoomBadge } from './RoomBadge';
 import { TokenLogo } from './TokenLogo';
 import type { TradeSheetTarget } from './TradeSheet';
 
+const predictionTitle = (p: PredictionPosition) => p.outcomeLabel === p.question ? p.question : `${p.outcomeLabel} · ${p.eventTitle}`;
+
 type Props = {
   id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onCountrySaved: () => Promise<unknown>; onDeposit: () => void; onWithdraw: () => void;
   onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void; onAvatarSaved: () => Promise<unknown>; onRoom: (roomId: string) => void;
   tab: AccountTab; onTab: (tab: AccountTab) => void;
+  predictionRevision: number; onOpenPrediction: (slug: string, pick?: PredictionPick) => void; onSellPrediction: (position: PredictionPosition, price: number) => void;
   signOutLabel?: string;
 };
 
@@ -39,7 +44,7 @@ function PnlCurve({ points }: { points: { t: number; v: number }[] }) {
   </svg>;
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, signOutLabel = 'Sign out' }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -56,6 +61,31 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
       .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Profile unavailable.'); });
     return () => { active = false; };
   }, [id]);
+  // Your prediction bets (open and sold), with live odds for the open ones.
+  const [predictions, setPredictions] = useState<{ open: PredictionPosition[]; closed: PredictionClosed[] }>({ open: [], closed: [] });
+  const [odds, setOdds] = useState<Record<string, PredictionOutcome>>({});
+  useEffect(() => {
+    if (id !== 'me') { setPredictions({ open: [], closed: [] }); return; }
+    let active = true;
+    getAccessToken().then(token => token ? getPredictionPositions(token) : null)
+      .then(r => { if (active && r) setPredictions({ open: r.positions, closed: r.closed }); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [id, predictionRevision]);
+  const slugsKey = [...new Set(predictions.open.map(p => p.eventSlug))].sort().join('|');
+  useEffect(() => {
+    if (!slugsKey) return;
+    let active = true;
+    const load = () => Promise.all(slugsKey.split('|').map(slug => getEvent(slug).catch(() => null))).then(events => {
+      if (!active) return;
+      const next: Record<string, PredictionOutcome> = {};
+      for (const event of events) for (const o of event?.outcomes ?? []) next[o.id] = o;
+      setOdds(next);
+    });
+    void load();
+    const timer = window.setInterval(load, 30_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [slugsKey]);
+
   // Your positions changed (a close, a new trade): refresh the lists quietly.
   const holdingsKey = holdings.map(h => `${h.venue}:${h.market}`).sort().join(',');
   const firstHoldings = useRef(holdingsKey);
@@ -121,6 +151,16 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
   if (error && !profile) return <div className="view one-col"><section className="view-main"><p className="notice-line">{error}</p></section></div>;
   if (!profile) return <div className="view one-col"><section className="view-main"><div className="skel skel-banner" /><div className="skel skel-chart" /></section></div>;
   const record = profile.record;
+  // Perps/memes and predictions in one list each, newest first.
+  const when = (value: number | string | null | undefined) => value == null ? 0 : typeof value === 'number' ? value : Date.parse(value) || 0;
+  const openItems: ({ kind: 'trade'; at: number; trade: Profile['openTrades'][number] } | { kind: 'prediction'; at: number; p: PredictionPosition })[] = [
+    ...profile.openTrades.map(trade => ({ kind: 'trade' as const, at: when(trade.openedAt), trade })),
+    ...(profile.isMe ? predictions.open.map(p => ({ kind: 'prediction' as const, at: p.openedAt, p })) : []),
+  ].sort((a, b) => b.at - a.at);
+  const closedItems: ({ kind: 'trade'; at: number; trade: ClosedTrade } | { kind: 'prediction'; at: number; c: PredictionClosed })[] = [
+    ...profile.closedTrades.map(trade => ({ kind: 'trade' as const, at: trade.closedAt, trade })),
+    ...(profile.isMe ? predictions.closed.map(c => ({ kind: 'prediction' as const, at: c.closedAt, c })) : []),
+  ].sort((a, b) => b.at - a.at);
   const holdingFor = (trade: Profile['openTrades'][number]) => holdings.find(item => item.market === trade.market && item.venue === trade.venue);
 
   return <div className="view two-col">
@@ -152,11 +192,25 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
 
       <section className="card" ref={tabsCard}>
         <div className="tabs">
-          <button className={tab === 'open' ? 'on' : ''} onClick={() => setTab('open')}>Open<b>{profile.openTrades.length}</b></button>
-          <button className={tab === 'closed' ? 'on' : ''} onClick={() => setTab('closed')}>Closed<b>{profile.closedTrades.length}</b></button>
+          <button className={tab === 'open' ? 'on' : ''} onClick={() => setTab('open')}>Open<b>{openItems.length}</b></button>
+          <button className={tab === 'closed' ? 'on' : ''} onClick={() => setTab('closed')}>Closed<b>{closedItems.length}</b></button>
           {profile.isMe && <button className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>Settings</button>}
         </div>
-        {tab === 'open' ? (profile.openTrades.length ? <div className="ttable">{profile.openTrades.map(trade => {
+        {tab === 'open' ? (openItems.length ? <div className="ttable">{openItems.map(item => {
+          if (item.kind === 'prediction') {
+            const p = item.p, o = odds[p.marketId];
+            const now = o ? (p.side === 'yes' ? o.yesPrice : o.noPrice) : null;
+            const pnl = now == null ? null : p.shares * now - p.costUsd;
+            const open = () => onOpenPrediction(p.eventSlug, { outcomeId: p.marketId, side: p.side });
+            return <div className="ttable-row is-link" key={p.id} role="button" tabIndex={0} aria-label={`Open ${predictionTitle(p)}`}
+              onClick={open} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
+              <span className="ttable-main"><EventArt event={{ image: p.image, title: p.eventTitle }} /><span><strong className="ttable-title">{predictionTitle(p)}</strong><small>Polymarket · opened {new Date(p.openedAt).toLocaleDateString()}</small></span></span>
+              <span className={`side-chip ${p.side === 'yes' ? 'long' : 'short'}`}>{p.sideLabel.toUpperCase()}</span>
+              <span className={`num strong ${(pnl ?? 0) >= 0 ? 'up' : 'down'}`}>{pnl == null ? '' : signedDollars(pnl)}</span>
+              {now != null ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onSellPrediction(p, now); }}>Sell</button> : <ArrowRight size={15} className="muted" />}
+            </div>;
+          }
+          const trade = item.trade;
           const holding = profile.isMe ? holdingFor(trade) : undefined;
           // The whole row opens the trade; Close only closes.
           const open = () => onTrade({ kind: 'trade', tradeId: trade.tradeId });
@@ -167,12 +221,21 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
           <span className={`num strong ${(holding?.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}`}>{holding?.pnlAusd != null ? signedDollars(holding.pnlAusd) : ''}</span>
           {holding ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onCloseHolding(holding); }}>Close</button> : <ArrowRight size={15} className="muted" />}
         </div>; })}</div> : <div className="empty"><span>No open trades.</span></div>)
-        : tab === 'closed' ? (profile.closedTrades.length ? <div className="ttable">{profile.closedTrades.map((trade, index) => <button className="ttable-row" key={`${trade.openTx}:${index}`} onClick={() => onTrade(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'closed', trade, member: { id: profile.id, name: profile.name, avatarUrl: profile.avatarUrl, address: profile.address } })}>
+        : tab === 'closed' ? (closedItems.length ? <div className="ttable">{closedItems.map((item, index) => item.kind === 'prediction' ? (() => {
+          const c = item.c, p = c.position;
+          const ret = p.costUsd > 0 ? (c.pnlUsd / p.costUsd) * 100 : null;
+          return <button className="ttable-row" key={`${p.id}:${c.closedAt}`} onClick={() => onOpenPrediction(p.eventSlug, { outcomeId: p.marketId, side: p.side })}>
+            <span className="ttable-main"><EventArt event={{ image: p.image, title: p.eventTitle }} /><span><strong className="ttable-title">{predictionTitle(p)}</strong><small>Polymarket · {new Date(c.closedAt).toLocaleDateString()}</small></span></span>
+            <span className={`side-chip ${p.side === 'yes' ? 'long' : 'short'}`}>{p.sideLabel.toUpperCase()}</span>
+            <span className={`num strong ${c.pnlUsd >= 0 ? 'up' : 'down'}`}>{signedDollars(c.pnlUsd)}</span>
+            <span className={`num ${(ret ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(ret, 1)}</span>
+          </button>;
+        })() : (() => { const trade = item.trade; return <button className="ttable-row" key={`${trade.openTx}:${index}`} onClick={() => onTrade(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'closed', trade, member: { id: profile.id, name: profile.name, avatarUrl: profile.avatarUrl, address: profile.address } })}>
           <span className="ttable-main"><TokenLogo symbol={trade.symbol} /><span><strong>{trade.symbol}{trade.copied && <em className="copied">copied</em>}</strong><small>{trade.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · {new Date(trade.closedAt).toLocaleDateString()}</small></span></span>
           <span className={`side-chip ${trade.side}`}>{trade.side.toUpperCase()}</span>
           <span className={`num strong ${(trade.pnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{trade.pnlUsd == null ? 'Pending' : signedDollars(trade.pnlUsd)}</span>
           <span className={`num ${(trade.returnPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(trade.returnPct, 1)}</span>
-        </button>)}</div> : <div className="empty"><span>No closed trades yet.</span></div>)
+        </button>; })())}</div> : <div className="empty"><span>No closed trades yet.</span></div>)
         : <div className="settings">
           <CountryPicker currentCode={profile.country?.code} onSaved={onCountrySaved} />
           <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> Change</button></div>

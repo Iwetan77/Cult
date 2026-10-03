@@ -753,6 +753,9 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .ttable-main > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ttable-main strong { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 500; }
 .ttable-main small { font-size: 12px; color: var(--dim); }
+.ttable-main .pm-art { width: 36px; height: 36px; border-radius: 50%; }
+.ttable-main .pm-art b { font-size: 15px; }
+.ttable-main strong.ttable-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .copied { padding: 1px 7px; border-radius: 99px; background: rgba(143, 180, 255, 0.12); color: var(--blue); font-size: 10.5px; font-style: normal; font-weight: 500; }
 .verified { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--mint); }
 .record-lines { display: flex; flex-direction: column; gap: 12px; margin: 0; }

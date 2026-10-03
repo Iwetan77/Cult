@@ -1,4 +1,4 @@
-import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, PredictionBet, PredictionOrder, PredictionPosition, PredictionSale, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
+import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, PredictionBet, PredictionClosed, PredictionOrder, PredictionPosition, PredictionSale, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 import { rememberList, rememberMarket } from './marketCache';
 import { DemoError, demoApi, isDemo } from './demo';
 
@@ -105,7 +105,7 @@ export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token,
 // (lib/polymarket.ts). Trading runs in the demo only until a Polygon wallet
 // and venue adapter exist on the backend.
 export const PREDICTIONS_SOON = 'Prediction trading is coming to Cult soon. Try it in the demo.';
-export const getPredictionPositions = (token: string) => isDemo() ? api<{ positions: PredictionPosition[] }>('/v1/predictions/positions', token) : Promise.resolve({ positions: [] as PredictionPosition[] });
+export const getPredictionPositions = (token: string) => isDemo() ? api<{ positions: PredictionPosition[]; closed: PredictionClosed[] }>('/v1/predictions/positions', token) : Promise.resolve({ positions: [] as PredictionPosition[], closed: [] as PredictionClosed[] });
 export const buyPrediction = (token: string, order: PredictionOrder) => isDemo() ? api<PredictionPosition>('/v1/predictions/orders', token, { method: 'POST', body: json(order) }) : Promise.reject(new ApiError(PREDICTIONS_SOON, 501));
 export const sellPrediction = (token: string, positionId: string, price: number) => isDemo() ? api<PredictionSale>('/v1/predictions/sell', token, { method: 'POST', body: json({ positionId, price }) }) : Promise.reject(new ApiError(PREDICTIONS_SOON, 501));
 export const getPredictionBets = (token: string, eventSlug: string, outcomes: { id: string; label: string; yesPrice: number; yesLabel: string; noLabel: string }[]) =>

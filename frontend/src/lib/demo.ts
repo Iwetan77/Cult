@@ -1,4 +1,4 @@
-import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, BoardPeriod, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue, WithdrawRequest, WithdrawResult, PredictionBet, PredictionOrder, PredictionPosition, PredictionSale } from './contracts';
+import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, BoardPeriod, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue, WithdrawRequest, WithdrawResult, PredictionBet, PredictionClosed, PredictionOrder, PredictionPosition, PredictionSale } from './contracts';
 import { cents } from './polymarket';
 import { cachedList } from './marketCache';
 
@@ -172,7 +172,7 @@ type State = {
   me: Me; base: Record<string, number>; seeds: Seed[]; positions: Position[];
   messages: Record<string, ChatMessage[]>; pinned: Record<string, ChatPage['pinned']>;
   members: Record<string, string[]>; discover: DiscoverCult[]; challenges: Record<string, MirrorPolicy>; next: number;
-  predictions?: PredictionPosition[];
+  predictions?: PredictionPosition[]; predictionHistory?: PredictionClosed[];
 };
 let state: State | null = null;
 
@@ -530,7 +530,7 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
   if (a === 'predictions') {
     const list = (s.predictions ??= []);
     const what = (p: { outcomeLabel: string; question: string; eventTitle: string }) => p.outcomeLabel === p.question ? `"${p.question}"` : `${p.outcomeLabel} in "${p.eventTitle}"`;
-    if (b === 'positions') return done({ positions: list });
+    if (b === 'positions') return done({ positions: list, closed: s.predictionHistory ?? [] });
     if (b === 'orders' && method === 'POST') {
       const order = body as unknown as PredictionOrder;
       const price = Number(order.price), amount = Number(order.amountUsd);
@@ -560,7 +560,9 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
       s.me.balances!.walletUsd += proceeds;
       s.predictions = list.filter(p => p !== position);
       for (const clan of s.me.clans) post(s, `cult:${clan.id}`, ME_ID, `sold ${position.sideLabel.toUpperCase()} on ${what(position)} at ${cents(price)}`, 'system');
-      return done<PredictionSale>({ position, price, proceedsUsd: proceeds, pnlUsd: proceeds - position.costUsd });
+      const sale: PredictionSale = { position, price, proceedsUsd: proceeds, pnlUsd: proceeds - position.costUsd };
+      (s.predictionHistory ??= []).unshift({ ...sale, closedAt: Date.now() });
+      return done(sale);
     }
     if (b === 'bets' && method === 'POST') {
       // Cult-mates' bets, steady for an event: who, which outcome, which side.
