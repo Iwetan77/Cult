@@ -26,7 +26,6 @@ type Props = {
   onClose: () => void;
 };
 
-const CREDIT = 'via GIPHY';
 type Gif = { pick: GifPick; frames: GifFrames };
 
 export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLabel = 'Close position', onConfirm, onShareLink, onClose }: Props) {
@@ -74,7 +73,7 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
     if (!el || !renderer) return;
     el.width = renderer.width; el.height = renderer.height;
     const ctx = el.getContext('2d')!;
-    const art = (i: number) => gif ? { source: gif.frames.frames[i]!.image, width: gif.frames.width, height: gif.frames.height, credit: CREDIT } : null;
+    const art = (i: number) => gif ? { source: gif.frames.frames[i]!.image, width: gif.frames.width, height: gif.frames.height } : null;
     renderer.draw(ctx, art(0));
     if (!gif || gif.frames.frames.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     let frame = 0, timer = 0;
@@ -93,7 +92,7 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
     if (!exporting) return;
     let active = true;
     setBlob(null); setProgress(gif ? 0 : null);
-    (gif ? encodePnlGif(result, gif.frames, CREDIT, done => { if (active) setProgress(done); }) : drawPnlCard(result))
+    (gif ? encodePnlGif(result, gif.frames, done => { if (active) setProgress(done); }) : drawPnlCard(result))
       .then(made => { if (active) { setBlob(made); setProgress(null); } })
       .catch(reason => { if (active) { setProgress(null); setError(reason instanceof Error ? reason.message : 'Could not make the card.'); } });
     return () => { active = false; };
@@ -160,7 +159,6 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
         {renderer && gifLoading && <span className="pnl-sheet-gifwait">Finding a GIF…</span>}
       </div>
       {giphyEnabled() && <div className="pnl-sheet-gifbar">
-        <span className="pnl-sheet-giphy">Powered by <b>GIPHY</b></span>
         <button className="btn btn-ghost btn-sm" disabled={gifLoading || busy || progress != null} onClick={() => setReroll(value => value + 1)}><Shuffle size={14} /> New GIF</button>
       </div>}
       {mode === 'confirm' ? <div className="pnl-sheet-actions" key="confirm">
