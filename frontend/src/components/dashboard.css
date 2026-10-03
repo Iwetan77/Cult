@@ -918,8 +918,13 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .pnl-sheet-head { display: flex; flex-direction: column; gap: 8px; padding-right: 40px; }
 .pnl-sheet-head .eyebrow { color: var(--mint); }
 .pnl-sheet-head b { font-weight: 500; }
-.pnl-sheet-card { aspect-ratio: 4 / 5; border-radius: 20px; overflow: hidden; background: #070808; box-shadow: inset 0 0 0 1px var(--line2), 0 20px 60px rgba(0, 0, 0, 0.5); }
-.pnl-sheet-card img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pnl-sheet-card { position: relative; aspect-ratio: 4 / 5; border-radius: 20px; overflow: hidden; background: #070808; box-shadow: inset 0 0 0 1px var(--line2), 0 20px 60px rgba(0, 0, 0, 0.5); }
+.pnl-sheet-card canvas { display: block; width: 100%; height: 100%; }
+.pnl-sheet-card.is-loading canvas { display: none; }
+.pnl-sheet-gifwait { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); padding: 8px 14px; border-radius: 99px; background: rgba(7, 8, 8, 0.75); box-shadow: inset 0 0 0 1px var(--line2); font-size: 12.5px; color: var(--muted); animation: fade 0.3s; }
+.pnl-sheet-gifbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: -4px; }
+.pnl-sheet-giphy { font-size: 11.5px; color: var(--dim); }
+.pnl-sheet-giphy b { font-weight: 700; letter-spacing: 0.06em; color: var(--muted); }
 .pnl-sheet-card .skel { display: block; width: 100%; height: 100%; }
 .pnl-sheet-card .notice-line { margin: 16px; }
 .pnl-sheet-actions { display: flex; gap: 8px; }
