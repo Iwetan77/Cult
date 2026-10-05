@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAccessToken } from '@privy-io/react-auth';
-import { ArrowRight, X } from 'lucide-react';
+import { getAccessToken } from '@/lib/auth';
+import { ArrowRight, X } from './icons';
 import { getTrade } from '@/lib/api';
 import type { ClosedTrade, Home, TradeView, Venue } from '@/lib/contracts';
 import { dollars, percent, shortAddress, signedDollars } from '@/lib/format';
@@ -86,14 +86,14 @@ export function TradeSheet({ target, onClose, onProfile, onChart }: Props) {
 
   return <div className="modal-backdrop trade-sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="trade-sheet" role="dialog" aria-modal="true" aria-label="Trade details">
-      <div className="trade-sheet-head"><span className="eyebrow">TRADE</span><button className="icon-button" title="Close trade details" onClick={onClose}><X size={18} /></button></div>
-      {loading ? <p className="field-note">Loading trade...</p> : error ? <p className="wallet-warning">{error}</p> : summary && <>
+      <div className="trade-sheet-head"><span className="eyebrow">TRADE</span><button className="icon-btn" title="Close trade details" onClick={onClose}><X size={18} /></button></div>
+      {loading ? <p className="field-note">Loading trade...</p> : error ? <p className="notice-line">{error}</p> : summary && <>
         <button className="trade-sheet-member" onClick={() => { onClose(); onProfile(summary.member.id); }}><Avatar name={summary.member.name} url={summary.member.avatarUrl} /><span><strong>{summary.member.name}</strong>{summary.member.address && <small>{shortAddress(summary.member.address)}</small>}</span><ArrowRight size={15} /></button>
         <div className="trade-sheet-title"><h2>{summary.symbol}</h2><span className="venue-badge">{summary.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}</span></div>
         <div className="trade-sheet-tags"><span>{summary.side.toUpperCase()}</span>{summary.venue === 'perpl' && summary.leverage != null && <span>{summary.leverage}x</span>}{summary.youCopied && <span className="copied-label">You copied this</span>}</div>
         <div className="trade-sheet-facts"><div><span>OPENED</span><strong>{dateTime(summary.openedAt)}</strong></div>{summary.status === 'closed' && <div><span>CLOSED</span><strong>{dateTime(summary.closedAt)}</strong></div>}{summary.tradersIn != null && <div><span>TOGETHER</span><strong>{summary.tradersIn} {summary.tradersIn === 1 ? 'trader was' : 'traders were'} in</strong></div>}</div>
-        {summary.status === 'open' ? <div className="trade-sheet-outcome"><span className="eyebrow">OPEN POSITION</span>{summary.cultId && summary.markerId ? <button className="primary full" onClick={() => onChart(summary.cultId!, summary.markerId!, summary.market)}>Open chart <ArrowRight size={15} /></button> : <p className="field-note">A Cult chart is not available for this trade.</p>}</div> : <div className="trade-sheet-outcome"><span className="eyebrow">RESULT</span>{summary.result ? <><strong className={(summary.result.returnPct ?? 0) >= 0 ? 'positive' : 'negative'}>{summary.result.returnPct == null ? '—' : `${summary.result.returnPct > 0 ? '+' : ''}${percent(summary.result.returnPct)}`}</strong><div className="trade-sheet-pnl">{summary.result.pnlUsd == null ? 'PnL verifying…' : signedDollars(summary.result.pnlUsd)}</div>{summary.venue === 'perpl' && <p className="trade-sheet-prices">{dollars(summary.result.entryPrice)} → {dollars(summary.result.exitPrice)}</p>}</> : <p className="field-note">Result verifying…</p>}</div>}
-        {target.kind !== 'trade' && <button className="outline full trade-sheet-profile-link" onClick={() => { onClose(); onProfile(summary.member.id); }}>View profile <ArrowRight size={15} /></button>}
+        {summary.status === 'open' ? <div className="trade-sheet-outcome"><span className="eyebrow">OPEN POSITION</span>{summary.cultId && summary.markerId ? <button className="btn btn-primary btn-block" onClick={() => onChart(summary.cultId!, summary.markerId!, summary.market)}>Open chart <ArrowRight size={15} /></button> : <p className="field-note">A Cult chart is not available for this trade.</p>}</div> : <div className="trade-sheet-outcome"><span className="eyebrow">RESULT</span>{summary.result ? <><strong className={(summary.result.returnPct ?? 0) >= 0 ? 'positive' : 'negative'}>{summary.result.returnPct == null ? '—' : `${summary.result.returnPct > 0 ? '+' : ''}${percent(summary.result.returnPct)}`}</strong><div className="trade-sheet-pnl">{summary.result.pnlUsd == null ? 'PnL verifying…' : signedDollars(summary.result.pnlUsd)}</div>{summary.venue === 'perpl' && <p className="trade-sheet-prices">{dollars(summary.result.entryPrice)} → {dollars(summary.result.exitPrice)}</p>}</> : <p className="field-note">Result verifying…</p>}</div>}
+        {target.kind !== 'trade' && <button className="btn btn-ghost btn-block" onClick={() => { onClose(); onProfile(summary.member.id); }}>View profile <ArrowRight size={15} /></button>}
       </>}
     </section>
   </div>;

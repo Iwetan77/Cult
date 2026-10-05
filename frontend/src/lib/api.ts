@@ -1,5 +1,6 @@
-import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
+import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, PredictionBet, PredictionClosed, PredictionOrder, PredictionPosition, PredictionSale, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 import { rememberList, rememberMarket } from './marketCache';
+import { DemoError, demoApi, isDemo } from './demo';
 
 const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
@@ -8,6 +9,14 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, token: string | null, options: RequestInit = {}): Promise<T> {
+  if (isDemo()) {
+    try { return await demoApi<T>(path, options, () => request<T>(path, null, options)); }
+    catch (reason) { throw reason instanceof DemoError ? new ApiError(reason.message, reason.status) : reason; }
+  }
+  return request<T>(path, token, options);
+}
+
+async function request<T>(path: string, token: string | null, options: RequestInit): Promise<T> {
   if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
   const response = await fetch(`${BASE.replace(/\/$/, '')}${path}`, {
     ...options,
@@ -79,7 +88,7 @@ export const getRoomEventUrl = (room: string) => {
   if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
   return `${BASE.replace(/\/$/, '')}/v1/chat/${encodeURIComponent(room)}/events`;
 };
-export const getLeaderboard = (token: string, scope: 'global' | 'country' | 'cult', cultId?: string) => api<Leaderboard>(scope === 'global' ? '/v1/leaderboards/global' : scope === 'country' ? '/v1/leaderboards/country' : `/v1/cults/${encodeURIComponent(cultId ?? '')}/leaderboard`, token);
+export const getLeaderboard = (token: string, scope: 'global' | 'country' | 'cult', cultId?: string, period: BoardPeriod = 'all') => api<Leaderboard>(`${scope === 'global' ? '/v1/leaderboards/global' : scope === 'country' ? '/v1/leaderboards/country' : `/v1/cults/${encodeURIComponent(cultId ?? '')}/leaderboard`}${period === 'all' ? '' : `?period=${period}`}`, token);
 export const getCultStandings = (token: string) => api<{ entries: CultStanding[]; asOf: string }>('/v1/leaderboards/cults', token);
 
 export const setAutoFollowOff = (token: string, cultId: string) => api<Clan>(`/v1/cults/${encodeURIComponent(cultId)}/auto-follow`, token, { method: 'POST', body: json({ enabled: false }) });
@@ -92,7 +101,19 @@ export const usernameAvailability = (name: string) => api<{ available: boolean; 
 export const setUsername = (token: string, username: string) => api<{ username: string; name: string }>('/v1/me/username', token, { method: 'POST', body: json({ username }) });
 export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: string }>('/v1/me/avatar', token, { method: 'POST', body: json({ image }) });
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
+// Prediction markets: market data comes straight from Polymarket
+// (lib/polymarket.ts). Trading runs in the demo only until a Polygon wallet
+// and venue adapter exist on the backend.
+export const PREDICTIONS_SOON = 'Prediction trading is coming to Cult soon. Try it in the demo.';
+export const getPredictionPositions = (token: string) => isDemo() ? api<{ positions: PredictionPosition[]; closed: PredictionClosed[] }>('/v1/predictions/positions', token) : Promise.resolve({ positions: [] as PredictionPosition[], closed: [] as PredictionClosed[] });
+export const buyPrediction = (token: string, order: PredictionOrder) => isDemo() ? api<PredictionPosition>('/v1/predictions/orders', token, { method: 'POST', body: json(order) }) : Promise.reject(new ApiError(PREDICTIONS_SOON, 501));
+export const sellPrediction = (token: string, positionId: string, price: number) => isDemo() ? api<PredictionSale>('/v1/predictions/sell', token, { method: 'POST', body: json({ positionId, price }) }) : Promise.reject(new ApiError(PREDICTIONS_SOON, 501));
+export const getPredictionBets = (token: string, eventSlug: string, outcomes: { id: string; label: string; yesPrice: number; yesLabel: string; noLabel: string }[]) =>
+  isDemo() ? api<{ bets: PredictionBet[] }>('/v1/predictions/bets', token, { method: 'POST', body: json({ eventSlug, outcomes }) }) : Promise.resolve({ bets: [] as PredictionBet[] });
 export const getDeposit = (token: string) => api<DepositInfo>('/v1/wallet/deposit', token);
+// Demo only for now: the backend can't move funds out by design, so a real
+// withdrawal will be signed by the member's own wallet once it's built.
+export const withdraw = (token: string, body: WithdrawRequest) => api<WithdrawResult>('/v1/wallet/withdraw', token, { method: 'POST', body: JSON.stringify(body) });
 export const getMarkets = (query = '', venue?: Venue) => api<{ markets: MarketListing[] }>(`/v1/markets?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(venue ? { venue } : {}), limit: '100' })}`, null)
   .then(r => { rememberList(query, venue, r.markets); return r; });
 export const getMarket = (id: string, resolutionSec = 3600) => api<MarketDetail>(`/v1/markets/${encodeURIComponent(id)}?resolution=${resolutionSec}`, null)

@@ -1,14 +1,18 @@
 'use client';
 
-import { ArrowRight, GripHorizontal, Share2, X } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowRight, Share2, X } from './icons';
 import type { ChartMarker, TpslSuggestion } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
 import { Avatar } from './Avatar';
 
-// The card that opens over the chart when you tap a position: whose it is,
-// how it's doing, and what you can do with it right there. Yours: drag its
-// TP/SL lines (real Perpl orders), accept suggestions, close. A cult-mate's:
-// stack your own position on top, or drag their lines to suggest TP/SL.
+// The card that opens when you tap a position on the chart: whose it is,
+// how it's doing, and what you can do with it right there. Yours: set TP/SL
+// (real Perpl orders; the chart's handles drag them too), accept
+// suggestions, share, close. A cult-mate's: stack your own position on top,
+// or suggest TP/SL. Floats over the chart on wide screens; a bottom sheet on
+// phones.
 
 type Props = {
   marker: ChartMarker;
@@ -33,57 +37,94 @@ type Props = {
 
 const price = (value: number | null | undefined) => value == null ? '—' : dollars(value, value < 1 ? 6 : 2);
 const originLabel = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? 'Auto copy' : origin === 'manual_stack' ? 'Stacked' : 'Own trade';
+const decimal = (value: string) => value.replace(/[^0-9.]/g, '');
+
+const PHONE = '(max-width: 760px)';
+function usePhone() {
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia(PHONE);
+    const sync = () => setPhone(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
+  return phone;
+}
 
 export function MarkerCard(p: Props) {
+  const phone = usePhone();
   const m = p.marker;
   const perp = m.venue === 'perpl';
   const pnl = perp ? m.pnlUsd : null;
+  const leverage = Math.max(1, m.leverage || 1);
+  const cost = perp && m.entryPrice != null && m.size ? (m.entryPrice * m.size) / leverage : null;
+  const roi = pnl != null && cost ? (pnl / cost) * 100 : null;
   const skipLeft = m.skipUntil ? Math.ceil((Date.parse(m.skipUntil) - p.now) / 1000) : 0;
   const levels = perp && m.entryPrice != null;
-  return <section className="marker-card" aria-label={`${m.memberName}'s position`}>
+
+  useEffect(() => {
+    if (!phone) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') p.onDismiss(); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [phone, p]);
+
+  const card = <section className={`marker-card${phone ? ' is-sheet' : ''}`} role={phone ? 'dialog' : undefined} aria-modal={phone || undefined} aria-label={`${m.isMine ? 'Your' : `${m.memberName}'s`} position`}>
     <header className="marker-card-head">
       <Avatar name={m.memberName} url={p.avatarUrl} />
       <div><strong>{m.isMine ? 'You' : m.memberName}</strong><small>{originLabel(m.origin)} · {p.symbol}</small></div>
       <span className={`side-chip ${m.side}`}>{m.side.toUpperCase()}{perp && m.leverage ? ` ${m.leverage}x` : ''}</span>
-      <button className="icon-button compact" title="Close" onClick={p.onDismiss}><X size={15} /></button>
+      <button className="icon-btn icon-btn--sm" title="Close" onClick={p.onDismiss}><X size={15} /></button>
     </header>
-    <div className="marker-card-pnl">
-      <span>{perp ? 'Live PnL' : 'Value'}</span>
-      <strong className={perp ? ((pnl ?? 0) >= 0 ? 'positive' : 'negative') : ''}>{perp ? (pnl == null ? 'Pending' : signedDollars(pnl)) : (m.valueUsd == null ? 'Pending' : dollars(m.valueUsd))}</strong>
+
+    <div className={`marker-card-pnl ${perp ? ((pnl ?? 0) >= 0 ? 'is-up' : 'is-down') : ''}`}>
+      <span>{perp ? 'Live PnL' : 'Value'}{roi != null && <em>{roi > 0 ? '+' : ''}{roi.toFixed(1)}%</em>}</span>
+      <strong>{perp ? (pnl == null ? 'Pending' : signedDollars(pnl)) : (m.valueUsd == null ? 'Pending' : dollars(m.valueUsd))}</strong>
     </div>
+
     <dl className="marker-card-stats">
-      <dt>Entry</dt><dd>{m.entryPrice == null ? 'Pending' : price(m.entryPrice)}</dd>
-      <dt>Mark</dt><dd>{price(m.markPrice)}</dd>
-      {m.size != null && <><dt>Size</dt><dd>{Number(m.size.toPrecision(6))}</dd></>}
-      {levels && <><dt>TP</dt><dd className="positive">{price(m.takeProfitPrice)}</dd><dt>SL</dt><dd className="negative">{price(m.stopLossPrice)}</dd></>}
+      <div><dt>Entry</dt><dd>{m.entryPrice == null ? 'Pending' : price(m.entryPrice)}</dd></div>
+      <div><dt>Mark</dt><dd>{price(m.markPrice)}</dd></div>
+      {m.size != null && <div><dt>Size</dt><dd>{Number(m.size.toPrecision(6))}</dd></div>}
     </dl>
 
-    {m.isMine && m.origin === 'auto_mirror' && m.mirrorStatus === 'pending' && skipLeft > 0 && <button className="outline full" disabled={p.busy} onClick={p.onSkip}>Skip this copy ({skipLeft}s)</button>}
+    {m.isMine && m.origin === 'auto_mirror' && m.mirrorStatus === 'pending' && skipLeft > 0 && <button className="btn btn-ghost btn-sm btn-block" disabled={p.busy} onClick={p.onSkip}>Skip this copy ({skipLeft}s)</button>}
 
-    {levels && <>
-      <p className="marker-card-hint"><GripHorizontal size={14} /> {m.isMine ? 'Drag the TP and SL handles on the chart to set real orders.' : `Drag ${m.memberName}'s TP and SL handles to suggest levels.`}</p>
-      <div className="marker-card-levels">
-        <label><span>TP $</span><input inputMode="decimal" value={p.tpDraft} onChange={event => p.onTpDraft(event.target.value)} /></label>
-        <label><span>SL $</span><input inputMode="decimal" value={p.slDraft} onChange={event => p.onSlDraft(event.target.value)} /></label>
-        <button className="outline" disabled={p.busy} onClick={p.onSaveLevels}>{m.isMine ? 'Set' : 'Suggest'}</button>
+    {levels && <div className="marker-card-levels">
+      <div className="marker-card-label"><span>{m.isMine ? 'Take profit · Stop loss' : 'Suggest TP · SL'}</span><small>or drag the handles on the chart</small></div>
+      <div className="marker-card-fields">
+        <Field label="TP" tone="up" value={p.tpDraft} onChange={p.onTpDraft} />
+        <Field label="SL" tone="down" value={p.slDraft} onChange={p.onSlDraft} />
       </div>
-    </>}
+      <button className="btn btn-ghost btn-sm btn-block" disabled={p.busy} onClick={p.onSaveLevels}>{m.isMine ? 'Set TP/SL' : `Suggest to ${m.memberName}`}</button>
+    </div>}
 
     {m.isMine && perp && !!m.suggestions?.length && <div className="marker-card-suggestions">
-      <span className="ticket-label">Suggestions from your cult</span>
-      {m.suggestions.map(s => <div key={s.id}><span><strong>{s.fromName}</strong> TP {price(s.takeProfitPrice)} · SL {price(s.stopLossPrice)}</span><button className="outline" disabled={p.busy} onClick={() => p.onApplySuggestion(s)}>Accept</button></div>)}
+      <span className="marker-card-label"><span>Suggestions from your cult</span></span>
+      {m.suggestions.map(s => <div key={s.id}><span><strong>{s.fromName}</strong> TP {price(s.takeProfitPrice)} · SL {price(s.stopLossPrice)}</span><button className="btn btn-ghost btn-sm" disabled={p.busy} onClick={() => p.onApplySuggestion(s)}>Accept</button></div>)}
     </div>}
 
     {!m.isMine && <div className="marker-card-stack">
-      <span className="ticket-label">Stack on this</span>
-      <div><span className="ticket-prefix">$</span><input inputMode="decimal" value={p.stackUsd} onChange={event => p.onStackUsd(event.target.value.replace(/[^0-9.]/g, ''))} aria-label="Stack amount in dollars" />
-        <button className="primary" disabled={p.busy} onClick={p.onStack}>{perp ? `Open ${m.side}` : 'Buy'} <ArrowRight size={14} /></button></div>
-      <small>Opens the same {perp ? 'position' : 'buy'} in your own account.</small>
+      <span className="marker-card-label"><span>Stack on this</span><small>Same {perp ? 'position' : 'buy'}, in your own account</small></span>
+      <div><span className="ticket-prefix">$</span><input inputMode="decimal" value={p.stackUsd} onChange={event => p.onStackUsd(decimal(event.target.value))} aria-label="Stack amount in dollars" />
+        <button className="btn btn-primary btn-sm" disabled={p.busy} onClick={p.onStack}>{perp ? `Open ${m.side}` : 'Buy'} <ArrowRight size={14} /></button></div>
     </div>}
 
     {m.isMine && <div className="marker-card-own">
-      <button className="outline" disabled={p.busy} onClick={p.onShare}><Share2 size={14} /> Share PnL card</button>
-      {m.origin !== 'auto_mirror' && <button className="outline danger-button" disabled={p.busy} onClick={p.onClosePosition}>Close position</button>}
+      <button className="btn btn-ghost btn-sm" disabled={p.busy} onClick={p.onShare}><Share2 size={14} /> Share PnL card</button>
+      {m.origin !== 'auto_mirror' && <button className="btn btn-danger btn-sm" disabled={p.busy} onClick={p.onClosePosition}>{perp ? 'Close position' : 'Sell all'}</button>}
     </div>}
   </section>;
+
+  if (!phone) return card;
+  // Inside the dashboard's own layer, so its other dialogs can stack above.
+  return createPortal(<div className="modal-backdrop marker-sheet" onMouseDown={event => { if (event.target === event.currentTarget) p.onDismiss(); }}>{card}</div>, document.querySelector('.dash') ?? document.body);
+}
+
+function Field({ label, tone, value, onChange }: { label: string; tone: 'up' | 'down'; value: string; onChange: (value: string) => void }): ReactNode {
+  return <label className={`marker-card-field is-${tone}`}>
+    <span>{label}</span>
+    <input inputMode="decimal" placeholder="None" value={value} onChange={event => onChange(decimal(event.target.value))} />
+  </label>;
 }
