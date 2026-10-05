@@ -17,6 +17,8 @@ import type { TradeSheetTarget } from './TradeSheet';
 import type { AccountTab } from '@/lib/routes';
 import { setNotifyPref, useNotifyPref } from '@/lib/prefs';
 import { enableNotifications } from './AlertsMenu';
+import { PinSetting } from './PinSetting';
+import { isDemo } from '@/lib/demo';
 
 // Settings: notifications. On, every alert and new cult message shows in the
 // app, and as a system notification in the background where the browser allows.
@@ -274,6 +276,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
         </button>; })())}</div> : <div className="empty"><span>No closed trades yet.</span></div>)
         : <div className="settings">
           <NotificationsSetting owner={profile.id} />
+          {!isDemo() && <PinSetting onSignOut={onSignOut} />}
           <CountryPicker currentCode={profile.country?.code} onSaved={onCountrySaved} />
           <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> Change</button></div>
           <div className="setting danger"><div><strong>{signOutLabel}</strong><small>Your funds stay in your wallet.</small></div><button className="btn btn-ghost btn-sm" onClick={onSignOut}><LogOut size={14} /> {signOutLabel}</button></div>

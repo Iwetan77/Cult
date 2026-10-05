@@ -62,7 +62,7 @@ export type BackendConfig = {
   features?: { predictions: boolean; crossChain: boolean };
 };
 export type Me = {
-  id: string; address: `0x${string}`; name: string; username: string | null; needsUsername: boolean; avatarUrl: string | null; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
+  id: string; address: `0x${string}`; name: string; username: string | null; needsUsername: boolean; pinSet?: boolean; avatarUrl: string | null; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
   perpl: { accountId: string | null; keyEnrolled: boolean; forwarding: boolean };
   balances: {
     perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;
@@ -154,7 +154,7 @@ export type PredictionBet = {
   memberId: string; memberName: string; avatarUrl: string | null; cultName: string;
   marketId: string; outcomeLabel: string; side: PredictionSide; sideLabel: string; shares: number; avgPrice: number;
 };
-export type WithdrawRequest = { symbol: DepositInfo['tokens'][number]['symbol']; amount: number; to: string };
+export type WithdrawRequest = { symbol: DepositInfo['tokens'][number]['symbol']; amount: number; to: string; pin?: string };
 export type WithdrawResult = WithdrawRequest & { tx: string };
 
 // Steps only the member's own wallet may sign (opening the Polymarket account,

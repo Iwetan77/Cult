@@ -7,11 +7,11 @@ import { useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSignT
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
 import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, Wallet, X } from './icons';
-import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
+import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry, setPin, resetPin, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
 import { privySupported } from '@/lib/privySupport';
-import { BOOT_CLASS, hasStoredSession, markSession } from '@/lib/session';
+import { BOOT_CLASS, PIN_RESET_KEY, hasStoredSession, markSession } from '@/lib/session';
 import { signsQuietly } from '@/lib/quietSign';
 import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
@@ -21,6 +21,7 @@ import { Change } from './MarketsView';
 import { ClanChat } from './ClanChat';
 import { DiscoverCults } from './DiscoverCults';
 import { UsernameGate } from './UsernameGate';
+import { PinGate } from './PinGate';
 import { Leaderboards } from './Leaderboards';
 import { HomeView, RoomRow, UnreadBubble, latestFirst } from './HomeView';
 import { AccountView } from './AccountView';
@@ -109,12 +110,16 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   // a signed-in reload goes straight to the splash.
   const [expectSession, setExpectSession] = useState(sessionHint);
   const [booted, setBooted] = useState(false);
+  // "Forgot PIN" signs out; the fresh sign-in after it sets a new PIN.
+  const [pinReset, setPinReset] = useState(false);
   useLayoutEffect(() => {
     setDemo(isDemo());
     if (hasStoredSession()) setExpectSession(true);
     setBooted(true);
   }, []);
   useEffect(() => { if (booted) document.documentElement.classList.remove(BOOT_CLASS); }, [booted]);
+  // Read on every sign-in and sign-out ("Forgot PIN" signs out without a reload).
+  useEffect(() => { try { setPinReset(window.sessionStorage.getItem(PIN_RESET_KEY) === '1'); } catch { /* no reset pending */ } }, [privy.authenticated]);
   // Remember for the server whether this browser is signed in.
   useEffect(() => { if (privy.ready && demo === false) markSession(privy.authenticated); }, [privy.ready, privy.authenticated, demo]);
   const ready = demo === true || privy.ready;
@@ -1055,6 +1060,14 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   if ((demo === null || !ready) && expectApp) return splash;
   if (demo === null || !ready || !authenticated) return <Landing onLogin={requestLogin} pendingLogin={pendingLogin} onDemo={demoEnabled() ? () => { enterDemo(); setDemo(true); } : undefined} />;
   if (me?.needsUsername) return <UsernameGate onSave={async username => { await setUsername(await token(), username); await loadMe(); }} />;
+  // Then a PIN: new members, members from before PINs, and after "Forgot PIN".
+  const cancelPinReset = () => { try { window.sessionStorage.removeItem(PIN_RESET_KEY); } catch { /* fine */ } setPinReset(false); };
+  if (me && !demo && (me.pinSet === false || (pinReset && me.pinSet))) return <PinGate mode={me.pinSet ? 'reset' : 'set'} onSignOut={signOut} onCancel={me.pinSet ? cancelPinReset : undefined} onSave={async pin => {
+    if (me.pinSet) await resetPin(await token(), pin); else await setPin(await token(), pin);
+    cancelPinReset();
+    await loadMe();
+    if (me.pinSet) setNotice('Your new PIN is set.');
+  }} />;
 
   const pickSearch = (action: () => void) => { action(); setSearch(''); setSearchOpen(false); searchRef.current?.blur(); };
   const balance = me?.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) + (me.balances.predictionsUsd ?? 0) : null;

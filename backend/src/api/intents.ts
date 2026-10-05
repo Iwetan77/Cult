@@ -8,6 +8,7 @@ import { usdcAddress } from '../chain/tokens.js';
 import type { WalletAction } from '../accounts/client-flow.js';
 import { getExchangeInfo } from '../perpl/context.js';
 import { members } from '../store/members.js';
+import { pins } from '../store/pins.js';
 import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
 import { IntentsError, intentsEnabled } from '../intents/aurora.js';
 import { UpstreamError } from '../http.js';
@@ -46,8 +47,9 @@ export function intentRoutes() {
   });
 
   r.post('/withdraw', async (c) => {
-    const b = z.object({ destinationAsset: z.string().min(3).max(200), amountUsd: z.number().positive(), recipient: z.string().min(1).max(128) }).parse(await c.req.json());
-    return c.json(await withdrawPlan(c.get('userId'), b));
+    const b = z.object({ destinationAsset: z.string().min(3).max(200), amountUsd: z.number().positive(), recipient: z.string().min(1).max(128), pin: z.string().optional() }).parse(await c.req.json());
+    pins.check(c.get('userId'), b.pin); // money leaving Cult: the member's PIN
+    return c.json(await withdrawPlan(c.get('userId'), { destinationAsset: b.destinationAsset, amountUsd: b.amountUsd, recipient: b.recipient }));
   });
 
   r.get('/status/:depositAddress', async (c) => c.json(await swapStatus(c.get('userId'), c.req.param('depositAddress'))));

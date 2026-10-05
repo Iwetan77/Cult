@@ -664,13 +664,15 @@ always `null` from the backend. Verified track record comes from the indexer.
 | GET | `/v1/status` | none | Public. `{ storage: { host: 'railway'\|'other', persistent: boolean \| null }, indexer: { source: 'none'\|'graphql'\|'postgres', connected: boolean \| null, chains: { chainId, indexedBlock, headBlock, behind, caughtUp, events }[], wallets: number \| null } }`: is the verified-records indexer reachable and caught up (`wallets` = wallets with on-chain history). `storage.persistent: false` means the backend's database is wiped on every deploy (no volume) |
 | GET | `/v1/config` | none | `{ chainId, venues: ['perpl','nadfun'], displayUnit: 'USD', monPriceAusd /* $ per MON */, autoMirrorOptOutWindowSeconds, mirrorPolicyBounds, markets: Market[] /* perpl */ }` |
 | GET | `/v1/nadfun/markets?order=latest_trade\|market_cap\|creation_time` | none | `{ markets: NadMarket[] }` (MON-quoted tokens only) |
-| GET | `/v1/me` | none | `{ id, address, name, username, needsUsername, avatarUrl, country: { code, name } | null, rooms: ChatRoom[], clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent }, usdcConverted: { usdc, ausd, tx, at } \| null }`. `usdcConverted` is the member's last automatic USDC→AUSD conversion if it was in the last 10 minutes (show "your 20 USDC is now $19.98"). `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
+| GET | `/v1/me` | none | `{ id, address, name, username, needsUsername, pinSet, avatarUrl, country: { code, name } | null, rooms: ChatRoom[], clans: Clan[], perpl: { accountId, keyEnrolled, forwarding }, balances: { perplMarginUsd /* null until a Perpl account exists */, walletUsd /* AUSD in the wallet, what memes spend */, predictionsUsd /* pUSD in their Polymarket account; null until opened. Part of the one balance */, mon, monUsd, gasReserveMon, lowGas, memesPayWith: 'ausd' \| 'mon' } \| null, signer: { prepared, attached, policyCurrent }, usdcConverted: { usdc, ausd, tx, at } \| null }`. `usdcConverted` is the member's last automatic USDC→AUSD conversion if it was in the last 10 minutes (show "your 20 USDC is now $19.98"). `signer` is checked with Privy: `attached=false` means the member hasn't added the backend signer yet; `policyCurrent=false` means their caps changed and they must re-approve (call `/v1/privy/signer` + `addSigners` again). Until then, Nad.fun mirrors for them are cancelled with that reason`. `lowGas` means the member has less MON than the gas reserve and can't sign or be mirrored on Nad.fun; show a top-up |
 | GET | `/v1/privy/signer` | none | `{ signerId, policyIds: string[], capAusd, maxBuyMon, monPriceAusd }`. For **every** member (not only Auto-follow): their own trades, perp top-ups and USDC conversions are signed under it. `capAusd` = `TRADING_CAP_USD` ($1,000 default) or a higher Auto-follow limit. A new policy is issued whenever the cap **or the rule set changes**, and the frontend must `addSigners()` again. `/v1/me.signer` tells you when that's needed |
 | GET | `/v1/perpl/setup?depositRaw=` | none | `SetupStatus` (below) |
 | POST | `/v1/enrollment/perpl/challenge` | none | `{ challengeId, typedData, expiresAt }` |
 | POST | `/v1/enrollment/perpl` | `{ challengeId, signature }` | `204` |
 | GET | `/v1/usernames/:name` | none (public, no sign-in needed) | `{ available: boolean, reason? }`. 3-20 letters, digits or `_`, starting with a letter; unique ignoring case; a few names reserved |
 | POST | `/v1/me/username` | `{ username }` | `{ username, name }`. `/v1/me.needsUsername` is true until they pick one: ask **first, at sign-in**. `409` taken, `400` invalid |
+| POST | `/v1/me/pin` | `{ pin, currentPin? }` | `{ pinSet: true }`. A 4-digit PIN; `/v1/me.pinSet` is false until one is set: ask **right after the username** (existing members on their next visit). Changing it needs `currentPin`. Errors carry `code`: `pin_invalid`/`pin_weak` (400; 0000, 1234, 9876…), `pin_missing` (400), `pin_wrong` (403, says tries left), `pin_locked` (423, 5 wrong tries = 15 min). Stored as a keyed scrypt hash |
+| POST | `/v1/me/pin/reset` | `{ pin }` | `{ pinSet: true }`. Forgotten PIN: allowed only within 10 minutes of a Privy sign-in (any login method's `latest_verified_at`), else `403` "Sign in again" |
 | POST | `/v1/me/avatar` | `{ image: "data:image/png;base64,…" }` | `{ avatarUrl }`. PNG, JPEG or WebP up to 512 KB. Resize in the browser first (256×256 is plenty) |
 | DELETE | `/v1/me/avatar` | none | `204` |
 | GET | `/v1/avatars/:userId` | none (public) | The image, cached for good (the URL's `?v=` changes with each upload) |
@@ -924,7 +926,7 @@ Intents. **Monad mainnet only.** `GET /v1/config` → `features.crossChain`.
 |---|---|---|---|
 | GET | `/intents/chains` | | `{ enabled, chains: [{ chain, name, evm, tokens: [{ assetId, symbol, decimals, priceUsd }] }] }` (Monad left out) |
 | POST | `/intents/deposit` | `{ originAsset, amount, refundTo? }` (`amount` in the coin's units, e.g. `"0.5"`) | `SwapView`: a one-time `depositAddress` (+ `depositMemo` on memo chains) on the origin chain. Whatever is sent there arrives as **USDC in the member's Cult wallet**, which becomes dollars by itself. Refunds go to `refundTo`, or else to the member's own address (EVM) or their Intents account (others) |
-| POST | `/intents/withdraw` | `{ destinationAsset, amountUsd, recipient }` (≥ $5) | `SwapView & { actions: WalletAction[] }`: swap dollars→USDC (if needed), then send to the quote's address. The member signs `actions` |
+| POST | `/intents/withdraw` | `{ destinationAsset, amountUsd, recipient, pin }` (≥ $5; the member's PIN, see `/v1/me/pin`) | `SwapView & { actions: WalletAction[] }`: swap dollars→USDC (if needed), then send to the quote's address. The member signs `actions` |
 | GET | `/intents/status/:depositAddress` | | `{ status, done, received, receivedUsd, refunded, refundReason, txs: [{ hash, url }] }` (`status`: `PENDING_DEPOSIT`, `KNOWN_DEPOSIT_TX`, `PROCESSING`, `SUCCESS`, `INCOMPLETE_DEPOSIT`, `REFUNDED`, `FAILED`) |
 | POST | `/intents/submit` | `{ depositAddress, txHash }` | 204, so it's picked up sooner |
 | GET | `/intents/swaps` | | `{ swaps: [...] }` (the member's recent ones) |
@@ -933,9 +935,10 @@ Intents. **Monad mainnet only.** `GET /v1/config` → `features.crossChain`.
 
 ### Withdraw on Monad — `POST /v1/wallet/withdraw`
 
-`{ symbol: 'MON'|'AUSD'|'USDC', amount, to }` → `{ symbol, amount, to, actions: WalletAction[] }`.
+`{ symbol: 'MON'|'AUSD'|'USDC', amount, to, pin }` → `{ symbol, amount, to, actions: WalletAction[] }`.
 The backend can't move funds, so the member's wallet sends `actions` and the frontend
 shows the tx hash. MON keeps the gas reserve. Sending to your own Cult address is refused.
+`pin` is the member's 4-digit PIN (money leaving Cult); PIN errors as in `/v1/me/pin`.
 
 ### `GET /v1/config` → `features`
 

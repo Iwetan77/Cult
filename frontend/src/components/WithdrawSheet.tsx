@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Check, RefreshCw, X } from './icons';
 import { getAccessToken } from '@/lib/auth';
-import { getDeposit, withdraw } from '@/lib/api';
+import { ApiError, getDeposit, withdraw } from '@/lib/api';
 import type { DepositInfo, WalletAction, WithdrawRequest, WithdrawResult } from '@/lib/contracts';
 import { CrossChainWithdraw } from './CrossChain';
 import { isDemo } from '@/lib/demo';
 import { dollars } from '@/lib/format';
 import { TokenLogo } from './TokenLogo';
+import { PinPad } from './PinPad';
 
 // Send wallet tokens to another address: pick a token, amount and address,
 // review, confirm. The backend can't move funds, so it hands back the send
@@ -81,13 +82,21 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
   const addressError = !to.trim() ? null : !ADDRESS.test(to.trim()) ? 'That doesn’t look like a Monad address (0x followed by 40 characters).' : ownAddress ? 'That’s your own Cult wallet.' : null;
   const valid = !!token && amount > 0 && !amountError && ADDRESS.test(to.trim()) && !ownAddress;
 
-  const confirm = async () => {
+  // Money leaving Cult: the last tap asks for the member's PIN.
+  const [askPin, setAskPin] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const confirm = async (pin: string) => {
     if (!token) return;
-    setSending(true); setError(null);
+    setSending(true); setError(null); setPinError(null);
     try {
       const authToken = await getAccessToken();
       if (!authToken) throw new Error('Sign in again to withdraw.');
-      const sent = await withdraw(authToken, { symbol: token.symbol, amount, to: to.trim() });
+      let sent;
+      try { sent = await withdraw(authToken, { symbol: token.symbol, amount, to: to.trim(), pin }); }
+      catch (reason) {
+        if (reason instanceof ApiError && reason.code?.startsWith('pin_')) { setPinError(reason.message); return; }
+        throw reason;
+      }
       if ('tx' in sent) setResult(sent);
       else {
         if (!onSend) throw new Error('Your wallet is not connected.');
@@ -95,14 +104,14 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
       }
       setStep('done');
       onDone();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Withdrawal failed.'); }
+    } catch (reason) { setAskPin(false); setError(reason instanceof Error ? reason.message : 'Withdrawal failed.'); }
     finally { setSending(false); }
   };
 
   return <div className="modal-backdrop deposit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="deposit-sheet" role="dialog" aria-modal="true" aria-label="Withdraw">
       <div className="trade-sheet-head">
-        {step === 'review' ? <button className="icon-btn" title="Back" onClick={() => { setStep('form'); setError(null); }}><ArrowLeft size={18} /></button> : <span className="eyebrow">YOUR WALLET</span>}
+        {step === 'review' ? <button className="icon-btn" title="Back" onClick={() => { setStep('form'); setError(null); setAskPin(false); }}><ArrowLeft size={18} /></button> : <span className="eyebrow">YOUR WALLET</span>}
         <button className="icon-btn" title="Close withdraw" onClick={onClose}><X size={18} /></button>
       </div>
       <h2>{step === 'review' ? 'Review' : step === 'done' ? 'Sent' : 'Withdraw'}</h2>
@@ -129,7 +138,8 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
           <div className="field"><span className="field-label">To</span><div className="deposit-address-large">{to.trim()}</div></div>
           <p className="field-note">Check the address. Transfers on {info.network.name} can&rsquo;t be reversed.</p>
           {error && <p className="notice-line" role="status">{error}</p>}
-          <button className="btn btn-primary btn-lg btn-block" disabled={sending} onClick={() => void confirm()}>{sending ? 'Sending…' : `Withdraw ${tokenAmount(amount)} ${token.symbol}`}</button>
+          {askPin ? <PinPad title="Enter your PIN" note={`To send ${tokenAmount(amount)} ${token.symbol}`} error={pinError} busy={sending} onComplete={confirm} />
+            : <button className="btn btn-primary btn-lg btn-block" disabled={sending} onClick={() => { setAskPin(true); setPinError(null); }}>{`Withdraw ${tokenAmount(amount)} ${token.symbol}`}</button>}
         </>
         : <>
           {crossChain && <div className="seg seg--sm" role="tablist">

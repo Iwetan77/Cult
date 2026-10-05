@@ -61,6 +61,21 @@ export async function privyEmbeddedWallet(userId: string): Promise<{ wallet: str
   return out;
 }
 
+// When this member last signed in with Privy (any method), from the user's
+// linked accounts; asked fresh, never cached. Used where a recent sign-in
+// stands in for "it's really you" (resetting a forgotten PIN).
+export async function privyLastSignIn(userId: string): Promise<number | null> {
+  const secret = process.env.PRIVY_APP_SECRET;
+  if (!secret) throw new Error('PRIVY_APP_SECRET not set');
+  const res = await fetch(`https://auth.privy.io/api/v1/users/${encodeURIComponent(userId)}`, {
+    headers: { Authorization: 'Basic ' + Buffer.from(`${appId()}:${secret}`).toString('base64'), 'privy-app-id': appId() },
+  });
+  if (!res.ok) throw new Error(`privy users/${userId} -> ${res.status}`);
+  const user = (await res.json()) as { linked_accounts?: { latest_verified_at?: number | null }[] };
+  const times = (user.linked_accounts ?? []).map((a) => a.latest_verified_at ?? 0).filter((t) => t > 0);
+  return times.length ? Math.max(...times) * 1000 : null;
+}
+
 export async function identify(authorization: string | undefined): Promise<PrivyIdentity> {
   // Local scripts/tests only: never honoured in production.
   if (process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH === '1' && authorization?.startsWith('Dev ')) {

@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Check, Copy, RefreshCw } from './icons';
 import { getAccessToken } from '@/lib/auth';
-import { getIntentChains, getIntentStatus, prepareIntentWithdraw, quoteIntentDeposit, submitIntentDeposit } from '@/lib/api';
+import { ApiError, getIntentChains, getIntentStatus, prepareIntentWithdraw, quoteIntentDeposit, submitIntentDeposit } from '@/lib/api';
+import { PinPad } from './PinPad';
 import type { IntentChain, IntentStatus, IntentSwap, IntentWithdraw, WalletAction } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
 
@@ -150,6 +151,8 @@ export function CrossChainWithdraw({ walletUsd, onSend, onDone }: { walletUsd: n
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [askPin, setAskPin] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
   useEffect(() => {
     if (!chains?.length || chain) return;
     setChain(chains[0]!.chain);
@@ -164,10 +167,14 @@ export function CrossChainWithdraw({ walletUsd, onSend, onDone }: { walletUsd: n
   if (!chains) return <p className="field-note">Loading networks…</p>;
   if (!chains.length) return <p className="field-note">Withdrawals to other chains aren’t switched on yet.</p>;
 
-  const review = async () => {
-    setBusy('review'); setError(null);
-    try { setPlan(await prepareIntentWithdraw(await token(), assetId, amount, recipient.trim())); }
-    catch (reason) { setError(message(reason)); }
+  // Money leaving Cult: the member's PIN before the plan is made.
+  const review = async (pin: string) => {
+    setBusy('review'); setError(null); setPinError(null);
+    try { setPlan(await prepareIntentWithdraw(await token(), assetId, amount, recipient.trim(), pin)); setAskPin(false); }
+    catch (reason) {
+      if (reason instanceof ApiError && reason.code?.startsWith('pin_')) setPinError(reason.message);
+      else { setAskPin(false); setError(message(reason)); }
+    }
     finally { setBusy(null); }
   };
   const send = async () => {
@@ -205,6 +212,7 @@ export function CrossChainWithdraw({ walletUsd, onSend, onDone }: { walletUsd: n
     </div>
     <label className="field"><span className="field-label">{current?.name ?? ''} address</span><input placeholder={current?.evm ? '0x…' : 'Recipient address'} value={recipient} spellCheck={false} autoComplete="off" onChange={event => setRecipient(event.target.value)} /></label>
     {error && <p className="notice-line" role="status">{error}</p>}
-    <button className="btn btn-primary btn-lg btn-block" disabled={!!busy || !usdText || !!problem || !recipient.trim() || !assetId} onClick={() => void review()}>{busy === 'review' ? 'Getting a quote…' : 'Review'}</button>
+    {askPin ? <PinPad title="Enter your PIN" note={`To send ${dollars(amount)} to ${current?.name ?? 'another chain'}`} error={pinError} busy={busy === 'review'} onComplete={review} />
+      : <button className="btn btn-primary btn-lg btn-block" disabled={!!busy || !usdText || !!problem || !recipient.trim() || !assetId} onClick={() => { setAskPin(true); setPinError(null); }}>Review</button>}
   </div>;
 }
