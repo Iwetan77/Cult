@@ -304,7 +304,7 @@ export function createApp(engine: MirrorEngine) {
   const authed = new Hono<Vars>();
   authed.use('*', async (c, next) => {
     const id = await identify(c.req.header('Authorization'));
-    if (!id.wallet) throw bad(409, 'no Privy embedded wallet on this user yet');
+    if (!id.wallet) throw bad(409, 'Your wallet is still being created. Try again in a moment.');
     const isNew = !members.get(id.userId);
     members.upsert(id.userId, id.wallet, id.walletId);
     if (isNew) postSystem('global', id.userId, 'joined Cult');
