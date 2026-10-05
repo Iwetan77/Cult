@@ -182,7 +182,8 @@ type State = {
   predictions?: PredictionPosition[]; predictionHistory?: PredictionClosed[];
   myClosed?: ClosedTrade[]; // trades you closed in this demo, newest first
   lastActivity?: number; // when a cult-mate last opened a trade on their own
-  lastChat?: number; // when a cult-mate last said something
+  nextChat?: { room: string; memberId: string; body: string; at: number }; // what a cult-mate says next, and when
+  myReactions?: Record<string, string[]>; // message id -> emojis you reacted with
 };
 let state: State | null = null;
 
@@ -346,16 +347,43 @@ const CHAT_LINES = [
   'who is still holding SOL?', 'tight stops tonight, chop everywhere', 'that HYPE move was clean',
   'adding a little here', 'gm cult', 'funding is wild on ETH rn', 'patience. waiting for the retest',
 ];
-function cultChat(s: State) {
-  const now = Date.now();
-  if (s.lastChat == null) { s.lastChat = now; return; }
-  if (now - s.lastChat < CHAT_EVERY_MS) return;
-  s.lastChat = now;
+// Now and then someone talks to you directly.
+const MENTION_LINES = ['@{me} you seeing this?', '@{me} nice entry on that last one', 'what do you think @{me}?'];
+// Someone shows as typing for the last few seconds before their line lands.
+const TYPING_MS = 5_000;
+function planChat(s: State, now: number) {
   const cults = s.me.clans.filter(c => (s.members[c.id] ?? []).some(id => id !== ME_ID));
   const clan = cults[Math.floor(Math.random() * cults.length)];
-  if (!clan) return;
+  if (!clan) { s.nextChat = undefined; return; }
   const mates = (s.members[clan.id] ?? []).filter(id => id !== ME_ID);
-  post(s, `cult:${clan.id}`, mates[Math.floor(Math.random() * mates.length)]!, CHAT_LINES[Math.floor(Math.random() * CHAT_LINES.length)]!, 'text');
+  const line = Math.random() < 0.25 ? MENTION_LINES[Math.floor(Math.random() * MENTION_LINES.length)]! : CHAT_LINES[Math.floor(Math.random() * CHAT_LINES.length)]!;
+  s.nextChat = { room: `cult:${clan.id}`, memberId: mates[Math.floor(Math.random() * mates.length)]!, body: line, at: now + CHAT_EVERY_MS };
+}
+function cultChat(s: State) {
+  const now = Date.now();
+  if (!s.nextChat) { planChat(s, now); return; }
+  if (now < s.nextChat.at) return;
+  const { room, memberId, body } = s.nextChat;
+  if (s.me.rooms.some(r => r.id === room)) post(s, room, memberId, body.split('{me}').join(s.me.name), 'text');
+  planChat(s, now);
+}
+
+// Reactions: others' messages carry a few, seeded from the message id, plus
+// whatever you add.
+const REACTIONS = ['🔥', '🚀', '💀', '👀', '😂'];
+function withReactions(s: State, m: ChatMessage): ChatMessage {
+  const seeded: Record<string, number> = {};
+  if (m.memberId !== ME_ID) {
+    const r = rng(hash(m.id + 'react'));
+    if (r() < 0.45) {
+      seeded[REACTIONS[Math.floor(r() * REACTIONS.length)]!] = 1 + Math.floor(r() * 4);
+      if (r() < 0.35) seeded[REACTIONS[Math.floor(r() * REACTIONS.length)]!] = 1 + Math.floor(r() * 2);
+    }
+  }
+  const mine = s.myReactions?.[m.id] ?? [];
+  const emojis = REACTIONS.filter(e => seeded[e] || mine.includes(e));
+  if (!emojis.length) return m;
+  return { ...m, reactions: emojis.map(e => ({ emoji: e, count: (seeded[e] ?? 0) + (mine.includes(e) ? 1 : 0), mine: mine.includes(e) })) };
 }
 
 function cultActivity(s: State) {
@@ -749,10 +777,23 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
 
   // Chat
   if (a === 'chat' && b === 'rooms') return done({ rooms: withLastMessages(s).rooms });
+  if (a === 'chat' && b && c === 'messages' && d && e === 'reactions') {
+    const emoji = String(body.emoji);
+    const mine = ((s.myReactions ??= {})[d] ??= []);
+    if (mine.includes(emoji)) mine.splice(mine.indexOf(emoji), 1); else mine.push(emoji);
+    const m = (s.messages[b] ?? []).find(x => x.id === d);
+    return done({ reactions: m ? withReactions(s, m).reactions ?? [] : [] });
+  }
+  if (a === 'chat' && b && c === 'typing') {
+    cultChat(s);
+    const next = s.nextChat;
+    const typing = next && next.room === b && Date.now() >= next.at - TYPING_MS;
+    return done({ names: typing ? [person(next.memberId).name] : [] });
+  }
   if (a === 'chat' && b && c === 'messages') {
     if (method === 'POST') { const m = post(s, b, ME_ID, String(body.body), 'text', (body.markerId as string) ?? null, (body.replyTo as string) ?? null); return done(m); }
     const list = s.messages[b] ?? [];
-    return done<ChatPage>({ messages: list.slice(-50), hasMore: false, pinned: s.pinned[b] ?? null });
+    return done<ChatPage>({ messages: list.slice(-50).map(m => withReactions(s, m)), hasMore: false, pinned: s.pinned[b] ?? null });
   }
   if (a === 'chat' && b && c === 'pin') {
     const m = (s.messages[b] ?? []).find(x => x.id === body.messageId);

@@ -30,7 +30,10 @@ export type ChatMessage = {
   id: string; room: string; kind: 'text' | 'system'; clanId: string | null; memberId: string; memberName: string;
   memberAvatarUrl: string | null; body: string; text: string;
   replyTo: string | null; markerId: string | null; createdAt: string;
+  reactions?: Reaction[];
 };
+// An emoji reaction on a message: how many, and whether one is yours.
+export type Reaction = { emoji: string; count: number; mine: boolean };
 export type ChatPage = { messages: ChatMessage[]; hasMore: boolean; pinned: { id: string; memberName: string; body: string } | null };
 export type TpslSuggestion = {
   id: string; markerId: string; tradeId: string; fromMemberId: string; fromName: string;
