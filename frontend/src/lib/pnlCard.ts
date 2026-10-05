@@ -75,7 +75,7 @@ const priceText = (v: number | null) => v == null ? '—' : dollars(v, v < 1 ? 6
 // Designed at 1080×1350 (4:5); drawn at any scale.
 const W = 1080, H = 1350, PAD = 64;
 const WIN = { x: PAD, y: 196, w: W - PAD * 2, h: 660, r: 34 };
-const MINT = '#63f0d6', RED = '#ff6b6b', INK = '#071b17', TEXT = '#f4f6f8', DIM = 'rgba(244, 246, 248, 0.55)', BG = '#070808';
+const MINT = '#34d399', RED = '#ff6b6b', INK = '#03251a', TEXT = '#f4f6f8', DIM = 'rgba(244, 246, 248, 0.55)', BG = '#070808';
 
 // What fills the window: a GIF frame (or any image).
 export type CardArt = { source: CanvasImageSource; width: number; height: number } | null;
@@ -164,7 +164,7 @@ export async function prepareCard(r: TradeResult, scale = 1): Promise<CardRender
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const up = (r.pnlUsd ?? 0) >= 0;
   const accent = up ? MINT : RED;
-  const accentRgb = up ? '99, 240, 214' : '255, 107, 107';
+  const accentRgb = up ? '52, 211, 153' : '255, 107, 107';
   const pred = r.prediction;
   const roi = roiText(r);
 

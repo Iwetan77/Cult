@@ -174,7 +174,7 @@ type Seed = {
   entryRatio: number; notional: number; leverage: number; openedAgoMin: number;
   tp: number | null; sl: number | null; suggestions: TpslSuggestion[]; skipUntil?: string;
 };
-type Position = { symbol: string; side: Holding['side']; entryRatio: number; margin: number; leverage: number; openedAt: number };
+type Position = { symbol: string; side: Holding['side']; entryRatio: number; margin: number; leverage: number; openedAt: number; autoSeed?: string; fromMargin?: number };
 type State = {
   me: Me; base: Record<string, number>; seeds: Seed[]; positions: Position[];
   messages: Record<string, ChatMessage[]>; pinned: Record<string, ChatPage['pinned']>;
@@ -184,6 +184,7 @@ type State = {
   swaps?: Record<string, { kind: 'deposit' | 'withdraw'; usd: number; at: number; sent: boolean; credited: boolean; symbol: string; receive: string; receiveSymbol: string; chainName: string }>;
   myClosed?: ClosedTrade[]; // trades you closed in this demo, newest first
   lastActivity?: number; // when a cult-mate last opened a trade on their own
+  lastChat?: number; // when a cult-mate last said something
 };
 let state: State | null = null;
 
@@ -340,7 +341,27 @@ function materialize(s: State, seed: Seed): ChartMarker {
 // Every few minutes a cult-mate opens a trade, as they would live: it posts in
 // the cult and lands on its chart (and so reaches your alerts).
 const ACTIVITY_EVERY_MS = 150_000;
+// Cult-mates also talk: about once a minute someone says something.
+const CHAT_EVERY_MS = 60_000;
+const CHAT_LINES = [
+  'anyone else watching this BTC range?', 'took profit, back in on the dip', 'MON looking strong today',
+  'who is still holding SOL?', 'tight stops tonight, chop everywhere', 'that HYPE move was clean',
+  'adding a little here', 'gm cult', 'funding is wild on ETH rn', 'patience. waiting for the retest',
+];
+function cultChat(s: State) {
+  const now = Date.now();
+  if (s.lastChat == null) { s.lastChat = now; return; }
+  if (now - s.lastChat < CHAT_EVERY_MS) return;
+  s.lastChat = now;
+  const cults = s.me.clans.filter(c => (s.members[c.id] ?? []).some(id => id !== ME_ID));
+  const clan = cults[Math.floor(Math.random() * cults.length)];
+  if (!clan) return;
+  const mates = (s.members[clan.id] ?? []).filter(id => id !== ME_ID);
+  post(s, `cult:${clan.id}`, mates[Math.floor(Math.random() * mates.length)]!, CHAT_LINES[Math.floor(Math.random() * CHAT_LINES.length)]!, 'text');
+}
+
 function cultActivity(s: State) {
+  cultChat(s);
   const now = Date.now();
   if (s.lastActivity == null) { s.lastActivity = now; return; }
   if (now - s.lastActivity < ACTIVITY_EVERY_MS) return;
@@ -358,6 +379,29 @@ function cultActivity(s: State) {
   s.seeds = s.seeds.filter(x => !(x.memberId === memberId && x.cultId === clan.id && x.symbol === symbol));
   s.seeds.push({ id, cultId: clan.id, memberId, symbol, origin: 'leader', side, entryRatio: priceOf(symbol) / baseOf(s, symbol), notional: 100 + Math.round(Math.random() * 900), leverage, openedAgoMin: 0, tp: null, sl: null, suggestions: [] });
   post(s, `cult:${clan.id}`, memberId, `opened ${symbol} ${side} ${leverage}x`, 'system', id);
+  autoFollow(s, clan, memberId, symbol, side, leverage);
+}
+
+// Auto-follow, as the backend does it: if you follow this cult, the trade is
+// copied into your account, sized by your limits (a share of your balance, up
+// to a dollar cap per trade) at the leader's leverage. It sits pending for the
+// opt-out window, during which Skip undoes it. A market you already hold is
+// left alone.
+function autoFollow(s: State, clan: Clan, leaderId: string, symbol: string, side: 'long' | 'short', leverage: number) {
+  const limits = clan.myPolicy;
+  if (!clan.autoFollow || !limits?.enabled || s.positions.some(p => p.symbol === symbol)) return;
+  const bal = s.me.balances!;
+  const available = bal.walletUsd + (bal.perplMarginUsd ?? 0);
+  const margin = Math.floor(Math.min(limits.maxUsdPerTrade, available * limits.balancePercentCap / 100) * 100) / 100;
+  if (margin < 1) return;
+  const fromMargin = Math.min(bal.perplMarginUsd ?? 0, margin);
+  bal.perplMarginUsd = (bal.perplMarginUsd ?? 0) - fromMargin;
+  bal.walletUsd = Math.max(0, bal.walletUsd - (margin - fromMargin));
+  const ratio = priceOf(symbol) / baseOf(s, symbol);
+  const id = `mk-${++s.next}`;
+  s.positions.unshift({ symbol, side, entryRatio: ratio, margin, leverage, openedAt: Date.now(), autoSeed: id, fromMargin });
+  s.seeds.push({ id, cultId: clan.id, memberId: ME_ID, symbol, origin: 'auto_mirror', side, entryRatio: ratio, notional: margin * leverage, leverage, openedAgoMin: 0, tp: null, sl: null, suggestions: [], skipUntil: new Date(Date.now() + 30_000).toISOString() });
+  post(s, `cult:${clan.id}`, ME_ID, `auto-copied ${person(leaderId).name}'s ${symbol} ${side} ${leverage}x with $${margin.toFixed(2)}`, 'system', id);
 }
 
 function holdingOf(s: State, pos: Position): Holding {
@@ -838,7 +882,19 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
       seed?.suggestions.push(suggestion);
       return done(suggestion);
     }
-    if (c === 'mirrors') { const seed = s.seeds.find(x => x.id === d); if (seed) s.seeds = s.seeds.filter(x => x !== seed); return done(undefined); }
+    if (c === 'mirrors') {
+      const seed = s.seeds.find(x => x.id === d);
+      if (seed) s.seeds = s.seeds.filter(x => x !== seed);
+      const pos = s.positions.find(p => p.autoSeed === d);
+      if (pos) {
+        const bal = s.me.balances!;
+        bal.perplMarginUsd = (bal.perplMarginUsd ?? 0) + (pos.fromMargin ?? 0);
+        bal.walletUsd += pos.margin - (pos.fromMargin ?? 0);
+        s.positions = s.positions.filter(p => p !== pos);
+        post(s, `cult:${seed?.cultId ?? b}`, ME_ID, `skipped the copy of ${pos.symbol}`, 'system');
+      }
+      return done(undefined);
+    }
   }
   throw new DemoError('Not available in the demo.', 404);
 }

@@ -105,7 +105,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
             <TokenLogo symbol={m.symbol} imageUri={m.imageUri} />
             <div className="mkt-bar-name"><h1>{m.symbol}</h1><small><span className="venue">{isPerp ? 'Perpl' : 'Nad.fun'}</span>{isPerp ? `Perpetual · ${Math.floor(m.maxLeverage)}x` : m.name}</small></div>
             <span className="mkt-bar-actions">
-              <button className={`icon-btn mkt-star${starred ? ' on' : ''}`} aria-pressed={starred} aria-label={starred ? `Unstar ${m.symbol}` : `Star ${m.symbol}`} title={starred ? 'Starred: pinned on Home' : 'Star: pin it on Home'} onClick={() => toggleStar(me.id, m.id)}><Star size={17} fill={starred ? 'currentColor' : 'none'} /></button>
+              <button className={`icon-btn mkt-star${starred ? ' on' : ''}`} aria-pressed={starred} aria-label={starred ? `Remove ${m.symbol} from your watchlist` : `Add ${m.symbol} to your watchlist`} title={starred ? 'On your watchlist' : 'Add to your watchlist'} onClick={() => toggleStar(me.id, m.id)}><Star size={17} fill={starred ? 'currentColor' : 'none'} /></button>
               <PriceAlertControl owner={me.id} marketId={m.id} symbol={m.symbol} current={m.priceUsd ?? last?.close ?? null} />
             </span>
           </div>
