@@ -7,12 +7,14 @@ import { members } from '../store/members.js';
 import { restFor } from '../accounts/lifecycle.js';
 import { GAS_RESERVE_WEI, memesPayWithFor, nadPaysWith } from '../venues/nadfun.js';
 
-// A member's dollars sit in two pockets: Perpl margin (perps) and wallet AUSD
-// (memes, when they're paid in dollars). Plus MON for gas. All values in $;
-// null when a pocket doesn't exist yet (e.g. no Perpl account).
+// A member's dollars sit in three pockets: Perpl margin (perps), wallet AUSD
+// (memes, when they're paid in dollars) and their Polymarket account
+// (predictions, on Polygon). Plus MON for gas. The app shows them as one
+// balance. All values in $; null when a pocket doesn't exist yet.
 export interface Balances {
   perplMarginUsd: number | null; // free margin in their Perpl account
   walletUsd: number; // AUSD sitting in the wallet
+  predictionsUsd: number | null; // pUSD in their Polymarket account
   mon: number; // native MON in the wallet
   monUsd: number | null;
   gasReserveMon: number; // never spent by the backend
@@ -36,15 +38,27 @@ export async function balancesFor(userId: string): Promise<Balances> {
     if (a) perplMarginUsd = (Number(a.b) - Number(a.lb)) / 10 ** collateralDecimals;
   }
   const mon = Number(ethers.formatEther(monWei));
+  const predictionsUsd = await predictionsBalance(userId);
   return {
     perplMarginUsd,
     walletUsd: Number(ethers.formatUnits(walletRaw, collateralDecimals)),
+    predictionsUsd,
     mon,
     monUsd: monPx != null ? mon * monPx : null,
     gasReserveMon: Number(ethers.formatEther(GAS_RESERVE_WEI)),
     lowGas: monWei < GAS_RESERVE_WEI,
     memesPayWith: await memesPayWithFor(userId).catch(() => nadPaysWith()),
   };
+}
+
+// The member's Polymarket balance, when they've opened one (cached a few
+// seconds by pusdBalance; Polygon RPC trouble shows as null, not an error).
+async function predictionsBalance(userId: string): Promise<number | null> {
+  const { predictionAccounts } = await import('../polymarket/store.js');
+  const acct = predictionAccounts.get(userId);
+  if (!acct?.deployed) return null;
+  const { pusdBalance } = await import('../polymarket/account.js');
+  return pusdBalance(acct.depositWallet).catch(() => null);
 }
 
 // "Deposit": one address, the tokens you can send to it, and what you hold of

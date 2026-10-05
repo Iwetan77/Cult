@@ -375,6 +375,7 @@
 .tone-b { background: #b49cff; }
 .tone-c { background: var(--blue); }
 .tone-d { background: var(--amber); }
+.tone-e { background: var(--peach); }
 .portfolio-lines { display: flex; flex-direction: column; gap: 12px; margin: 0 0 19px; }
 .portfolio-lines div { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
 .portfolio-lines dt { display: flex; align-items: center; gap: 10px; color: var(--muted); }

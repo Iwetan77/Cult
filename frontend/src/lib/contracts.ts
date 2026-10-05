@@ -66,6 +66,7 @@ export type Me = {
   perpl: { accountId: string | null; keyEnrolled: boolean; forwarding: boolean };
   balances: {
     perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;
+    predictionsUsd?: number | null; // in the member's Polymarket account (counted in the one balance)
     gasReserveMon: number; lowGas: boolean; memesPayWith: 'ausd' | 'mon';
   } | null;
   signer: { prepared: boolean; attached: boolean | null; policyCurrent: boolean | null };

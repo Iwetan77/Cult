@@ -36,9 +36,8 @@ import { PnlCardSheet, type PnlSheetMode } from './PnlCardSheet';
 import { PredictionPage } from './PredictionPage';
 import type { PredictionPick } from './PredictionsBrowse';
 import { resultOfClose, resultOfMarker, resultOfSale, type TradeResult } from '@/lib/pnlCard';
-import { buyPrediction, sellPrediction, getPredictionAccount, setupPredictions, signFlowStep, pollFlow, isFlowStep, redeemPrediction } from '@/lib/api';
+import { buyPrediction, sellPrediction, getPredictionAccount, setupPredictions, signFlowStep, pollFlow, isFlowStep, redeemPrediction, fundPredictions, withdrawPredictions } from '@/lib/api';
 import type { FlowStep, PredictionAccount, PredictionOrder, PredictionPosition, SignatureRequest } from '@/lib/contracts';
-import { PredictionFundSheet } from './PredictionFundSheet';
 import { Landing } from './Landing';
 import { AlertsMenu, notifyDevice } from './AlertsMenu';
 import { lastReadOf, markRead, mentions, notifyPref, priceAlerts, pushAlert, removePriceAlert, setMentioned, setUnread, unreadOf, useMentions, useUnread } from '@/lib/prefs';
@@ -142,10 +141,6 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   // that tells their views to reload positions after a trade.
   const [predictionPick, setPredictionPick] = useState<PredictionPick | null>(null);
   const [predictionRev, setPredictionRev] = useState(0);
-  // The member's Polymarket account (balance to bet with), and the sheet that
-  // moves dollars in and out of it.
-  const [predictionAccount, setPredictionAccount] = useState<PredictionAccount | null>(null);
-  const [predictionFund, setPredictionFund] = useState<{ suggestUsd?: number } | null>(null);
   const [permissionOpen, setPermissionOpen] = useState(false);
   const permissionResolve = useRef<((allowed: boolean) => void) | null>(null);
   const decidePermission = (allowed: boolean) => {
@@ -618,11 +613,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (isFlowStep(step)) throw new Error('This is taking longer than expected. Check again in a moment.');
     return step;
   };
-  const loadPredictionAccount = async () => {
-    const account = await getPredictionAccount(await token());
-    setPredictionAccount(account);
-    return account;
-  };
+  const loadPredictionAccount = async () => getPredictionAccount(await token());
   // Open the member's Polymarket account if it isn't yet (signed by their Privy wallet, no pop-ups).
   const readyForPredictions = async () => {
     let account = await loadPredictionAccount();
@@ -631,7 +622,6 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       setProgressText('Setting up predictions');
       const opened = await runFlow(await setupPredictions(await token()));
       account = { ...opened, access: account.access };
-      setPredictionAccount(account);
     }
     return account;
   };
@@ -849,20 +839,38 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     setCardSheet({ mode: 'confirm', result: preview, confirmLabel: venue === 'nadfun' ? 'Sell all' : 'Close position', onConfirm: share => void runClose(holding, market, chartMarket, share), closeHolding: holding && holding.sizeRaw !== '0' ? holding : undefined });
   };
   const closeMarket = (marketToClose: string) => askClose(holdingFor(marketToClose), marketToClose, marketToClose);
+  // Move dollars from the wallet into the predictions account and wait until
+  // the bet can be covered (target), up to ~3 minutes.
+  const topUpPredictions = async (shortUsd: number, targetUsd: number, funding: PredictionAccount['funding']) => {
+    if (!funding) throw new Error('Bets draw on your balance once Cult runs on Monad mainnet.');
+    const move = Math.max(funding.minUsd, Math.ceil(shortUsd * 100) / 100);
+    const walletUsd = me?.balances?.walletUsd ?? 0;
+    if (walletUsd < move * 1.01) throw new Error(`Not enough dollars for this bet: ${dollars(walletUsd)} in your wallet.`);
+    const plan = await fundPredictions(await token(), move);
+    await transactAll(plan.actions);
+    for (let i = 0; i < 36; i++) {
+      setProgressText(`Moving ${dollars(move)} to predictions${i ? `, ${i * 5}s` : ''}…`);
+      await new Promise(resolve => window.setTimeout(resolve, 5000));
+      const next = await loadPredictionAccount().catch(() => null);
+      if ((next?.balanceUsd ?? 0) + 1e-6 >= targetUsd) return;
+    }
+    throw new Error('Your dollars are still on their way to predictions. Place the bet again in a minute.');
+  };
+  // Predictions money back to the wallet (from the Withdraw sheet).
+  const bringBackPredictions = async (amountUsd: number) => {
+    await runFlow(await withdrawPredictions(await token(), amountUsd));
+    void loadMe().catch(() => undefined);
+  };
   const placePrediction = (order: PredictionOrder) => perform('predict', async () => {
     if (!demo) {
       const account = await readyForPredictions();
       if (account.access?.predictions && account.access.predictions !== 'open') throw new Error('Polymarket doesn’t take new bets from your location.');
-      if (account.balanceUsd != null && account.balanceUsd + 1e-6 < order.amountUsd) {
-        setPredictionFund({ suggestUsd: Math.max(2, Math.ceil(order.amountUsd - account.balanceUsd)) });
-        throw new Error(`You have ${dollars(account.balanceUsd)} in predictions. Move some in from your wallet first.`);
-      }
+      // One balance: if the predictions account is short, the difference moves
+      // over from the wallet first (fee on top, ~30s), then the bet goes in.
+      const have = account.balanceUsd ?? 0;
+      if (have + 1e-6 < order.amountUsd) await topUpPredictions(order.amountUsd - have, order.amountUsd, account.funding);
     }
-    try { await runFlow(await buyPrediction(await token(), order)); }
-    catch (reason) {
-      if (reason instanceof ApiError && reason.code === 'needs_funds') setPredictionFund({ suggestUsd: Math.max(2, Math.ceil(order.amountUsd)) });
-      throw reason;
-    }
+    await runFlow(await buyPrediction(await token(), order));
     if (!demo) void loadPredictionAccount().catch(() => undefined);
     await loadMe();
     setPredictionRev(value => value + 1);
@@ -1049,7 +1057,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   if (me?.needsUsername) return <UsernameGate onSave={async username => { await setUsername(await token(), username); await loadMe(); }} />;
 
   const pickSearch = (action: () => void) => { action(); setSearch(''); setSearchOpen(false); searchRef.current?.blur(); };
-  const balance = me?.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) : null;
+  const balance = me?.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) + (me.balances.predictionsUsd ?? 0) : null;
 // Main menu, most used first.
   const nav: NavItem[] = [
     { id: 'home', label: 'Home', icon: <Home size={18} />, active: view === 'home', onClick: () => go('home') },
@@ -1092,13 +1100,13 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     <main className="stage" key={view === 'chat' ? `chat:${roomId}` : view === 'markets' ? `m:${marketPage ?? ''}` : view === 'account' ? `a:${profileId}` : view}>
       {!me ? <div className="view two-col"><section className="view-main"><div className="skel skel-head" /><div className="skel skel-strip" /><div className="skel skel-chart" /></section><aside className="view-side"><div className="skel skel-card" /><div className="skel skel-card" /></aside></div>
         : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} mentioned={mentioned} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
-        : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo || !!config?.features?.predictions} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))} availableUsd={demo ? undefined : predictionAccount?.balanceUsd ?? null} onFund={demo ? undefined : () => setPredictionFund({})} onAccountNeeded={demo ? undefined : () => { void loadPredictionAccount().catch(() => undefined); }}
+        : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo || !!config?.features?.predictions} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))} onAccountNeeded={demo ? undefined : () => { void loadPredictionAccount().catch(() => undefined); }}
             onBack={() => goUp({ view: 'markets' })} onBuy={placePrediction} onSell={sellPredictionPosition} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
           : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView owner={me.id} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><span className="eyebrow">Your cults</span><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
-        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} onPredictionFunds={demo || !config?.features?.predictions ? undefined : () => setPredictionFund({})} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
+        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
         : <div className="view two-col room-view">
           <section className="view-main room-main">
             <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => goUp({ view: 'groups' })}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm" onClick={() => setGroupPanelOpen(true)}><PanelRightOpen size={14} /> {activeRoom?.kind === 'cult' ? 'Positions' : 'Rankings'}</button></div>
@@ -1160,8 +1168,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       confirmLabel={closeShare < 1 && cardSheet.closeHolding ? `${cardSheet.closeHolding.venue === 'nadfun' ? 'Sell' : 'Close'} ${Math.round(closeShare * 100)}%` : cardSheet.confirmLabel}
       onConfirm={cardSheet.onConfirm ? () => cardSheet.onConfirm!(cardSheet.closeHolding ? closeShare : 1) : undefined}
       closeShare={closeShare} onCloseShare={cardSheet.closeHolding ? setCloseShare : undefined} />}
-    {withdrawOpen && <WithdrawSheet onClose={() => setWithdrawOpen(false)} onDone={() => { void loadMe(); }} gasReserveMon={me?.balances?.gasReserveMon ?? 0} onSend={transactAll} crossChain={!!demo || !!config?.features?.crossChain} />}
-    {predictionFund && <PredictionFundSheet suggestUsd={predictionFund.suggestUsd} walletUsd={me?.balances?.walletUsd ?? null} onClose={() => setPredictionFund(null)} onSend={transactAll} runFlow={runFlow} onChanged={() => { void loadPredictionAccount().catch(() => undefined); void loadMe().catch(() => undefined); }} />}
+    {withdrawOpen && <WithdrawSheet onClose={() => setWithdrawOpen(false)} onDone={() => { void loadMe(); }} predictionsUsd={demo ? null : me?.balances?.predictionsUsd ?? null} onBringBack={demo ? undefined : bringBackPredictions} gasReserveMon={me?.balances?.gasReserveMon ?? 0} onSend={transactAll} crossChain={!!demo || !!config?.features?.crossChain} />}
     {depositOpen && <DepositSheet crossChain={!!demo || !!config?.features?.crossChain} onClose={() => setDepositOpen(false)} signerReady={signerReady} permissionBusy={!!busy} onGrantPermission={() => { void perform('grant-signer', async () => { if (await grantSigner()) setNotice('Trading permission is active.'); }); }} />}
     {permissionOpen && <TradingPermissionDialog onDecision={decidePermission} />}
     {perpsPrompt && <div className="modal-backdrop"><section className="dialog simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-btn dialog-close" title="Close" disabled={busy === 'enroll-perpl'} onClick={() => setPerpsPrompt(false)}><X size={16} /></button><span className="eyebrow">One-time setup</span><h2 className="display">Enable perps</h2><p className="dialog-sub">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p>{progressText && busy === 'enroll-perpl' && <p className="fine" role="status">{progressText}</p>}<button className="btn btn-primary btn-block btn-lg" disabled={!!busy} onClick={enroll}>Enable perps</button>{setup?.step === 'needs_collateral' && <><p className="fine">{collateralMessage(setup.minAccountOpen)}</p><button className="btn btn-ghost btn-block" onClick={() => { setPerpsPrompt(false); setDepositOpen(true); }}>Deposit first</button></>}</section></div>}

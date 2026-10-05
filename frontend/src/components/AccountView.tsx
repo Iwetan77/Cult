@@ -44,7 +44,7 @@ type Props = {
   tab: AccountTab; onTab: (tab: AccountTab) => void;
   predictionRevision: number; onOpenPrediction: (slug: string, pick?: PredictionPick) => void; onSellPrediction: (position: PredictionPosition, price: number) => void;
   // Live accounts: collect a resolved bet, and open the predictions balance.
-  onRedeemPrediction?: (position: PredictionPosition) => void; onPredictionFunds?: () => void;
+  onRedeemPrediction?: (position: PredictionPosition) => void;
   signOutLabel?: string;
 };
 
@@ -85,7 +85,7 @@ function performanceBars(trades: ClosedTrade[], now: number): PerfBar[] {
   return bars.slice(-8);
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onPredictionFunds, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, signOutLabel = 'Sign out' }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -208,7 +208,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
             <h1>{profile.name}</h1>
             <small>{shortAddress(profile.address)} · {profile.country?.name ?? profile.country?.code ?? 'Country not set'} · since {new Date(profile.memberSince).toLocaleDateString([], { month: 'short', year: 'numeric' })}</small>
           </div>
-          {profile.isMe && <div className="profile-actions">{onPredictionFunds && <button className="btn btn-glass btn-sm" onClick={onPredictionFunds}>Predictions</button>}<button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
+          {profile.isMe && <div className="profile-actions"><button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
         </div>
         {profile.isMe && (profile.avatarUrl || photoBusy || error) && <div className="profile-photo-note">{profile.avatarUrl && <button className="link" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}{photoBusy && <span>Updating photo…</span>}{error && <span className="down">{error}</span>}</div>}
       </section>

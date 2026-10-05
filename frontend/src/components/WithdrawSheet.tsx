@@ -15,14 +15,16 @@ import { TokenLogo } from './TokenLogo';
 // and the member's own wallet signs it (onSend). With cross-chain on, the
 // money can also leave to another chain (Aurora Intents).
 
-type Props = { onClose: () => void; onDone: () => void; gasReserveMon: number; onSend?: (actions: WalletAction[]) => Promise<string>; crossChain?: boolean };
+// predictionsUsd / onBringBack: money in the predictions account (Polygon) is
+// part of the one balance; one tap brings it back to the wallet first.
+type Props = { onClose: () => void; onDone: () => void; gasReserveMon: number; onSend?: (actions: WalletAction[]) => Promise<string>; crossChain?: boolean; predictionsUsd?: number | null; onBringBack?: (amountUsd: number) => Promise<void> };
 type Symbol = WithdrawRequest['symbol'];
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const tokenAmount = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(value);
 const shortHash = (value: string) => `${value.slice(0, 8)}…${value.slice(-6)}`;
 
-export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossChain = false }: Props) {
+export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossChain = false, predictionsUsd = null, onBringBack }: Props) {
   const demo = isDemo();
   const [network, setNetwork] = useState<'monad' | 'other'>('monad');
   const [info, setInfo] = useState<DepositInfo | null>(null);
@@ -35,6 +37,18 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
   const [step, setStep] = useState<'form' | 'review' | 'done'>('form');
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<WithdrawResult | null>(null);
+  const [bringing, setBringing] = useState<'busy' | 'sent' | null>(null);
+  const inPredictions = Math.floor((predictionsUsd ?? 0) * 100) / 100;
+  const bringBack = async () => {
+    if (!onBringBack) return;
+    setBringing('busy'); setError(null);
+    try {
+      await onBringBack(inPredictions);
+      setBringing('sent');
+      // Lands in about half a minute; then the wallet's tokens refresh.
+      window.setTimeout(() => setRevision(value => value + 1), 35_000);
+    } catch (reason) { setBringing(null); setError(reason instanceof Error ? reason.message : 'Could not move it back.'); }
+  };
 
   useEffect(() => {
     let active = true;
@@ -121,6 +135,10 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
           {crossChain && <div className="seg seg--sm" role="tablist">
             <button role="tab" aria-selected={network === 'monad'} className={network === 'monad' ? 'on' : ''} onClick={() => setNetwork('monad')}>Monad</button>
             <button role="tab" aria-selected={network === 'other'} className={network === 'other' ? 'on' : ''} onClick={() => setNetwork('other')}>Another chain</button>
+          </div>}
+          {onBringBack && inPredictions >= 2 && <div className="xchain-status">
+            <span>{bringing === 'sent' ? `${dollars(inPredictions)} is on its way to your wallet (about 30s).` : `${dollars(inPredictions)} is in predictions.`}</span>
+            {bringing !== 'sent' && <button type="button" className="link" disabled={bringing === 'busy'} onClick={() => void bringBack()}>{bringing === 'busy' ? 'Bringing it back…' : 'Bring it to your wallet'}</button>}
           </div>}
           {network === 'other' && onSend ? <CrossChainWithdraw walletUsd={(info.tokens.find(t => t.symbol === 'AUSD')?.balance ?? 0) + (info.tokens.find(t => t.symbol === 'USDC')?.balance ?? 0)} onSend={onSend} onDone={onDone} /> : <>
           <div className="field">

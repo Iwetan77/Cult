@@ -192,7 +192,9 @@ function PredictionTicket({ event, outcome, side, onSide, me, canTrade, busy, cu
   const amount = Number(amountText) || 0;
   const shares = price > 0 ? amount / price : 0;
   const live = availableUsd !== undefined;
-  const available = live ? availableUsd : me.balances?.walletUsd ?? null;
+  // One balance: wallet dollars plus what's already in predictions (a bet
+  // moves the difference over by itself).
+  const available = live ? availableUsd : me.balances ? me.balances.walletUsd + (me.balances.predictionsUsd ?? 0) : null;
   const tooBig = available != null && amount > available + 1e-9;
   const tradable = price > 0.001 && price < 0.999;
   const valid = canTrade && tradable && amount >= 1 && !tooBig;
