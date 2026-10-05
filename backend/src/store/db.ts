@@ -15,7 +15,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -340,6 +340,11 @@ function migrate(d: DatabaseSync) {
   // ...and which of the member's cults a trade was posted to (JSON array of ids;
   // NULL = every cult they're in).
   if (!hasCol('leader_trades', 'cult_ids')) d.exec('ALTER TABLE leader_trades ADD COLUMN cult_ids TEXT');
+  // v8 -> v9: a 4-digit PIN per member (hashed, see store/pins.ts), with a
+  // wrong-try count and a lock.
+  if (!hasCol('members', 'pin_hash')) d.exec('ALTER TABLE members ADD COLUMN pin_hash TEXT');
+  if (!hasCol('members', 'pin_failures')) d.exec('ALTER TABLE members ADD COLUMN pin_failures INTEGER NOT NULL DEFAULT 0');
+  if (!hasCol('members', 'pin_locked_until')) d.exec('ALTER TABLE members ADD COLUMN pin_locked_until INTEGER');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);

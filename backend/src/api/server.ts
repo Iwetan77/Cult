@@ -18,11 +18,12 @@ import { listMonMarkets } from '../nadfun/trading.js';
 import { monPriceAusd } from '../prices.js';
 import { venue, venueOf } from '../venues/index.js';
 import { invalidatePerplReads } from '../venues/perpl.js';
-import { AuthError, identify } from '../privy/auth.js';
+import { AuthError, identify, privyLastSignIn } from '../privy/auth.js';
 import { backendSignerStatus, forgetSignerStatus, memberSignerGrant } from '../privy/policy.js';
 import { clans, MirrorPolicySchema, type MirrorPolicy, AUTO_FOLLOW_DEFAULTS } from '../store/clans.js';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
+import { PinError, pins } from '../store/pins.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
 import { UpstreamError } from '../http.js';
@@ -104,6 +105,7 @@ export function createApp(engine: MirrorEngine) {
   app.onError((err, c) => {
     if (err instanceof HTTPException) return c.json({ message: err.message }, err.status);
     if (err instanceof AuthError) return c.json({ message: err.message }, 401);
+    if (err instanceof PinError) return c.json({ message: err.message, code: err.code }, err.status);
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
@@ -343,6 +345,7 @@ export function createApp(engine: MirrorEngine) {
       name: displayName(m),
       username: m.username,
       needsUsername: !m.username, // first sign-in: ask for one before anything else
+      pinSet: pins.isSet(m.userId), // then a 4-digit PIN (store/pins.ts)
       avatarUrl: avatarUrl(m),
       country: m.country ? { code: m.country, name: countryName(m.country) } : null,
       rooms: roomsFor(userId),
@@ -357,6 +360,22 @@ export function createApp(engine: MirrorEngine) {
 
   // The Deposit screen: your address + what you can send + what you hold.
   authed.get('/wallet/deposit', async (c) => c.json(await depositInfo(c.get('userId'))));
+
+  // PIN: set right after the username (/v1/me.pinSet), asked before money
+  // leaves Cult. Changing it needs the current one; a forgotten one is reset
+  // after signing in again (Privy says the last sign-in was minutes ago).
+  authed.post('/me/pin', async (c) => {
+    const b = z.object({ pin: z.string(), currentPin: z.string().optional() }).parse(await c.req.json());
+    pins.set(c.get('userId'), b.pin, b.currentPin);
+    return c.json({ pinSet: true });
+  });
+  authed.post('/me/pin/reset', async (c) => {
+    const b = z.object({ pin: z.string() }).parse(await c.req.json());
+    const last = await privyLastSignIn(c.get('userId'));
+    if (last == null || Date.now() - last > PIN_RESET_WINDOW_MS) throw bad(403, 'Sign in again to reset your PIN.');
+    pins.reset(c.get('userId'), b.pin);
+    return c.json({ pinSet: true });
+  });
 
   // Username: asked once at first sign-in (/v1/me.needsUsername), changeable later.
   authed.post('/me/username', async (c) => {
@@ -828,14 +847,18 @@ export function createApp(engine: MirrorEngine) {
   // A plain send on Monad: wallet actions for the member to sign (the backend
   // can't move funds). Other chains: POST /v1/intents/withdraw.
   authed.post('/wallet/withdraw', async (c) => {
-    const b = z.object({ symbol: z.enum(['MON', 'AUSD', 'USDC']), amount: z.number().positive(), to: z.string() }).parse(await c.req.json());
-    return c.json(await withdrawActions(c.get('userId'), b));
+    const b = z.object({ symbol: z.enum(['MON', 'AUSD', 'USDC']), amount: z.number().positive(), to: z.string(), pin: z.string().optional() }).parse(await c.req.json());
+    pins.check(c.get('userId'), b.pin);
+    return c.json(await withdrawActions(c.get('userId'), { symbol: b.symbol, amount: b.amount, to: b.to }));
   });
   authed.route('/cults', cultRoutes);
   authed.route('/clans', cultRoutes);
   app.route('/v1', authed);
   return app;
 }
+
+// A forgotten PIN can be reset this long after signing in again.
+const PIN_RESET_WINDOW_MS = 10 * 60_000;
 
 function remoteAddress(c: Context<Vars>): string | undefined {
   try {

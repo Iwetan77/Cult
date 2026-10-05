@@ -1554,3 +1554,27 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .chat-row:has(> .chat-bubble-wrap > .chat-reactions) > .chat-avatar { margin-bottom: 32px; }
 .chat-row:has(> .chat-bubble-wrap > .reaction-picker) > .chat-avatar { margin-bottom: 48px; }
 .chat-row:has(> .chat-bubble-wrap > .chat-reactions):has(> .chat-bubble-wrap > .reaction-picker) > .chat-avatar { margin-bottom: 80px; }
+
+/* PIN pad: four dots and a number pad (set at sign-in, asked before money leaves). */
+.pinpad { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 4px 0; }
+.pinpad-title { font-size: 15px; font-weight: 500; }
+.pinpad-note { margin: -6px 0 0; font-size: 13px; line-height: 1.45; color: var(--dim); text-align: center; }
+.pinpad-dots { display: flex; gap: 16px; padding: 8px 0 2px; }
+.pinpad-dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--s3); transition: background-color 0.12s, transform 0.12s; }
+.pinpad-dots i.on { background: var(--accent-text); transform: scale(1.08); }
+.pinpad-dots.is-error { animation: pin-shake 0.36s ease; }
+.pinpad-dots.is-error i:not(.on) { background: rgba(255, 107, 107, 0.35); }
+@keyframes pin-shake { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+.pinpad-error { min-height: 18px; margin: 0; font-size: 13px; color: var(--red); text-align: center; }
+.pinpad-keys { display: grid; grid-template-columns: repeat(3, 64px); gap: 12px 22px; }
+.pinpad-key { width: 64px; height: 64px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--s2); color: var(--text); font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; transition: background-color 0.12s, transform 0.08s; }
+.pinpad-key:hover { background: var(--s3); }
+.pinpad-key:active { transform: scale(0.94); background: var(--accent-soft); }
+.pinpad-key:disabled { opacity: 0.5; }
+.pinpad-key[aria-label="Delete"] { background: none; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .pinpad-dots.is-error { animation: none; } }
+.pin-form { align-items: stretch; }
+.pin-form h1 { text-align: center; }
+.pin-form .eyebrow { align-self: center; }
+.pin-signout { align-self: center; margin-top: 4px; }
+.setting--pin .setting-pin-body { flex: 1 0 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 6px; }

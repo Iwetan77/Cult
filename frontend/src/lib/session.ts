@@ -8,6 +8,8 @@
 //   page until the dashboard takes over (and sets the cookie for next time).
 
 export const SESSION_COOKIE = 'cult_session';
+// "Forgot PIN" signs out and sets this; the next sign-in sets a new PIN.
+export const PIN_RESET_KEY = 'cult:pin-reset';
 export const BOOT_CLASS = 'cult-boot';
 
 // Privy's tokens: privy:token / privy:refresh_token, or privy:<user>:... when

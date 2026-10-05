@@ -106,6 +106,10 @@ export const getTrade = (token: string, tradeId: string) => api<TradeView>(`/v1/
 
 export const usernameAvailability = (name: string) => api<{ available: boolean; reason?: string }>(`/v1/usernames/${encodeURIComponent(name)}`, null);
 export const setUsername = (token: string, username: string) => api<{ username: string; name: string }>('/v1/me/username', token, { method: 'POST', body: json({ username }) });
+// The member's 4-digit PIN: set it (a change needs the current one), or reset
+// a forgotten one right after signing in again.
+export const setPin = (token: string, pin: string, currentPin?: string) => api<{ pinSet: true }>('/v1/me/pin', token, { method: 'POST', body: json({ pin, ...(currentPin ? { currentPin } : {}) }) });
+export const resetPin = (token: string, pin: string) => api<{ pinSet: true }>('/v1/me/pin/reset', token, { method: 'POST', body: json({ pin }) });
 export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: string }>('/v1/me/avatar', token, { method: 'POST', body: json({ image }) });
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
 // Prediction markets: market data comes straight from Polymarket
@@ -135,7 +139,7 @@ export const withdraw = (token: string, body: WithdrawRequest) => api<WithdrawRe
 // Cross-chain money in/out (Aurora Intents, Monad mainnet).
 export const getIntentChains = (token: string) => api<{ enabled: boolean; chains: IntentChain[] }>('/v1/intents/chains', token);
 export const quoteIntentDeposit = (token: string, originAsset: string, amount: string, refundTo?: string) => api<IntentSwap>('/v1/intents/deposit', token, { method: 'POST', body: json({ originAsset, amount, ...(refundTo ? { refundTo } : {}) }) });
-export const prepareIntentWithdraw = (token: string, destinationAsset: string, amountUsd: number, recipient: string) => api<IntentWithdraw>('/v1/intents/withdraw', token, { method: 'POST', body: json({ destinationAsset, amountUsd, recipient }) });
+export const prepareIntentWithdraw = (token: string, destinationAsset: string, amountUsd: number, recipient: string, pin?: string) => api<IntentWithdraw>('/v1/intents/withdraw', token, { method: 'POST', body: json({ destinationAsset, amountUsd, recipient, ...(pin ? { pin } : {}) }) });
 export const getIntentStatus = (token: string, depositAddress: string) => api<IntentStatus>(`/v1/intents/status/${encodeURIComponent(depositAddress)}`, token);
 export const submitIntentDeposit = (token: string, depositAddress: string, txHash: string) => api<void>('/v1/intents/submit', token, { method: 'POST', body: json({ depositAddress, txHash }) });
 export const getMarkets = (query = '', venue?: Venue) => api<{ markets: MarketListing[] }>(`/v1/markets?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(venue ? { venue } : {}), limit: '100' })}`, null)
