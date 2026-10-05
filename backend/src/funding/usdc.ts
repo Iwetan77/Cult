@@ -29,6 +29,13 @@ export interface Conversion {
 const recent = new Map<string, Conversion>(); // userId -> last conversion
 const busy = new Set<string>();
 const backoff = new Map<string, number>(); // userId -> retry after (ms)
+const holds = new Map<string, number>(); // userId -> leave their USDC alone until (ms)
+
+// A cross-chain withdrawal swaps AUSD to USDC and sends the USDC on: leave
+// that USDC where it is meanwhile instead of turning it back into AUSD.
+export function holdUsdc(userId: string, ms = 15 * 60_000) {
+  holds.set(userId, Date.now() + ms);
+}
 
 // The member's last conversion, if it was in the last 10 minutes (for a
 // "your USDC is now $X" note in the app).
@@ -41,6 +48,7 @@ export async function convertUsdc(userId: string): Promise<Conversion | null> {
   const usdc = usdcAddress();
   const m = members.get(userId);
   if (!usdc || !m?.privyWalletId || busy.has(userId)) return null;
+  if ((holds.get(userId) ?? 0) > Date.now()) return null;
   busy.add(userId);
   try {
     const bal: bigint = await new ethers.Contract(usdc, erc20Abi, rpc()).getFunction('balanceOf')(m.wallet);

@@ -210,6 +210,22 @@ if (JSON.stringify(updated.myPolicy) !== JSON.stringify(newPolicy)) throw new Er
 if (!polCh.message.startsWith('Update my copy limits in the Cult')) throw new Error('policy consent text wrong');
 await call('leave clan', 'POST', `/v1/clans/${clan.id}/leave`, auth(bob, 'bob'));
 await call('chart after leaving', 'GET', `/v1/clans/${clan.id}/chart`, auth(bob, 'bob'));
+// Predictions (Polymarket) and cross-chain (Aurora Intents): with no keys set
+// they answer "not switched on yet", never a 5xx.
+if (cfg.features?.predictions !== false || cfg.features?.crossChain !== false) throw new Error('features should be off without keys');
+const pacct = await call('predictions account (no builder key)', 'GET', '/v1/predictions/account', auth(alice, 'alice'));
+if (pacct.step !== 'unavailable' || !pacct.access) throw new Error('predictions should be unavailable without keys');
+await call('predictions setup (no builder key)', 'POST', '/v1/predictions/setup', auth(alice, 'alice'));
+await call('predictions bet before setup', 'POST', '/v1/predictions/orders', auth(alice, 'alice'), { marketId: '601819', eventSlug: 'x', eventTitle: 'X', outcomeLabel: 'Q', question: 'Q', image: null, side: 'yes', sideLabel: 'Yes', price: 0.5, amountUsd: 5 });
+const pp = await call('prediction positions (none)', 'GET', '/v1/predictions/positions', auth(alice, 'alice'));
+if (!Array.isArray(pp.positions) || !Array.isArray(pp.closed)) throw new Error('positions shape');
+await call('cult bets on an event', 'POST', '/v1/predictions/bets', auth(alice, 'alice'), { eventSlug: 'x', outcomes: [] });
+await call('sign an unknown flow', 'POST', '/v1/predictions/sign', auth(alice, 'alice'), { flowId: 'nope', challengeId: 'nope', signature: '0x00' });
+const ic = await call('cross-chain coins (no Aurora key / testnet)', 'GET', '/v1/intents/chains', auth(alice, 'alice'));
+if (ic.enabled !== false) throw new Error('intents should be off');
+await call('cross-chain deposit on testnet', 'POST', '/v1/intents/deposit', auth(alice, 'alice'), { originAsset: 'nep141:sol.omft.near', amount: '1' });
+await call('withdraw to my own wallet', 'POST', '/v1/wallet/withdraw', auth(alice, 'alice'), { symbol: 'AUSD', amount: 1, to: alice.address });
+await call('withdraw more MON than I have', 'POST', '/v1/wallet/withdraw', auth(alice, 'alice'), { symbol: 'MON', amount: 1000, to: bob.address });
 // Rate limits: a burst of order calls from one member is cut off with Retry-After.
 const carol = ethers.Wallet.createRandom();
 let limitedRes: Response | undefined;
