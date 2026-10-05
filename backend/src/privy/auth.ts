@@ -49,11 +49,15 @@ export async function privyEmbeddedWallet(userId: string): Promise<{ wallet: str
   });
   if (!res.ok) throw new Error(`privy users/${userId} -> ${res.status}`);
   const user = (await res.json()) as { linked_accounts?: PrivyLinkedAccount[] };
+  // Privy labels embedded wallets "privy" or, for newer ones, "privy-v2"
+  // (its own SDK accepts both).
   const embedded = (user.linked_accounts ?? []).find(
-    (a) => a.type === 'wallet' && a.chain_type === 'ethereum' && a.wallet_client_type === 'privy',
+    (a) => a.type === 'wallet' && a.chain_type === 'ethereum' && (a.wallet_client_type === 'privy' || a.wallet_client_type === 'privy-v2'),
   );
   const out = { wallet: embedded?.address ?? null, walletId: embedded?.id ?? null };
-  walletCache.set(userId, { at: Date.now(), ...out });
+  // Only a found wallet is remembered. A new account's wallet is created just
+  // after sign-in, so "none yet" must be asked again on the next request.
+  if (out.wallet) walletCache.set(userId, { at: Date.now(), ...out });
   return out;
 }
 

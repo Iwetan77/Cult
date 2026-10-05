@@ -442,12 +442,21 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     }, 20000);
     return () => window.clearInterval(interval);
   }, [authenticated, ready, demo, loadMe]);
+  // A new account's wallet is made just after sign-in: load the account once
+  // it exists, and if the backend is a moment behind (409), quietly try again.
+  const hasWallet = !!wallet;
   useEffect(() => {
-    if (!authenticated || !ready || demo === null) return;
+    if (!authenticated || !ready || demo === null || (!demo && !hasWallet)) return;
     let active = true;
-    Promise.all([loadMe(), getConfig().then(setConfig)]).catch(err => { if (active) setError(errorText(err)); });
-    return () => { active = false; };
-  }, [authenticated, ready, demo, loadMe]);
+    let retry: number | undefined;
+    const load = (attempt: number) => Promise.all([loadMe(), getConfig().then(setConfig)]).catch(err => {
+      if (!active) return;
+      if (err instanceof ApiError && err.status === 409 && attempt < 10) { retry = window.setTimeout(() => void load(attempt + 1), 2000); return; }
+      setError(errorText(err));
+    });
+    void load(0);
+    return () => { active = false; window.clearTimeout(retry); };
+  }, [authenticated, ready, demo, hasWallet, loadMe]);
   useEffect(() => {
     if (!authenticated || !clanId || demo === null) return;
     let active = true;
