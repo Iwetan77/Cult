@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeftRight } from 'lucide-react';
+import { ArrowLeftRight } from './icons';
 import type { Clan, Me } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
 
@@ -9,8 +9,8 @@ import { dollars } from '@/lib/format';
 // put in; leverage multiplies it into the position size shown under it. So
 // "$50 at 10x" is a $500 position, and moving leverage never changes your
 // stake. Flip the unit to type the position size in the asset instead. The
-// "% of available" slider fills your stake. The backend moves wallet funds
-// into the Perpl account when it's short. Memes: amount and Buy, no leverage.
+// backend moves wallet funds into the Perpl account when it's short. Pick Long or Short at the top; one
+// button places it. Memes: amount and Buy, no leverage.
 
 export type PostTo = 'all' | 'none' | string; // a cult id
 export type TicketMarket = { venue: 'perpl' | 'nadfun'; id: string; symbol: string; maxLeverage: number; priceUsd: number | null };
@@ -46,10 +46,10 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
   const [unit, setUnit] = useState<'usd' | 'asset'>('usd');
   const [amountText, setAmountText] = useState('');
   const [leverage, setLeverage] = useState(isPerp ? Math.min(2, maxLev) : 1);
-  const [pct, setPct] = useState<number | null>(null);
+  const [side, setSide] = useState<'long' | 'short'>('long');
   const [postTo, setPostTo] = useState<PostTo>(defaultPostTo);
   useEffect(() => { setPostTo(defaultPostTo); }, [defaultPostTo]);
-  useEffect(() => { setAmountText(''); setPct(null); setUnit('usd'); setLeverage(isPerp ? Math.min(2, maxLev) : 1); }, [market.id, isPerp, maxLev]);
+  useEffect(() => { setAmountText(''); setUnit('usd'); setSide('long'); setLeverage(isPerp ? Math.min(2, maxLev) : 1); }, [market.id, isPerp, maxLev]);
 
   // What this trade can draw on, in $ of stake.
   const available = useMemo(() => {
@@ -73,17 +73,9 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
 
   const show = (stake: number, inUnit = unit, withLev = lev) =>
     setAmountText(stake <= 0 ? '' : inUnit === 'usd' ? trim(stake, 2) : price > 0 ? trim((stake * withLev) / price, 6) : '');
-  const fillPct = (p: number) => {
-    setPct(p);
-    if (available != null) show(available * p / 100);
-  };
-  const changeLeverage = (value: number) => {
-    const next = Math.max(1, Math.min(maxLev, Math.round(value)));
-    setLeverage(next);
-    // In $ your stake stays put and the position grows. In the asset the
-    // position stays put, unless a % is set, which fixes the stake.
-    if (unit === 'asset' && pct != null && available != null) show(available * pct / 100, 'asset', next);
-  };
+  // In $ your stake stays put and the position grows. In the asset the
+  // position stays put.
+  const changeLeverage = (value: number) => setLeverage(Math.max(1, Math.min(maxLev, Math.round(value))));
   const toggleUnit = () => {
     const next = unit === 'usd' ? 'asset' : 'usd';
     setUnit(next);
@@ -96,17 +88,21 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
   const quick = isPerp ? [10, 50, 100, 500] : [10, 100, 500, 1000];
 
   return <div className="ticket">
+    {isPerp && <div className="seg seg--fill ticket-side" role="radiogroup" aria-label="Side">
+      <button type="button" role="radio" aria-checked={side === 'long'} className={side === 'long' ? 'on long' : ''} onClick={() => setSide('long')}>Long</button>
+      <button type="button" role="radio" aria-checked={side === 'short'} className={side === 'short' ? 'on short' : ''} onClick={() => setSide('short')}>Short</button>
+    </div>}
     <div className="ticket-amount">
       <div className="ticket-row"><label className="ticket-label" htmlFor="ticket-size">{unit === 'usd' ? (isPerp ? 'You put in' : 'Amount') : `${isPerp ? 'Position size' : 'Amount'} in ${asset}`}</label><span className="ticket-avail">Available <b className="num">{available == null ? '—' : dollars(available)}</b></span></div>
       <div className="ticket-input">
         {unit === 'usd' && <span className="ticket-prefix">$</span>}
-        <input id="ticket-size" className="num" inputMode="decimal" placeholder="0" value={amountText} onChange={event => { setAmountText(event.target.value.replace(/[^0-9.]/g, '')); setPct(null); }} />
+        <input id="ticket-size" className="num" inputMode="decimal" placeholder="0" value={amountText} onChange={event => { setAmountText(event.target.value.replace(/[^0-9.]/g, '')); }} />
         <button type="button" className="ticket-unit" onClick={toggleUnit} title={`Enter in ${unit === 'usd' ? asset : 'dollars'}`}>{unit === 'usd' ? 'USD' : asset} <ArrowLeftRight size={12} /></button>
       </div>
       <small className="ticket-other">{isPerp
         ? (positionUsd > 0 ? <>Position <b className="num">{dollars(positionUsd)}</b>{assetSize ? ` · ${assetSize}` : ''} at {lev}x{unit === 'asset' ? ` · you put in ${dollars(stakeUsd)}` : ''}</> : `× ${lev} leverage = your position size`)
         : (stakeUsd > 0 ? (unit === 'usd' ? (assetSize ? `≈ ${assetSize}` : '') : `≈ ${dollars(stakeUsd)}`) : `in dollars or ${asset}`)}</small>
-      {unit === 'usd' && <div className="ticket-quick">{quick.map(q => <button type="button" key={q} onClick={() => { setAmountText(String(q)); setPct(null); }}>${q}</button>)}</div>}
+      {unit === 'usd' && <div className="ticket-quick">{quick.map(q => <button type="button" key={q} onClick={() => setAmountText(String(q))}>${q}</button>)}</div>}
     </div>
 
     {isPerp && <div className="ticket-slider">
@@ -114,12 +110,6 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
       <input type="range" min={1} max={maxLev} step={1} value={lev} onChange={event => changeLeverage(Number(event.target.value))} aria-label="Leverage" style={{ '--fill': `${((lev - 1) / Math.max(1, maxLev - 1)) * 100}%` } as React.CSSProperties} />
       <div className="ticket-ticks">{leverageTicks(maxLev).map(t => <button type="button" key={t} className={t === lev ? 'on' : ''} onClick={() => changeLeverage(t)}>{t}x</button>)}</div>
     </div>}
-
-    <div className="ticket-slider">
-      <div className="ticket-row"><span className="ticket-label">% of available</span><strong className="num">{pct == null ? '—' : `${pct}%`}</strong></div>
-      <input type="range" min={0} max={100} step={1} value={pct ?? 0} disabled={available == null || available <= 0} onChange={event => fillPct(Number(event.target.value))} aria-label="Percent of available funds" style={{ '--fill': `${pct ?? 0}%` } as React.CSSProperties} />
-      <div className="ticket-ticks">{[0, 25, 50, 75, 100].map(t => <button type="button" key={t} className={pct === t ? 'on' : ''} disabled={available == null || available <= 0} onClick={() => fillPct(t)}>{t}%</button>)}</div>
-    </div>
 
     <dl className="ticket-summary">
       <div><dt>You put in</dt><dd className="num">{dollars(stakeUsd)}</dd></div>
@@ -138,10 +128,8 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
       </select>
     </label> : <p className="ticket-note">You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</p>}
 
-    {isPerp ? <div className="ticket-actions">
-      <button type="button" className="ticket-long" disabled={!valid || busy} onClick={() => submit('long')}>Long<small className="num">{positionUsd > 0 ? dollars(positionUsd) : asset}</small></button>
-      <button type="button" className="ticket-short" disabled={!valid || busy} onClick={() => submit('short')}>Short<small className="num">{positionUsd > 0 ? dollars(positionUsd) : asset}</small></button>
-    </div> : <button type="button" className="ticket-long ticket-buy" disabled={!valid || busy} onClick={() => submit('buy')}>Buy {market.symbol}<small className="num">{stakeUsd > 0 ? dollars(stakeUsd) : ''}</small></button>}
+    {isPerp ? <button type="button" className={`ticket-submit ${side}`} disabled={!valid || busy} onClick={() => submit(side)}>{side === 'long' ? 'Long' : 'Short'} {asset}{positionUsd > 0 && <small className="num">{dollars(positionUsd)}</small>}</button>
+      : <button type="button" className="ticket-submit long" disabled={!valid || busy} onClick={() => submit('buy')}>Buy {market.symbol}{stakeUsd > 0 && <small className="num">{dollars(stakeUsd)}</small>}</button>}
     {cults.length > 0 && <p className="ticket-foot">{postTo === 'none' ? 'Only you see this trade.' : 'Cult-mates on Auto-follow copy it, sized to their own limits.'}</p>}
   </div>;
 }

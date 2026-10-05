@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Download, Link2, Shuffle, Share2, X } from 'lucide-react';
+import { Copy, Download, Link2, Shuffle, Share2, X } from './icons';
 import { drawPnlCard, encodePnlGif, prepareCard, roiText, type CardRenderer, type TradeResult } from '@/lib/pnlCard';
 import { giphyEnabled, moodOf, pickGif, type GifPick } from '@/lib/giphy';
 import { loadGifFrames, type GifFrames } from '@/lib/gifFrames';

@@ -1,16 +1,20 @@
 'use client';
 
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
-import { CandlestickSeries, ColorType, createChart, type AutoscaleInfo, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts';
+import { CandlestickSeries, ColorType, createChart, LineSeries, type AutoscaleInfo, type IChartApi, type ISeriesApi, type SeriesType, type UTCTimestamp } from 'lightweight-charts';
 import type { Candle, ChartMarker, Market } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
+import { avatarSrc, initialsOf } from './Avatar';
 
+export type ChartStyle = 'candles' | 'line';
 type GuideKind = 'takeProfit' | 'stopLoss';
 type Props = {
   candles: Candle[]; markers: ChartMarker[]; market: Market; selectedId: string | null;
   onSelect: (marker: ChartMarker) => void;
   onGuideDrop: (marker: ChartMarker, kind: GuideKind, price: number) => void;
   guidesDisabled?: boolean;
+  avatars?: Record<string, string | null>; // memberId -> photo, drawn in each badge
+  chartStyle?: ChartStyle;
 };
 type Hit = { id: string; x: number; y: number; width: number; height: number };
 type GuideHit = { markerId: string; kind: GuideKind; x: number; y: number };
@@ -19,13 +23,34 @@ type Drag = { markerId: string; kind: GuideKind; price: number; startY: number; 
 const markerColor = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? '#8fb4ff' : origin === 'manual_stack' ? '#f6bf68' : '#63f0d6';
 const guideColor = (kind: GuideKind) => kind === 'takeProfit' ? '#63f0d6' : '#ff6b6b';
 const guideLabel = (kind: GuideKind) => kind === 'takeProfit' ? 'TP' : 'SL';
+const seriesData = (candles: Candle[], style: ChartStyle) => style === 'line'
+  ? candles.map(c => ({ time: c.time as UTCTimestamp, value: c.close }))
+  : candles.map(c => ({ ...c, time: c.time as UTCTimestamp }));
 
-export function SharedChart({ candles, markers, market, selectedId, onSelect, onGuideDrop, guidesDisabled = false }: Props) {
+// Trader photos for the badges, shared by every chart on the page. A photo
+// that arrives later redraws the charts that asked for it.
+const photos = new Map<string, HTMLImageElement | null>();
+const redraws = new Set<() => void>();
+const photo = (src: string) => {
+  if (photos.has(src)) return photos.get(src) ?? null;
+  const img = new Image();
+  img.onload = () => redraws.forEach(redraw => redraw());
+  img.onerror = () => photos.set(src, null);
+  img.src = src;
+  photos.set(src, img);
+  return img;
+};
+
+export function SharedChart({ candles, markers, market, selectedId, onSelect, onGuideDrop, guidesDisabled = false, avatars, chartStyle = 'candles' }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const lastMarketRef = useRef<string | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
+  const candlesRef = useRef(candles);
+  candlesRef.current = candles;
+  const styleRef = useRef(chartStyle);
+  styleRef.current = chartStyle;
   const drawRef = useRef<() => void>(() => {});
   const dragRef = useRef<Drag | null>(null);
   // Prices the chart must keep in view besides the candles: every visible
@@ -49,24 +74,16 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       handleScroll: true,
       handleScale: true,
     });
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#63f0d6', downColor: '#ff6b6b', borderVisible: false,
-      wickUpColor: 'rgba(99,240,214,0.7)', wickDownColor: 'rgba(255,107,107,0.7)', priceLineVisible: true, priceLineColor: 'rgba(99,240,214,0.5)', priceLineStyle: 2,
-      autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => {
-        const base = original();
-        const levels = levelsRef.current;
-        if (!base || !base.priceRange || !levels.length) return base;
-        return { ...base, priceRange: { minValue: Math.min(base.priceRange.minValue, ...levels), maxValue: Math.max(base.priceRange.maxValue, ...levels) } };
-      },
-    });
     chartRef.current = chart;
-    seriesRef.current = series;
+    const redraw = () => drawRef.current();
+    redraws.add(redraw);
     const resize = new ResizeObserver(() => drawRef.current());
     resize.observe(host);
     const onRange = () => drawRef.current();
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
     return () => {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRange);
+      redraws.delete(redraw);
       resize.disconnect();
       chart.remove();
       chartRef.current = null;
@@ -74,10 +91,32 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
     };
   }, []);
 
+  // The price series: candles or a single close line. Switching swaps the
+  // series in place; the badges and TP/SL handles read prices off whichever
+  // is current.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    if (seriesRef.current) chart.removeSeries(seriesRef.current);
+    const autoscaleInfoProvider = (original: () => AutoscaleInfo | null) => {
+      const base = original();
+      const levels = levelsRef.current;
+      if (!base || !base.priceRange || !levels.length) return base;
+      return { ...base, priceRange: { minValue: Math.min(base.priceRange.minValue, ...levels), maxValue: Math.max(base.priceRange.maxValue, ...levels) } };
+    };
+    const price = { priceLineVisible: true, priceLineColor: 'rgba(99,240,214,0.5)', priceLineStyle: 2, autoscaleInfoProvider };
+    const series: ISeriesApi<SeriesType> = chartStyle === 'line'
+      ? chart.addSeries(LineSeries, { ...price, color: '#63f0d6', lineWidth: 2, crosshairMarkerRadius: 4, crosshairMarkerBorderColor: '#070908', crosshairMarkerBackgroundColor: '#63f0d6' })
+      : chart.addSeries(CandlestickSeries, { ...price, upColor: '#63f0d6', downColor: '#ff6b6b', borderVisible: false, wickUpColor: 'rgba(99,240,214,0.7)', wickDownColor: 'rgba(255,107,107,0.7)' });
+    series.setData(seriesData(candlesRef.current, chartStyle));
+    seriesRef.current = series;
+    drawRef.current();
+  }, [chartStyle]);
+
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
-    series.setData(candles.map(c => ({ ...c, time: c.time as UTCTimestamp })));
+    series.setData(seriesData(candles, styleRef.current));
     if (candles.length) {
       if (lastMarketRef.current !== market.id) chartRef.current?.timeScale().fitContent();
       lastMarketRef.current = market.id;
@@ -107,7 +146,8 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       ctx.scale(dpr, dpr);
-      ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif'}`;
+      const font = getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif';
+      ctx.font = `12px ${font}`;
       ctx.textBaseline = 'middle';
       const hits: Hit[] = [];
       const guides: GuideHit[] = [];
@@ -157,34 +197,56 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         placed.push(markerY);
         const color = markerColor(marker.origin);
         ctx.strokeStyle = color;
-        ctx.lineWidth = selected ? 2 : 1;
-        ctx.globalAlpha = selected ? 0.9 : 0.44;
+        ctx.lineWidth = selected ? 1.5 : 1;
+        ctx.globalAlpha = selected ? 0.8 : 0.3;
         ctx.setLineDash([4, 5]);
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width - 56, y); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 1;
-        const badge = `${marker.memberName}  ${marker.venue === 'perpl' ? marker.pnlUsd == null ? 'PENDING' : signedDollars(marker.pnlUsd) : marker.valueUsd == null ? 'PENDING' : dollars(marker.valueUsd)}`;
-        const badgeWidth = Math.min(235, Math.max(80, width - x - 62), ctx.measureText(badge).width + 43);
-        ctx.fillStyle = selected ? 'rgba(30,36,38,0.96)' : 'rgba(17,19,20,0.92)';
-        ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1;
+        // The badge: how they're in (symbol), who (photo), and their PnL.
+        const perp = marker.venue === 'perpl';
+        const value = perp ? marker.pnlUsd : marker.valueUsd;
+        const amount = value == null ? 'Pending' : perp ? signedDollars(value) : dollars(value);
+        ctx.font = `500 11.5px ${font}`;
+        const textWidth = ctx.measureText(amount).width;
+        const badgeWidth = Math.ceil(56 + textWidth + (marker.pendingAdd ? 30 : 0));
+        ctx.fillStyle = selected ? '#10241f' : 'rgba(8, 13, 12, 0.94)';
+        ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1; ctx.globalAlpha = selected ? 1 : 0.75;
         ctx.beginPath(); ctx.roundRect(x, markerY - 13, badgeWidth, 26, 13); ctx.fill(); ctx.stroke();
-        const iconX = x + 14;
-        ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+        ctx.globalAlpha = 1;
+        const iconX = x + 13;
+        ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.5;
         if (marker.origin === 'auto_mirror') {
-          ctx.beginPath(); ctx.arc(iconX, markerY, 5, 0, Math.PI * 2); ctx.stroke();
+          ctx.beginPath(); ctx.arc(iconX, markerY, 4, 0, Math.PI * 2); ctx.stroke();
         } else if (marker.origin === 'manual_stack') {
-          ctx.fillRect(iconX - 5, markerY - 5, 10, 10);
+          ctx.fillRect(iconX - 4, markerY - 4, 8, 8);
         } else {
-          ctx.beginPath(); ctx.moveTo(iconX, markerY - 6); ctx.lineTo(iconX + 6, markerY + 5); ctx.lineTo(iconX - 6, markerY + 5); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(iconX, markerY - 5); ctx.lineTo(iconX + 5, markerY + 4); ctx.lineTo(iconX - 5, markerY + 4); ctx.closePath(); ctx.fill();
         }
-        ctx.fillStyle = '#f4f6f8'; ctx.fillText(badge, x + 29, markerY + 1, badgeWidth - (marker.pendingAdd ? 68 : 35));
-        if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = `10px ${getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif'}`; ctx.fillText('ADD', x + badgeWidth - 34, markerY + 1); ctx.font = `12px ${getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif'}`; }
+        const faceX = x + 33;
+        const src = avatarSrc(avatars?.[marker.memberId]);
+        const img = src ? photo(src) : null;
+        ctx.save();
+        ctx.beginPath(); ctx.arc(faceX, markerY, 10, 0, Math.PI * 2); ctx.clip();
+        if (img?.complete && img.naturalWidth) ctx.drawImage(img, faceX - 10, markerY - 10, 20, 20);
+        else {
+          ctx.fillStyle = '#1a2a27'; ctx.fillRect(faceX - 10, markerY - 10, 20, 20);
+          ctx.fillStyle = '#c9fff3'; ctx.font = `700 8.5px ${font}`; ctx.textAlign = 'center';
+          ctx.fillText(initialsOf(marker.memberName), faceX, markerY + 0.5);
+          ctx.textAlign = 'left';
+        }
+        ctx.restore();
+        ctx.font = `500 11.5px ${font}`;
+        ctx.fillStyle = value == null ? '#7d8792' : !perp ? '#eceef1' : value >= 0 ? '#63f0d6' : '#ff6b6b';
+        ctx.fillText(amount, faceX + 17, markerY + 1);
+        if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = `500 10px ${font}`; ctx.fillText('ADD', faceX + 23 + textWidth, markerY + 1); }
+        ctx.font = `12px ${font}`;
         hits.push({ id: marker.id, x, y: markerY - 15, width: badgeWidth, height: 30 });
       });
       setHitRegions(hits);
       setGuideHits(guides);
     };
     drawRef.current();
-  }, [markers, market, selectedId, drag]);
+  }, [markers, market, selectedId, drag, avatars]);
 
   const startGuideDrag = (event: PointerEvent<HTMLButtonElement>, marker: ChartMarker, kind: GuideKind) => {
     if (guidesDisabled) return;

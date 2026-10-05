@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
 import { QRCodeSVG } from 'qrcode.react';
-import { Copy, RefreshCw, X } from 'lucide-react';
+import { Copy, RefreshCw, X } from './icons';
 import { getDeposit } from '@/lib/api';
 import type { DepositInfo } from '@/lib/contracts';
 import { dollars } from '@/lib/format';

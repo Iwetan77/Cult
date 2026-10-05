@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, Copy, Globe2, Lock, ShieldCheck, X } from 'lucide-react';
+import { ArrowRight, Copy, Globe2, Lock, ShieldCheck, X } from './icons';
 import { getLeaderboard } from '@/lib/api';
 import type { BackendConfig, ChartMarker, ChartSnapshot, ChatRoom, Clan, Leaderboard, MirrorPolicy } from '@/lib/contracts';
 import { dollars, percent, price, signedDollars } from '@/lib/format';
@@ -119,7 +119,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
       <div className="tabs tabs--fill">{([['positions', 'Positions'], ['stats', 'Stats'], ['members', 'Members'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
       {tab === 'positions' ? <div className="group-pos">
         <div className="chips chips--scroll">{snapshot?.markets.map(item => <button key={`${item.venue}:${item.id}`} className={item.id === market?.id ? 'on' : ''} onClick={() => onMarket(item.id)}>{item.symbol.replace(/-PERP$/, '')}</button>)}</div>
-        <div className="mini-chart"><SharedChart candles={snapshot?.candles ?? []} markers={markers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null }} selectedId={selected?.id ?? null} onSelect={onMarker} onGuideDrop={onGuideDrop} guidesDisabled={busy} /></div>
+        <div className="mini-chart"><SharedChart candles={snapshot?.candles ?? []} markers={markers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null }} selectedId={selected?.id ?? null} onSelect={onMarker} onGuideDrop={onGuideDrop} guidesDisabled={busy} avatars={Object.fromEntries(members.map(x => [x.id, x.avatarUrl]))} /></div>
         <div className="feed feed--compact">{markers.length ? markers.map(marker => <button className={`feed-row ${selected?.id === marker.id ? 'on' : ''}`} key={marker.id} onClick={() => onMarker(marker)}>
           <Avatar name={marker.memberName} url={members.find(m => m.id === marker.memberId)?.avatarUrl} />
           <span className="feed-who"><strong>{marker.isMine ? 'You' : marker.memberName}</strong><small>{marker.origin === 'auto_mirror' ? 'Auto copy' : marker.origin === 'manual_stack' ? 'Stacked' : 'Own trade'} · {price(marker.entryPrice)}</small></span>

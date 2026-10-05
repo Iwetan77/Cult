@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
-import { X } from 'lucide-react';
+import { X } from './icons';
 import './landing.css';
 
 type LoginMethod = 'google' | 'wallet';

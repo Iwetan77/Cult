@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CandlestickChart, Lock, MessageCircle, Repeat2, X } from 'lucide-react';
+import { CandlestickChart, Lock, MessageCircle, Repeat2, X } from './icons';
 import { getAccessToken } from '@/lib/auth';
 import { getLeaderboard } from '@/lib/api';
 import type { BoardPeriod, CultStanding, DiscoverCult, Leaderboard, LeaderboardEntry } from '@/lib/contracts';

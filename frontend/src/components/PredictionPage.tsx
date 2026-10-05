@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from './icons';
 import { getAccessToken } from '@/lib/auth';
 import { getPredictionBets, getPredictionPositions, PREDICTIONS_SOON } from '@/lib/api';
 import type { Me, PredictionBet, PredictionOrder, PredictionPosition, PredictionSide } from '@/lib/contracts';
@@ -85,19 +85,20 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
 
   return <div className="view two-col market-view">
     <section className="view-main">
-      <div className="mkt-head pm-head">
-        <button className="icon-btn" title="All predictions" onClick={onBack}><ArrowLeft size={17} /></button>
-        <EventArt event={event} size="lg" />
-        <div className="mkt-head-name"><h1 className="pm-title">{event.title}</h1><small><span className="venue">Polymarket</span>{endsIn(event.endDate) ?? 'Prediction market'}</small></div>
-      </div>
-
-      <div className="pills">
-        <div className="pill-stat"><span>{event.multi ? `${outcome.label} chance` : 'Chance'}</span><b className="num">{chance(outcome.yesPrice)}</b></div>
-        <div className="pill-stat"><span>24H change</span><b className={`num ${(outcome.change24h ?? 0) >= 0 ? 'up' : 'down'}`}>{outcome.change24h == null ? '—' : `${outcome.change24h >= 0 ? '+' : '-'}${Math.round(Math.abs(outcome.change24h) * 100)}%`}</b></div>
-        <div className="pill-stat"><span>24H volume</span><b className="num">{compactDollars(event.volume24h)}</b></div>
-        <div className="pill-stat"><span>Total volume</span><b className="num">{compactDollars(event.volume)}</b></div>
-        <div className="pill-stat"><span>Ends</span><b>{ends}</b></div>
-      </div>
+      <section className="card mkt-bar pm-head">
+        <button className="icon-btn" title="All predictions" onClick={onBack}><ArrowLeft size={16} /></button>
+        <div className="mkt-bar-id">
+          <EventArt event={event} />
+          <div className="mkt-bar-name"><h1 title={event.title}>{event.title}</h1><small><span className="venue">Polymarket</span>{endsIn(event.endDate) ?? 'Prediction market'}</small></div>
+        </div>
+        <div className="mkt-bar-price"><strong className="num">{chance(outcome.yesPrice)}</strong><small>{event.multi ? `${outcome.label} chance` : 'Chance'}</small></div>
+        <dl className="mkt-stats">
+          <div><dt>24H change</dt><dd className={`num ${(outcome.change24h ?? 0) >= 0 ? 'up' : 'down'}`}>{outcome.change24h == null ? '—' : `${outcome.change24h >= 0 ? '+' : '-'}${Math.round(Math.abs(outcome.change24h) * 100)}%`}</dd></div>
+          <div><dt>24H volume</dt><dd className="num">{compactDollars(event.volume24h)}</dd></div>
+          <div><dt>Total volume</dt><dd className="num">{compactDollars(event.volume)}</dd></div>
+          <div><dt>Ends</dt><dd>{ends}</dd></div>
+        </dl>
+      </section>
 
       <section className="card chart-card">
         <div className="chart-tools">
@@ -109,7 +110,7 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
       </section>
 
       {event.multi && <section className="card flush">
-        <div className="table-tools"><h2>Outcomes</h2><span className="count">{event.outcomes.length}</span></div>
+        <div className="table-tools"><h2>Outcomes</h2></div>
         <div className="pm-outcomes">{event.outcomes.map(o => <div key={o.id} className={`pm-outcome ${outcome.id === o.id ? 'on' : ''}`} onClick={() => setSelectedId(o.id)}>
           <span className="pm-outcome-name"><strong>{o.label}</strong><small className="num">{compactDollars(o.volume24h)} vol</small></span>
           <span className="pm-outcome-chance"><b className="num">{chance(o.yesPrice)}</b><OddsChange change={o.change24h} /></span>
@@ -122,8 +123,8 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
 
       <section className="card">
         <div className="tabs">
-          <button className={tab === 'cult' ? 'on' : ''} onClick={() => setTab('cult')}>Cult bets<b>{bets.length}</b></button>
-          <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>My position{positions.length > 0 && <b>{positions.length}</b>}</button>
+          <button className={tab === 'cult' ? 'on' : ''} onClick={() => setTab('cult')}>Cult bets</button>
+          <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>My position</button>
           <button className={tab === 'rules' ? 'on' : ''} onClick={() => setTab('rules')}>Rules</button>
         </div>
         {tab === 'cult' ? (bets.length ? <div className="feed">{bets.map(b => {
@@ -229,7 +230,7 @@ function PredictionTicket({ event, outcome, side, onSide, me, canTrade, busy, cu
       </select>
     </label>}
 
-    <button type="button" className={`ticket-long ticket-buy ${side === 'no' ? 'pm-buy-no' : ''}`} disabled={!valid || busy} onClick={submit}>
+    <button type="button" className={`ticket-submit ticket-submit--stack ${side === 'no' ? 'short' : 'long'}`} disabled={!valid || busy} onClick={submit}>
       {canTrade ? `Buy ${what}` : 'Coming soon'}<small className="num">{canTrade ? (amount > 0 ? `${dollars(amount)} at ${cents(price)}` : 'Each share pays $1 if right') : 'Try it in the demo'}</small>
     </button>
     <p className="ticket-foot">{canTrade ? `Each share pays $1 if this resolves ${sideLabel}, $0 if not. Odds from Polymarket.` : PREDICTIONS_SOON}</p>

@@ -8,8 +8,8 @@
   --lp-text: #f4f6f8;
   --lp-muted: #98a2ae;
   --lp-red: #e94747;
-  --lp-display: var(--font-insidia), Impact, system-ui, sans-serif;
-  --lp-body: var(--font-aeonik), var(--font-sans), system-ui, sans-serif;
+  --lp-display: var(--font-insidia), sans-serif;
+  --lp-body: var(--font-aeonik), sans-serif;
   --lp-gutter: clamp(16px, 8.33vw, 120px);
   /* Spacing scale, used everywhere instead of one-off values:
      section-y = section top/bottom padding (140 at 1440, never under 96);

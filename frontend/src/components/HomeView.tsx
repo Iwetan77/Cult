@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, ChevronLeft, ChevronRight, Compass, Plus, Trophy, Wallet } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Compass, Plus, Trophy, Wallet } from './icons';
 import { getHome, getMarkets } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { ChatRoom, Holding, Home, MarketListing, Me } from '@/lib/contracts';
@@ -39,7 +39,7 @@ export function PortfolioCard({ me, holdings, onDeposit }: { me: Me; holdings: H
   const parts = [{ label: 'Dollars', value: cash ?? 0, tone: 'a' }, { label: 'MON', value: mon, tone: 'b' }, { label: 'Perps margin', value: margin, tone: 'c' }, { label: 'Memes', value: memes, tone: 'd' }];
   const sum = parts.reduce((s, p) => s + p.value, 0) || 1;
   return <section className="card portfolio">
-    <div className="portfolio-top"><span className="eyebrow">Portfolio</span>{holdings.length > 0 && <span className={`portfolio-pnl ${openPnl >= 0 ? 'up' : 'down'}`}>{signedDollars(openPnl)} open</span>}</div>
+    <div className="card-head"><h2>Portfolio</h2>{holdings.length > 0 && <span className={`portfolio-pnl num ${openPnl >= 0 ? 'up' : 'down'}`}>{signedDollars(openPnl)} open</span>}</div>
     <strong className="portfolio-total num">{dollars(total)}</strong>
     <div className="portfolio-bar" aria-hidden="true">{parts.map(p => <i key={p.label} className={`tone-${p.tone}`} style={{ width: `${(p.value / sum) * 100}%` }} />)}</div>
     <dl className="portfolio-lines">{parts.map(p => <div key={p.label}><dt><i className={`tone-${p.tone}`} />{p.label}</dt><dd className="num">{dollars(p.value)}</dd></div>)}</dl>
@@ -49,7 +49,7 @@ export function PortfolioCard({ me, holdings, onDeposit }: { me: Me; holdings: H
 
 export function PositionsCard({ holdings, onMarket, title = 'Open positions' }: { holdings: Holding[]; onMarket: (id: string) => void; title?: string }) {
   return <section className="card">
-    <div className="card-head"><h2>{title}</h2><span className="count">{holdings.length}</span></div>
+    <div className="card-head"><h2>{title}</h2></div>
     {holdings.length ? <div className="pos-list">{holdings.slice(0, 8).map(item => <button className="pos-row" key={`${item.venue}:${item.market}`} onClick={() => onMarket(item.market)}>
       <TokenLogo symbol={item.symbol} />
       <span className="pos-name"><strong>{item.symbol}</strong><small><span className={`side-chip ${item.side}`}>{item.side.toUpperCase()}{item.venue === 'perpl' && item.leverage ? ` ${item.leverage}x` : ''}</span> {dollars(item.valueAusd)}</small></span>
@@ -85,25 +85,21 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
     return () => { active = false; };
   }, []);
   const scroll = (dir: number) => rail.current?.scrollBy({ left: dir * (rail.current.clientWidth * 0.8), behavior: 'smooth' });
-
   const query = search.trim().toLowerCase();
-  const rooms = me.rooms.filter(room => room.name.toLowerCase().includes(query));
-  const cults = rooms.filter(room => room.kind === 'cult');
-  const seven = home?.sevenDay;
+  const cults = me.rooms.filter(room => room.kind === 'cult' && room.name.toLowerCase().includes(query));
+
+  const wallet = me.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) : null;
 
   return <div className="view two-col">
     <section className="view-main">
+      <section className="card home-wallet" aria-label="Wallet">
+        <span className="home-wallet-lines"><span className="eyebrow"><Wallet size={13} /> Wallet</span><strong className="num">{dollars(wallet)}</strong></span>
+        <button className="btn btn-primary" onClick={onDeposit}><Plus size={16} /> Deposit</button>
+      </section>
       <header className="page-head">
         <div><span className="eyebrow">{greeting()}</span><h1 className="display">{me.name}</h1></div>
-        <div className="page-actions"><button className="btn btn-ghost" onClick={onDiscover}><Compass size={16} /> Discover cults</button><button className="btn btn-primary" onClick={onCreate}><Plus size={16} /> Create a cult</button></div>
+        <div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={onDiscover}><Compass size={14} /> Discover cults</button><button className="btn btn-primary btn-sm" onClick={onCreate}><Plus size={14} /> Create a cult</button></div>
       </header>
-
-      <div className="stat-strip reveal">
-        <div className="stat"><span>7D trades</span><strong className="num">{seven ? seven.trades : '—'}</strong></div>
-        <div className="stat"><span>7D profit</span><strong className={`num ${seven ? (seven.profitUsd >= 0 ? 'up' : 'down') : ''}`}>{seven ? signedDollars(seven.profitUsd) : '—'}</strong></div>
-        <div className="stat"><span>Positions opened</span><strong className="num">{seven ? seven.positionsOpened : '—'}</strong></div>
-        <div className="stat"><span>Open now</span><strong className="num">{holdings.length}</strong></div>
-      </div>
 
       <section className="block reveal" style={{ '--d': '80ms' } as React.CSSProperties}>
         <div className="block-head"><h2><Trophy size={18} /> Top trades this week</h2><div className="block-tools"><button className="icon-btn" title="Previous" onClick={() => scroll(-1)}><ChevronLeft size={17} /></button><button className="icon-btn" title="Next" onClick={() => scroll(1)}><ChevronRight size={17} /></button></div></div>
@@ -128,7 +124,7 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
       </section>
 
       <section className="block reveal" style={{ '--d': '200ms' } as React.CSSProperties}>
-        <div className="block-head"><h2>My cults</h2><span className="count">{cults.length}</span></div>
+        <div className="block-head"><h2>My cults</h2></div>
         <div className="card flush">{cults.length ? cults.map(room => <RoomRow key={room.id} room={room} onOpen={() => onRoom(room.id)} />) : <div className="empty"><strong>{query ? 'No cults match your search.' : 'You are not in a cult yet.'}</strong>{!query && <span>Trade together: everyone&apos;s positions show on one chart.</span>}{!query && <div className="empty-actions"><button className="btn btn-primary btn-sm" onClick={onCreate}>Create a cult</button><button className="btn btn-ghost btn-sm" onClick={onDiscover}>Find one</button></div>}</div>}</div>
       </section>
     </section>
@@ -136,10 +132,6 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
     <aside className="view-side">
       <PortfolioCard me={me} holdings={holdings} onDeposit={onDeposit} />
       <PositionsCard holdings={holdings} onMarket={onMarket} />
-      <section className="card">
-        <div className="card-head"><h2>Rooms</h2></div>
-        <div className="side-rooms">{rooms.filter(r => r.kind !== 'cult').map(room => <button key={room.id} onClick={() => onRoom(room.id)}><RoomBadge icon={room.icon} kind={room.kind} /><span><strong>{room.name}</strong><small>{room.memberCount.toLocaleString()} traders</small></span><ArrowRight size={14} /></button>)}</div>
-      </section>
     </aside>
   </div>;
 }

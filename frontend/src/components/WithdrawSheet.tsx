@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Check, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Check, RefreshCw, X } from './icons';
 import { getAccessToken } from '@/lib/auth';
 import { getDeposit, withdraw } from '@/lib/api';
 import type { DepositInfo, WithdrawRequest, WithdrawResult } from '@/lib/contracts';

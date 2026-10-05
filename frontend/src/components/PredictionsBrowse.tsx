@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { TrendingDown, TrendingUp } from 'lucide-react';
+import { TrendingDown, TrendingUp } from './icons';
 import { getAccessToken } from '@/lib/auth';
 import { getPredictionPositions } from '@/lib/api';
 import type { PredictionPosition, PredictionSide } from '@/lib/contracts';
@@ -55,7 +55,7 @@ export function PredictionsBrowse({ search, revision, onOpen }: Props) {
 
   return <>
     {positions.length > 0 && !search.trim() && <section className="block">
-      <div className="block-head"><h2>Your predictions</h2><span className="count">{positions.length} open</span></div>
+      <div className="block-head"><h2>Your predictions</h2></div>
       <div className="pm-mine">{positions.map(p => <button key={p.id} className="pm-mine-row" onClick={() => onOpen(p.eventSlug, { outcomeId: p.marketId, side: p.side })}>
         <EventArt event={{ image: p.image, title: p.eventTitle }} />
         <span className="pm-mine-what"><strong>{p.outcomeLabel === p.question ? p.question : p.outcomeLabel}</strong><small>{p.outcomeLabel === p.question ? 'Polymarket' : p.eventTitle}</small></span>

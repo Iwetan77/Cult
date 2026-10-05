@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { Crown } from 'lucide-react';
+import { Crown } from './icons';
 import { getCultStandings, getLeaderboard } from '@/lib/api';
 import type { CultStanding, Leaderboard, LeaderboardEntry } from '@/lib/contracts';
 import { percent, shortAddress, signedDollars } from '@/lib/format';
@@ -55,7 +55,7 @@ export function Leaderboards({ country, cultId, embedded = false, onProfile }: P
   const body = <>
     <div className="lb-head">
       <div className="seg">{([['global', 'Global'], ['country', country?.name ?? 'Country'], ['cult', 'My cult'], ['cults', 'Cults']] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
-      <span className="count">{board ? `${board.rankedCount} ranked · verified own trades` : tab === 'cults' ? 'Public cults' : ''}</span>
+      <span className="count">{board ? 'Verified own trades' : tab === 'cults' ? 'Public cults' : ''}</span>
     </div>
     {tab === 'country' && !country ? <div className="empty"><span>Choose your country in Account to join its ranking.</span></div>
       : tab === 'cult' && !cultId ? <div className="empty"><span>Join a cult to see its ranking.</span></div>

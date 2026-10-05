@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Flame, TrendingDown, TrendingUp, Zap } from 'lucide-react';
+import { ArrowRight, Flame, TrendingDown, TrendingUp, Zap } from './icons';
 import { getMarkets } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { MarketListing } from '@/lib/contracts';
@@ -76,7 +76,7 @@ export function MarketsView({ search, onOpen, onPredict, predictionRevision }: P
       </button>)}</div>}
 
       <section className="card flush table-card reveal" style={{ '--d': '80ms' } as React.CSSProperties}>
-        <div className="table-tools"><div className="chips">{([['volume', 'Top volume'], ['gainers', 'Gainers'], ['losers', 'Losers']] as const).map(([id, label]) => <button key={id} className={sort === id ? 'on' : ''} onClick={() => setSort(id)}>{label}</button>)}</div><span className="count">{list ? `${list.length} markets` : ''}</span></div>
+        <div className="table-tools"><div className="chips">{([['volume', 'Top volume'], ['gainers', 'Gainers'], ['losers', 'Losers']] as const).map(([id, label]) => <button key={id} className={sort === id ? 'on' : ''} onClick={() => setSort(id)}>{label}</button>)}</div></div>
         {error ? <p className="notice-line">{error}</p> : <div className="mtable" role="table">
           <div className="mtable-row mtable-head" role="row"><span>Market</span><span>Price</span><span>24h</span><span className="hide-sm">Volume</span><span className="hide-sm">Leverage</span><span /></div>
           {!list ? Array.from({ length: 8 }, (_, i) => <div key={i} className="mtable-row"><span className="skel skel-line" /></div>)

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, Check, Link2, Plus, RefreshCw } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Link2, Plus, RefreshCw } from './icons';
 import { discoverCults, getCultStandings } from '@/lib/api';
 import type { CultStanding, DiscoverCult } from '@/lib/contracts';
 import { percent, signedDollars } from '@/lib/format';
@@ -16,6 +16,8 @@ type Row = DiscoverCult & { standing: CultStanding | null };
 
 export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search, onCreate, onInvite, onOpenRoom }: Props) {
   const [tab, setTab] = useState<'cults' | 'rankings'>('cults');
+  const topRail = useRef<HTMLDivElement>(null);
+  const scrollTop = (dir: number) => topRail.current?.scrollBy({ left: dir * (topRail.current.clientWidth * 0.8), behavior: 'smooth' });
   const [cults, setCults] = useState<DiscoverCult[]>([]);
   const [standings, setStandings] = useState<CultStanding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,14 +55,14 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
   return <div className="view one-col">
     {preview && <CultPreview cult={preview} standing={preview.standing} busy={busy} onJoin={() => onJoin(preview.id)} onClose={() => setPreview(null)} onProfile={id => { setPreview(null); onProfile(id); }} />}
     <section className="view-main">
-      <section className="discover-hero reveal">
-        <div className="discover-hero-copy">
+      <header className="page-head">
+        <div>
           <span className="eyebrow">Discover</span>
           <h1 className="display">Find your cult</h1>
-          <p>Public cults trade in the open. Join one and every member&apos;s position shows on your chart, live, with PnL. Turn on Auto-follow to copy them.</p>
-          <div className="row-gap"><button className="btn btn-primary" onClick={onCreate}><Plus size={16} /> Create a cult</button><button className="btn btn-glass" onClick={onInvite}><Link2 size={16} /> Use an invite</button></div>
+          <p className="page-sub">Public cults trade in the open. Join one and every member&apos;s position shows on your chart, live, with PnL.</p>
         </div>
-      </section>
+        <div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={onInvite}><Link2 size={14} /> Use an invite</button><button className="btn btn-primary btn-sm" onClick={onCreate}><Plus size={14} /> Create a cult</button></div>
+      </header>
 
       <div className="tabs tabs--page">
         <button className={tab === 'cults' ? 'on' : ''} onClick={() => setTab('cults')}>Cults</button>
@@ -70,8 +72,8 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
 
       {tab === 'rankings' ? <Leaderboards embedded country={country} cultId={cultId} onProfile={onProfile} /> : loading ? <div className="cult-cards">{Array.from({ length: 4 }, (_, i) => <div key={i} className="cult-card skel" />)}</div> : error ? <p className="notice-line">{error}</p> : <>
         {top.length > 0 && !search.trim() && <section className="block">
-          <div className="block-head"><h2>Top performing</h2></div>
-          <div className="cult-cards">{top.map((row, i) => <article key={row.id} {...clickable(row)} className={`cult-card reveal ${i === 0 ? 'is-first' : ''}`} style={{ '--d': `${i * 60}ms` } as React.CSSProperties}>
+          <div className="block-head"><h2>Top performing</h2><div className="block-tools"><button className="icon-btn" title="Previous" onClick={() => scrollTop(-1)}><ChevronLeft size={17} /></button><button className="icon-btn" title="Next" onClick={() => scrollTop(1)}><ChevronRight size={17} /></button></div></div>
+          <div className="carousel" ref={topRail}>{top.map((row, i) => <article key={row.id} {...clickable(row)} className={`cult-card reveal ${i === 0 ? 'is-first' : ''}`} style={{ '--d': `${i * 60}ms` } as React.CSSProperties}>
             <div className="cult-card-top"><RoomBadge icon={row.name[0]!.toUpperCase()} kind="cult" size="lg" /><span className="cult-card-rank">#{row.standing!.rank}</span></div>
             <h3>{row.name}</h3>
             <small>{row.memberCount} members · {row.standing!.tradeCount} trades</small>
@@ -81,8 +83,8 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
         </section>}
 
         <section className="card flush">
-          <div className="table-tools"><h2>All public cults</h2><span className="count">{rows.length}</span></div>
-          {rows.length === 0 ? <div className="empty"><span>{search.trim() ? 'No public cults match your search.' : 'No public cults yet. Be the first.'}</span></div> : <div className="ctable">
+          <div className="table-tools"><h2>All public cults</h2></div>
+          {rows.length === 0 ? <div className="empty"><span>{search.trim() ? 'No public cults match your search.' : 'No public cults yet. Be the first.'}</span></div> : <div className="ctable ctable--join">
             <div className="ctable-row ctable-head"><span>#</span><span>Cult</span><span className="hide-sm">Win rate</span><span className="hide-sm">Trades</span><span>All-time</span><span /></div>
             {rows.map(row => <div className="ctable-row" key={row.id} {...clickable(row)}>
               <span className="rank">{row.standing?.rank ?? '—'}</span>

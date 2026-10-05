@@ -5,14 +5,14 @@ import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSigners, useWallets } from '@privy-io/react-auth';
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
-import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, Menu, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, Wallet, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, Wallet, X } from './icons';
 import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
 import { privySupported } from '@/lib/privySupport';
 import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
-import { dollars, price } from '@/lib/format';
+import { dollars, price, shortAddress } from '@/lib/format';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
 import { ClanChat } from './ClanChat';
@@ -125,19 +125,7 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
   const [view, setView] = useState<View>('home');
   const [marketPage, setMarketPage] = useState<string | null>(null);
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
-  const [railCollapsed, setRailCollapsed] = useState(false);
-  const [railOpenMobile, setRailOpenMobile] = useState(false);
-// The rail starts open on every visit; below 1100px it's a drawer instead.
-  const toggleRail = () => setRailCollapsed(current => !current);
-  const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
-    const query = window.matchMedia('(max-width: 1100px)');
-    const update = () => setNarrow(query.matches);
-    update();
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
-  }, []);
-  const go = (next: View) => { setView(next); setRailOpenMobile(false); };
+  const go = (next: View) => setView(next);
   const openMarket = (id: string | null) => {
     setMarketPage(id || null);
     go('markets');
@@ -818,16 +806,15 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
     { id: 'discover', label: 'Discover', icon: <Compass size={18} />, active: view === 'discover', onClick: () => go('discover') },
     { id: 'leaderboards', label: 'Leaderboard', icon: <Trophy size={18} />, active: view === 'leaderboards', onClick: () => go('leaderboards') },
   ];
-  const collapsed = railCollapsed && !narrow;
 
-  return <div className={`dash ${collapsed ? 'rail-collapsed' : ''} ${railOpenMobile ? 'rail-open' : ''}`}>
+  return <div className="dash">
     <header className="topbar">
-      <button className="icon-btn topbar-menu" title="Menu" onClick={() => setRailOpenMobile(open => !open)}><Menu size={19} /></button>
       <button className="topbar-logo" onClick={() => go('home')} aria-label="Cult home"><img src="/landing/cult-logo.svg" alt="Cult" width={58} height={30} /></button>
       <div className="search">
         <label className="search-box"><Search size={16} /><input ref={searchRef} value={search} onChange={event => { setSearch(event.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)} onBlur={() => window.setTimeout(() => setSearchOpen(false), 160)}
           onKeyDown={event => { if (event.key === 'Escape') { setSearchOpen(false); event.currentTarget.blur(); } if (event.key === 'Enter' && searchMarkets[0] && view !== 'markets') pickSearch(() => openMarket(searchMarkets[0]!.id)); }}
-          placeholder="Search markets, memes, cults" aria-label="Search markets, memes or cults" /><kbd>/</kbd></label>
+          placeholder="Search markets, memes, cults" aria-label="Search markets, memes or cults" /><kbd>/</kbd>
+          {search && <button type="button" className="search-clear" aria-label="Clear search" onMouseDown={event => event.preventDefault()} onClick={() => { setSearch(''); setSearchOpen(false); searchRef.current?.blur(); }}><X size={16} /></button>}</label>
         {searchOpen && search.trim() && view !== 'markets' && <div className="search-drop" role="listbox">
           {searchMarkets.length > 0 && <><span className="search-label">Markets</span>{searchMarkets.map(item => <button key={`${item.venue}:${item.id}`} role="option" aria-selected={false} onMouseDown={event => event.preventDefault()} onClick={() => pickSearch(() => openMarket(item.id))}>
             <TokenLogo symbol={item.symbol} imageUri={item.imageUri} /><span className="search-name"><strong>{item.symbol}</strong><small>{item.venue === 'perpl' ? `Perp · up to ${Math.floor(item.maxLeverage)}x` : item.name}</small></span>
@@ -838,16 +825,15 @@ function DashboardView({ privy }: { privy: PrivyAuth }) {
       </div>
       <div className="topbar-right">
         {demo && <span className="demo-pill" title="Sample data. Nothing here touches real funds.">Demo</span>}
-        <button className="balance" onClick={() => setDepositOpen(true)} title="Wallet and trading account"><i />{balance == null ? '—' : <span className="num">{dollars(balance)}</span>}</button>
-        <button className="btn btn-primary btn-sm topbar-deposit" onClick={() => setDepositOpen(true)}><Wallet size={15} /> Deposit</button>
-        <button className="topbar-me" onClick={() => openAccount()} title="Account"><Avatar name={me?.name ?? 'You'} url={me?.avatarUrl} /></button>
+        <button className="balance" onClick={() => setDepositOpen(true)} title="Wallet and trading account"><Wallet size={15} />{balance == null ? '—' : <span className="num">{dollars(balance)}</span>}</button>
+        <button className="btn btn-primary btn-sm topbar-deposit" onClick={() => setDepositOpen(true)}><Plus size={15} /> Deposit</button>
+        <button className="topbar-me" onClick={() => openAccount()} title="Account"><Avatar name={me?.name ?? 'You'} url={me?.avatarUrl} /><span className="topbar-me-lines"><strong>{me?.name ?? 'You'}</strong><small className="num">{me ? shortAddress(me.address) : ''}</small></span></button>
       </div>
     </header>
 
-    <SideRail me={me} nav={nav} collapsed={collapsed} onToggle={toggleRail} activeRoom={view === 'chat' ? roomId : null}
-      onRoom={openRoom} onCreate={() => setFormOpen('create')} onJoin={() => setFormOpen('join')}
+    <SideRail me={me} nav={nav} activeRoom={view === 'chat' ? roomId : null}
+      onRoom={openRoom} onCreate={() => setFormOpen('create')}
       settingsActive={view === 'account' && profileId === 'me' && accountTab === 'settings'} onSettings={() => openAccount('me', 'settings')} onSignOut={signOut} />
-    {railOpenMobile && <button className="rail-scrim" aria-label="Close panel" onClick={() => setRailOpenMobile(false)} />}
 
     <main className="stage" key={view === 'chat' ? `chat:${roomId}` : view === 'markets' ? `m:${marketPage ?? ''}` : view === 'account' ? `a:${profileId}` : view}>
       {!me ? <div className="view two-col"><section className="view-main"><div className="skel skel-head" /><div className="skel skel-strip" /><div className="skel skel-chart" /></section><aside className="view-side"><div className="skel skel-card" /><div className="skel skel-card" /></aside></div>
