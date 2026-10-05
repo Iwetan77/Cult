@@ -3,29 +3,38 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, TrendingUp, UsersRound, X } from './icons';
 import { price, timeAgo } from '@/lib/format';
-import { addPriceAlert, clearAlerts, markAlertsRead, removePriceAlert, useAlertFeed, usePriceAlerts, type AlertItem } from '@/lib/prefs';
+import { addPriceAlert, clearAlerts, markAlertsRead, notifyPref, removePriceAlert, setNotifyPref, useAlertFeed, useNotifyPref, usePriceAlerts, type AlertItem } from '@/lib/prefs';
 
-// Alerts: a cult-mate opening a trade, and price alerts you set on a market.
-// They're watched in the browser while Cult is open (see Dashboard) and kept
-// on this device. With permission, they also show as system notifications
-// when the tab is in the background.
+// Alerts: a cult-mate opening a trade, price alerts you set on a market and,
+// with notifications on, new cult messages. They're watched in the browser
+// while Cult is open (see Dashboard) and kept on this device. With
+// notifications on (Settings) and the browser's permission, they also show as
+// system notifications when Cult is in the background.
 
 const canNotify = () => typeof window !== 'undefined' && 'Notification' in window;
 
-export function notifyDevice(title: string, body: string) {
-  if (!canNotify() || Notification.permission !== 'granted' || document.visibilityState === 'visible') return;
+export function notifyDevice(owner: string, title: string, body: string) {
+  if (!notifyPref(owner) || !canNotify() || Notification.permission !== 'granted' || document.visibilityState === 'visible') return;
   try { new Notification(title, { body, icon: '/landing/cult-logo.svg' }); } catch { /* some browsers only notify from a service worker */ }
+}
+
+// Turn notifications on: the setting, plus the browser's permission for
+// system notifications where it can still be asked for. Returns the permission.
+export async function enableNotifications(owner: string): Promise<NotificationPermission | 'unsupported'> {
+  setNotifyPref(owner, true);
+  if (!canNotify()) return 'unsupported';
+  if (Notification.permission === 'default') return Notification.requestPermission().catch(() => Notification.permission);
+  return Notification.permission;
 }
 
 export function AlertsMenu({ owner, onMarket, onRoom }: { owner: string; onMarket: (id: string) => void; onRoom: (id: string) => void }) {
   const feed = useAlertFeed(owner);
   const watching = usePriceAlerts(owner);
   const [open, setOpen] = useState(false);
-  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>('unsupported');
+  const notifying = useNotifyPref(owner);
   const box = useRef<HTMLDivElement>(null);
   const unread = feed.some(a => !a.read);
 
-  useEffect(() => { if (canNotify()) setPermission(Notification.permission); }, [open]);
   // Opening the panel reads everything in it.
   useEffect(() => { if (open) markAlertsRead(owner); }, [open, feed, owner]);
   useEffect(() => {
@@ -42,7 +51,6 @@ export function AlertsMenu({ owner, onMarket, onRoom }: { owner: string; onMarke
     if (item.marketId) onMarket(item.marketId);
     else if (item.roomId) onRoom(item.roomId);
   };
-  const askPermission = () => { void Notification.requestPermission().then(setPermission).catch(() => undefined); };
 
   return <div className="alerts" ref={box}>
     <button className={`icon-btn alerts-bell${open ? ' on' : ''}`} aria-label={unread ? 'Alerts, new' : 'Alerts'} aria-expanded={open} onClick={() => setOpen(value => !value)}>
@@ -50,7 +58,7 @@ export function AlertsMenu({ owner, onMarket, onRoom }: { owner: string; onMarke
     </button>
     {open && <div className="alerts-drop" role="dialog" aria-label="Alerts">
       <div className="alerts-head"><h2>Alerts</h2>{feed.length > 0 && <button className="link" onClick={() => clearAlerts(owner)}>Clear</button>}</div>
-      {permission === 'default' && <button className="alerts-permission" onClick={askPermission}><Bell size={15} /><span><strong>Get alerts on this device</strong><small>Even when Cult is in the background.</small></span></button>}
+      {!notifying && <button className="alerts-permission" onClick={() => void enableNotifications(owner)}><Bell size={15} /><span><strong>Turn on notifications</strong><small>An alert for every new message and trade, even when Cult is in the background.</small></span></button>}
       {feed.length ? <div className="alerts-list">{feed.map(item => <button key={item.id} className="alerts-item" onClick={() => pick(item)}>
         <span className={`alerts-icon is-${item.kind}`}>{item.kind === 'price' ? <TrendingUp size={15} /> : <UsersRound size={15} />}</span>
         <span className="alerts-lines"><strong>{item.title}</strong><small>{item.body} · {timeAgo(item.at)}</small></span>
