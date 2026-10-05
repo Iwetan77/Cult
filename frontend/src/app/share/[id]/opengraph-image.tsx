@@ -11,8 +11,8 @@ export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
 const usd = (v: number) => `${v < 0 ? '-' : v > 0 ? '+' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-// The app's two faces: Insidia for the logo and the big number, Aeonik Pro
-// for the rest.
+// The app's two faces: Insidia for the big number, Aeonik Pro for the rest.
+// The logo is the same SVG the app uses.
 const font = (file: string) => readFile(join(process.cwd(), 'src/fonts', file));
 
 const plain = (v: number | null) => v == null ? '—' : `$${v.toLocaleString('en-US', { minimumFractionDigits: v < 1 ? 4 : 2, maximumFractionDigits: v < 1 ? 6 : 2 })}`;
@@ -25,12 +25,13 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   const headline = !s ? 'Trade result' : roi ?? (s.pnlUsd == null ? 'Open' : usd(s.pnlUsd));
   const side = !s ? '' : `${s.side === 'buy' ? 'BUY' : s.side.toUpperCase()}${s.venue === 'perpl' && s.leverage ? ` ${s.leverage}x` : ''}`;
   const rec = s?.traderRecord;
-  const [insidia, aeonik, aeonikMedium] = await Promise.all([font('Insidia.otf'), font('AeonikPro-Regular.otf'), font('AeonikPro-Medium.otf')]);
+  const [insidia, aeonik, aeonikMedium, logoSvg] = await Promise.all([font('Insidia.otf'), font('AeonikPro-Regular.otf'), font('AeonikPro-Medium.otf'), readFile(join(process.cwd(), 'public/landing/cult-logo.svg'))]);
+  const logo = `data:image/svg+xml;base64,${logoSvg.toString('base64')}`;
 
   return new ImageResponse(
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '56px 64px', background: `radial-gradient(circle at 85% 20%, ${up ? '#1f4a3d' : '#4a2328'} 0%, #16191f 55%)`, color: '#edf1f1', fontFamily: 'Aeonik' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', fontSize: 44, fontFamily: 'Insidia' }}>CULT<span style={{ color: '#68e7be' }}>.</span></div>
+        <img src={logo} width={84} height={44} alt="Cult" />
         <div style={{ display: 'flex', fontSize: 24, color: rec?.verified ? '#68e7be' : '#8d96a3', border: `2px solid ${rec?.verified ? '#3f6a5d' : '#3a424e'}`, borderRadius: 999, padding: '8px 20px' }}>{rec?.verified ? 'Verified on-chain' : s?.closedAt ? 'Closed trade' : 'Open position'}</div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column' }}>

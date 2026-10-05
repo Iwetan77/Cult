@@ -12,7 +12,7 @@ h1,h2,h3,h4,p{margin:0}
 .positive{color:var(--green)!important}.negative{color:var(--red)!important}
 
 .config-state{min-height:100vh;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;padding:10vw}
-.config-state .brand{font-family:var(--font-insidia),sans-serif;font-size:32px}.config-state .brand-dot{color:var(--green)}
+.config-state .brand{display:block;height:34px;width:auto}
 .config-state h1{font-size:28px;margin-top:24px}.config-state p{color:var(--muted)}
 
 .room-avatar{position:relative;overflow:hidden;flex:none;width:36px;height:36px;border-radius:50%;background:#1a2a27;color:#c9fff3;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;letter-spacing:-.2px}
@@ -32,7 +32,7 @@ h1,h2,h3,h4,p{margin:0}
 .pnl-card:after{content:'';position:absolute;inset:0;background-image:linear-gradient(#ffffff08 1px,transparent 1px),linear-gradient(90deg,#ffffff08 1px,transparent 1px);background-size:34px 34px;mask-image:linear-gradient(180deg,#000 0%,transparent 75%);pointer-events:none}
 .pnl-card>*{position:relative;z-index:1}
 .pnl-top{display:flex;align-items:center;justify-content:space-between}
-.pnl-brand{font-size:22px;font-weight:700;letter-spacing:.5px}.pnl-brand i{color:var(--green);font-style:normal}
+.pnl-brand{display:block;height:22px;width:auto}
 .pnl-verified{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--green);border:1px solid #3f6a5d;background:#1b2e29;border-radius:999px;padding:5px 11px}
 .pnl-verified.muted{color:#aeb8c0;border-color:#3a424e;background:#20252e}
 .pnl-market{display:flex;align-items:center;gap:14px}
