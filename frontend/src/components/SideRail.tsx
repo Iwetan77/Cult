@@ -5,6 +5,7 @@ import { LogOut, Plus, Settings } from './icons';
 import type { ChatRoom, Me } from '@/lib/contracts';
 import { timeAgo } from '@/lib/format';
 import { RoomBadge } from './RoomBadge';
+import { UnreadBubble, latestFirst } from './HomeView';
 
 // The left rail: a narrow strip of icons (main menu, your cults and open
 // rooms as badges, Settings and Log out). Hovering it, or tabbing into it,
@@ -16,6 +17,7 @@ export type NavItem = { id: string; label: string; icon: ReactNode; active: bool
 type Props = {
   me: Me | null; nav: NavItem[];
   activeRoom: string | null;
+  unread: Record<string, number>;
   onRoom: (id: string) => void;
   onCreate: () => void;
   settingsActive: boolean; onSettings: () => void; onSignOut: () => void;
@@ -27,7 +29,7 @@ const preview = (room: ChatRoom) => {
   return last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`;
 };
 
-export function SideRail({ me, nav, activeRoom, onRoom, onCreate, settingsActive, onSettings, onSignOut }: Props) {
+export function SideRail({ me, nav, activeRoom, unread, onRoom, onCreate, settingsActive, onSettings, onSignOut }: Props) {
   // A short delay each way, so passing the cursor across doesn't flicker it.
   const [open, setOpen] = useState(false);
   const timer = useRef<number | undefined>(undefined);
@@ -40,12 +42,12 @@ export function SideRail({ me, nav, activeRoom, onRoom, onCreate, settingsActive
   const leaveFocus = (event: FocusEvent) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); };
 
   const rooms = me?.rooms ?? [];
-  const cults = rooms.filter(r => r.kind === 'cult');
+  const cults = latestFirst(rooms.filter(r => r.kind === 'cult'));
   const others = rooms.filter(r => r.kind !== 'cult');
   const room = (r: ChatRoom) => {
     const at = r.lastMessage ? Date.parse(r.lastMessage.createdAt) : null;
-    return <button key={r.id} className={`rail-room ${activeRoom === r.id ? 'on' : ''}`} title={open ? undefined : r.name} aria-label={r.name} onClick={() => pick(() => onRoom(r.id))}>
-      <RoomBadge icon={r.icon} kind={r.kind} />
+    return <button key={r.id} className={`rail-room ${activeRoom === r.id ? 'on' : ''}`} title={open ? undefined : r.name} aria-label={unread[r.id] ? `${r.name}, ${unread[r.id]} unread` : r.name} onClick={() => pick(() => onRoom(r.id))}>
+      <span className="badge-wrap"><RoomBadge icon={r.icon} kind={r.kind} /><UnreadBubble count={unread[r.id]} /></span>
       <span className="rail-room-lines"><strong>{r.name}</strong><small>{preview(r)}</small></span>
       {at != null && <time>{timeAgo(at)}</time>}
     </button>;

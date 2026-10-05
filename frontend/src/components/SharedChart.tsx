@@ -20,8 +20,8 @@ type Hit = { id: string; x: number; y: number; width: number; height: number };
 type GuideHit = { markerId: string; kind: GuideKind; x: number; y: number };
 type Drag = { markerId: string; kind: GuideKind; price: number; startY: number; moved: boolean };
 
-const markerColor = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? '#8fb4ff' : origin === 'manual_stack' ? '#f6bf68' : '#63f0d6';
-const guideColor = (kind: GuideKind) => kind === 'takeProfit' ? '#63f0d6' : '#ff6b6b';
+const markerColor = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? '#8fb4ff' : origin === 'manual_stack' ? '#f6bf68' : '#c084fc';
+const guideColor = (kind: GuideKind) => kind === 'takeProfit' ? '#34d399' : '#ff6b6b';
 const guideLabel = (kind: GuideKind) => kind === 'takeProfit' ? 'TP' : 'SL';
 const seriesData = (candles: Candle[], style: ChartStyle) => style === 'line'
   ? candles.map(c => ({ time: c.time as UTCTimestamp, value: c.close }))
@@ -68,7 +68,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: 'rgba(0,0,0,0)' }, textColor: '#7d8792', fontFamily: monoFont, fontSize: 11, attributionLogo: false },
       grid: { vertLines: { color: 'rgba(255,255,255,0.035)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
-      crosshair: { vertLine: { color: 'rgba(99,240,214,0.35)', labelBackgroundColor: '#1d2a28' }, horzLine: { color: 'rgba(99,240,214,0.35)', labelBackgroundColor: '#1d2a28' } },
+      crosshair: { vertLine: { color: 'rgba(168,85,247,0.35)', labelBackgroundColor: '#2a2340' }, horzLine: { color: 'rgba(168,85,247,0.35)', labelBackgroundColor: '#2a2340' } },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', scaleMargins: { top: 0.12, bottom: 0.12 } },
       timeScale: { borderColor: 'rgba(255,255,255,0.06)', timeVisible: true, secondsVisible: false, rightOffset: 14 },
       handleScroll: true,
@@ -104,10 +104,10 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       if (!base || !base.priceRange || !levels.length) return base;
       return { ...base, priceRange: { minValue: Math.min(base.priceRange.minValue, ...levels), maxValue: Math.max(base.priceRange.maxValue, ...levels) } };
     };
-    const price = { priceLineVisible: true, priceLineColor: 'rgba(99,240,214,0.5)', priceLineStyle: 2, autoscaleInfoProvider };
+    const price = { priceLineVisible: true, priceLineColor: 'rgba(168,85,247,0.5)', priceLineStyle: 2, autoscaleInfoProvider };
     const series: ISeriesApi<SeriesType> = chartStyle === 'line'
-      ? chart.addSeries(LineSeries, { ...price, color: '#63f0d6', lineWidth: 2, crosshairMarkerRadius: 4, crosshairMarkerBorderColor: '#070908', crosshairMarkerBackgroundColor: '#63f0d6' })
-      : chart.addSeries(CandlestickSeries, { ...price, upColor: '#63f0d6', downColor: '#ff6b6b', borderVisible: false, wickUpColor: 'rgba(99,240,214,0.7)', wickDownColor: 'rgba(255,107,107,0.7)' });
+      ? chart.addSeries(LineSeries, { ...price, color: '#a855f7', lineWidth: 2, crosshairMarkerRadius: 4, crosshairMarkerBorderColor: '#13111c', crosshairMarkerBackgroundColor: '#a855f7' })
+      : chart.addSeries(CandlestickSeries, { ...price, upColor: '#34d399', downColor: '#ff6b6b', borderVisible: false, wickUpColor: 'rgba(52,211,153,0.7)', wickDownColor: 'rgba(255,107,107,0.7)' });
     series.setData(seriesData(candlesRef.current, chartStyle));
     seriesRef.current = series;
     drawRef.current();
@@ -209,7 +209,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         ctx.font = `500 11.5px ${font}`;
         const textWidth = ctx.measureText(amount).width;
         const badgeWidth = Math.ceil(56 + textWidth + (marker.pendingAdd ? 30 : 0));
-        ctx.fillStyle = selected ? '#10241f' : 'rgba(8, 13, 12, 0.94)';
+        ctx.fillStyle = selected ? '#2a1d47' : 'rgba(19, 17, 28, 0.94)';
         ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1; ctx.globalAlpha = selected ? 1 : 0.75;
         ctx.beginPath(); ctx.roundRect(x, markerY - 13, badgeWidth, 26, 13); ctx.fill(); ctx.stroke();
         ctx.globalAlpha = 1;
@@ -229,14 +229,14 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         ctx.beginPath(); ctx.arc(faceX, markerY, 10, 0, Math.PI * 2); ctx.clip();
         if (img?.complete && img.naturalWidth) ctx.drawImage(img, faceX - 10, markerY - 10, 20, 20);
         else {
-          ctx.fillStyle = '#1a2a27'; ctx.fillRect(faceX - 10, markerY - 10, 20, 20);
-          ctx.fillStyle = '#c9fff3'; ctx.font = `700 8.5px ${font}`; ctx.textAlign = 'center';
+          ctx.fillStyle = '#2a2340'; ctx.fillRect(faceX - 10, markerY - 10, 20, 20);
+          ctx.fillStyle = '#efe4ff'; ctx.font = `700 8.5px ${font}`; ctx.textAlign = 'center';
           ctx.fillText(initialsOf(marker.memberName), faceX, markerY + 0.5);
           ctx.textAlign = 'left';
         }
         ctx.restore();
         ctx.font = `500 11.5px ${font}`;
-        ctx.fillStyle = value == null ? '#7d8792' : !perp ? '#eceef1' : value >= 0 ? '#63f0d6' : '#ff6b6b';
+        ctx.fillStyle = value == null ? '#7d8792' : !perp ? '#eceef1' : value >= 0 ? '#34d399' : '#ff6b6b';
         ctx.fillText(amount, faceX + 17, markerY + 1);
         if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = `500 10px ${font}`; ctx.fillText('ADD', faceX + 23 + textWidth, markerY + 1); }
         ctx.font = `12px ${font}`;

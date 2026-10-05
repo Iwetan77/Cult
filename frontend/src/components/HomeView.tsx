@@ -2,27 +2,33 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Compass, Plus, Star, Trophy, Wallet } from './icons';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Compass, Plus, Trophy, Wallet } from './icons';
 import { getHome, getMarkets, getProfile } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { ChatRoom, ClosedTrade, Holding, Home, MarketListing, Me } from '@/lib/contracts';
 import { compactDollars, dollars, price, signedDollars, signedPct, timeAgo } from '@/lib/format';
-import { useStarred } from '@/lib/prefs';
 import { Avatar } from './Avatar';
 import { TokenLogo } from './TokenLogo';
 import { RoomBadge } from './RoomBadge';
 
 type Props = {
-  me: Me; holdings: Holding[]; search: string; onMarket: (id: string) => void;
+  me: Me; holdings: Holding[]; unread: Record<string, number>; search: string; onMarket: (id: string) => void;
   onRoom: (roomId: string) => void; onProfile: (memberId: string) => void;
   onTrade: (trade: Home['topTrades'][number]) => void; onDeposit: () => void;
   onCreate: () => void; onDiscover: () => void;
 };
 
-export function RoomRow({ room, onOpen }: { room: ChatRoom; onOpen: () => void }) {
+// Rooms with the newest message first: a new message moves its cult to the top.
+const lastAt = (room: ChatRoom) => room.lastMessage ? Date.parse(room.lastMessage.createdAt) : 0;
+export const latestFirst = (rooms: ChatRoom[]) => [...rooms].sort((a, b) => lastAt(b) - lastAt(a));
+
+// Unread messages, as a bubble on a room's badge.
+export const UnreadBubble = ({ count }: { count?: number }) => count ? <b className="unread-bubble" aria-label={`${count} unread`}>{count > 99 ? '99+' : count}</b> : null;
+
+export function RoomRow({ room, unread, onOpen }: { room: ChatRoom; unread?: number; onOpen: () => void }) {
   const last = room.lastMessage;
-  return <button className="room-row" onClick={onOpen}>
-    <RoomBadge icon={room.icon} kind={room.kind} size="lg" />
+  return <button className={`room-row${unread ? ' is-unread' : ''}`} onClick={onOpen}>
+    <span className="badge-wrap"><RoomBadge icon={room.icon} kind={room.kind} size="lg" /><UnreadBubble count={unread} /></span>
     <span className="room-row-lines"><strong>{room.name}</strong><small>{last ? (last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`) : 'No messages yet'}</small></span>
     <span className="room-row-meta"><small>{room.memberCount} {room.memberCount === 1 ? 'member' : 'members'}</small>{last && <time>{timeAgo(Date.parse(last.createdAt))}</time>}</span>
     <ArrowRight size={16} className="room-row-go" />
@@ -121,7 +127,7 @@ const pickTrending = (list: MarketListing[]) => {
 };
 const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
 
-export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, onTrade, onDeposit, onCreate, onDiscover }: Props) {
+export function HomeView({ me, holdings, unread, search, onMarket, onRoom, onProfile, onTrade, onDeposit, onCreate, onDiscover }: Props) {
   const [home, setHome] = useState<Home | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [markets, setMarkets] = useState<MarketListing[]>(() => cachedList('') ?? []);
@@ -145,10 +151,8 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
   }, []);
   const scroll = (dir: number) => rail.current?.scrollBy({ left: dir * (rail.current.clientWidth * 0.8), behavior: 'smooth' });
   const query = search.trim().toLowerCase();
-  const cults = me.rooms.filter(room => room.kind === 'cult' && room.name.toLowerCase().includes(query));
+  const cults = latestFirst(me.rooms.filter(room => room.kind === 'cult' && room.name.toLowerCase().includes(query)));
   const trending = useMemo(() => pickTrending(markets), [markets]);
-  const starredIds = useStarred(me.id);
-  const starred = useMemo(() => starredIds.map(id => markets.find(m => m.id === id)).filter((m): m is MarketListing => !!m), [starredIds, markets]);
 
   const wallet = me.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) : null;
   const funded = (wallet ?? 0) + (me.balances?.monUsd ?? 0) > 0 || holdings.length > 0;
@@ -168,11 +172,6 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
       </header>
 
       {newcomer && <FirstSteps funded={funded} inCult={inCult} traded={traded} onDeposit={onDeposit} onDiscover={onDiscover} onMarket={onMarket} />}
-
-      {starred.length > 0 && <section className="block reveal">
-        <div className="block-head"><h2><Star size={18} /> Starred</h2></div>
-        <div className="mkt-grid mkt-grid--all">{starred.map(m => <MarketCard key={`${m.venue}:${m.id}`} m={m} onOpen={() => onMarket(m.id)} />)}</div>
-      </section>}
 
       <section className="block reveal" style={{ '--d': '80ms' } as React.CSSProperties}>
         <div className="block-head"><h2><Trophy size={18} /> Top trades this week</h2><div className="block-tools"><button className="icon-btn" title="Previous" onClick={() => scroll(-1)}><ChevronLeft size={17} /></button><button className="icon-btn" title="Next" onClick={() => scroll(1)}><ChevronRight size={17} /></button></div></div>
@@ -194,7 +193,7 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
 
       <section className="block reveal" style={{ '--d': '200ms' } as React.CSSProperties}>
         <div className="block-head"><h2>My cults</h2></div>
-        <div className="card flush">{cults.length ? cults.map(room => <RoomRow key={room.id} room={room} onOpen={() => onRoom(room.id)} />) : <div className="empty"><strong>{query ? 'No cults match your search.' : 'You are not in a cult yet.'}</strong>{!query && <span>Trade together: everyone&apos;s positions show on one chart.</span>}{!query && <div className="empty-actions"><button className="btn btn-primary btn-sm" onClick={onCreate}>Create a cult</button><button className="btn btn-ghost btn-sm" onClick={onDiscover}>Find one</button></div>}</div>}</div>
+        <div className="card flush">{cults.length ? cults.map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} onOpen={() => onRoom(room.id)} />) : <div className="empty"><strong>{query ? 'No cults match your search.' : 'You are not in a cult yet.'}</strong>{!query && <span>Trade together: everyone&apos;s positions show on one chart.</span>}{!query && <div className="empty-actions"><button className="btn btn-primary btn-sm" onClick={onCreate}>Create a cult</button><button className="btn btn-ghost btn-sm" onClick={onDiscover}>Find one</button></div>}</div>}</div>
       </section>
     </section>
 

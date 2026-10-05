@@ -1,6 +1,8 @@
 /* Signed-out landing page (Figma: Cult Landing / Desktop 1441). Every class is lp- prefixed. */
 .lp {
   --lp-mint: #63f0d6;
+  --lp-violet: #9333ea; /* the brand: primary buttons */
+  --lp-green: #34d399; /* gains */
   --lp-ink: #0f1318;
   --lp-ink-green: #04241e;
   --lp-panel: #222324;
@@ -49,7 +51,7 @@
 .lp-btn:active { transform: translateY(0); }
 .lp-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 .lp-btn--fixed { width: 150px; }
-.lp-btn--primary { background: var(--lp-mint); color: var(--lp-ink-green); }
+.lp-btn--primary { background: var(--lp-violet); color: #fff; }
 .lp-btn--ghost { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.16); color: var(--lp-text); }
 .lp-btn--ghost:hover { background: rgba(255, 255, 255, 0.1); }
 /* Secondary button for bright backgrounds (the rays): the nav pill's dark glass. A ghost button's
@@ -74,7 +76,7 @@
 :where(.lp-rays) > :where(:not(.lp-rays__video)) { position: relative; } /* no weight, so .lp-join__word can be absolute */
 @media (prefers-reduced-motion: reduce) { .lp-rays__video { display: none; } }
 .lp-pill { background: var(--lp-mint); color: #102b26; border-radius: 999px; font-weight: 500; }
-.lp-gain { color: var(--lp-mint); font-weight: 500; font-size: 20px; letter-spacing: -0.4px; line-height: 20px; }
+.lp-gain { color: var(--lp-green); font-weight: 500; font-size: 20px; letter-spacing: -0.4px; line-height: 20px; }
 
 /* ---------- hero ---------- */
 /* Fills the viewport. At 1440x912 this is the Figma frame exactly: nav at 38px (96px tall), headline
@@ -114,8 +116,8 @@
 .lp-login__options { margin-top: 24px; width: 100%; display: flex; flex-direction: column; gap: 10px; }
 .lp-login__options .lp-btn { width: 100%; }
 .lp-login__options .lp-btn--primary { border: 1px solid transparent; } /* same 54px height as the outlined one */
-.lp-login__demo { margin-top: 6px; padding: 10px; border: 0; background: none; color: var(--lp-mint); font: 500 14px/1.2 var(--lp-body); letter-spacing: -0.28px; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; text-decoration-color: rgba(99, 240, 214, 0.4); }
-.lp-login__demo:hover { text-decoration-color: var(--lp-mint); }
+.lp-login__demo { margin-top: 6px; padding: 10px; border: 0; background: none; color: #c084fc; font: 500 14px/1.2 var(--lp-body); letter-spacing: -0.28px; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; text-decoration-color: rgba(99, 240, 214, 0.4); }
+.lp-login__demo:hover { text-decoration-color: #c084fc; }
 .lp-login[open] .lp-login__panel { animation: lp-sheet 0.32s cubic-bezier(0.2, 0.7, 0.2, 1); }
 .lp-login[open]::backdrop { animation: lp-fade 0.32s ease-out; }
 @keyframes lp-sheet { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
@@ -277,7 +279,7 @@
 .lp-board li { background: var(--lp-panel); border-radius: 10px; padding: 14px 10px; height: 58px; display: flex; align-items: center; justify-content: space-between; }
 .lp-board__who { display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: -0.28px; white-space: nowrap; }
 .lp-board__who > img { width: 30px; height: 30px; margin-right: -4px; }
-.lp-board__pnl { font-weight: 500; font-size: 16px; letter-spacing: -0.32px; color: var(--lp-mint); }
+.lp-board__pnl { font-weight: 500; font-size: 16px; letter-spacing: -0.32px; color: var(--lp-green); }
 .lp-medal { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 13.7px; letter-spacing: -0.55px; line-height: 1; }
 .lp-medal--gold { background: #ffd700; box-shadow: inset 0 2.42px 2.42px #fde66a; }
 .lp-medal--silver { background: #c0c0c0; color: #a2a2a2; box-shadow: inset 0 2.42px 2.42px #c0c0c0; }
