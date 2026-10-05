@@ -1,9 +1,10 @@
 'use client';
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { getAccessToken } from '@privy-io/react-auth';
+import { getAccessToken } from '@/lib/auth';
+import { isDemo } from '@/lib/demo';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { ArrowDown, ArrowRight, Link2, Pin, Reply, RotateCcw, Send, X } from 'lucide-react';
+import { ArrowDown, ArrowRight, CandlestickChart, Link2, Pin, Reply, RotateCcw, Send, X } from './icons';
 import { getRoomEventUrl, getRoomMessages, pinRoomMessage, sendRoomMessage } from '@/lib/api';
 import type { ChatMessage, ChatPage, ChatRoom, ChartMarker } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
@@ -22,6 +23,8 @@ type Props = {
   canPin?: boolean;
   meId?: string;
   markers?: ChartMarker[]; // the cult's open positions, for live PnL on trade notices
+  onTrade?: () => void;
+  headerExtra?: React.ReactNode;
 };
 
 // A message as shown: sent ones, plus ours still on their way (or failed).
@@ -50,7 +53,7 @@ function readTrade(body: string): { symbol: string; tone: 'long' | 'short' | 'bu
   return { symbol, tone: 'buy' };
 }
 
-export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false, meId, markers = [] }: Props) {
+export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false, meId, markers = [], onTrade, headerExtra }: Props) {
   const [messages, setMessages] = useState<Shown[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [pinned, setPinned] = useState<ChatPage['pinned']>(null);
@@ -104,7 +107,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
   }, [liveMessage, room.id]);
 
   useEffect(() => {
-    if (room.kind === 'cult') return;
+    if (room.kind === 'cult' || isDemo()) return;
     const controller = new AbortController();
     class StopStream extends Error {}
     void fetchEventSource(getRoomEventUrl(room.id), {
@@ -248,13 +251,13 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     </div>;
   };
 
-  return <div className="detail-body chat-panel chat-v2">
+  return <div className="chat">
     <div className="chat-room-heading">
       <RoomBadge icon={room.icon} kind={room.kind} size="lg" />
       <div><h2>{room.name}</h2><small>{room.memberCount} {room.memberCount === 1 ? 'member' : 'members'}{room.kind === 'cult' ? ' · trades post here' : ''}</small></div>
-      {room.kind === 'cult' && onInvite && <button className="outline" onClick={onInvite}><Link2 size={14} /> Invite</button>}
+      <div className="chat-head-tools">{headerExtra}{room.kind === 'cult' && onInvite && <button className="btn btn-ghost btn-sm" onClick={onInvite}><Link2 size={14} /> Invite</button>}</div>
     </div>
-    {pinned && <div className="chat-pinned"><Pin size={14} /><span><strong>{pinned.memberName}</strong> {pinned.body}</span>{canPin && <button className="icon-button compact" title="Unpin message" onClick={() => void togglePin(null)}><X size={13} /></button>}</div>}
+    {pinned && <div className="chat-pinned"><Pin size={14} /><span><strong>{pinned.memberName}</strong> {pinned.body}</span>{canPin && <button className="icon-btn icon-btn--sm" title="Unpin message" onClick={() => void togglePin(null)}><X size={13} /></button>}</div>}
     <div className="chat-log" ref={listRef} onScroll={event => {
       const list = event.currentTarget;
       stickToBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
@@ -286,17 +289,22 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
         })}
     </div>
     {unread > 0 && <button className="chat-latest" onClick={jumpToLatest}><ArrowDown size={13} /> {unread} new {unread === 1 ? 'message' : 'messages'}</button>}
-    {error && <p className="wallet-warning chat-error" role="status">{error}</p>}
+    {error && <p className="notice-line chat-error" role="status">{error}</p>}
     <form className="chat-compose" onSubmit={send}>
       {(replyTo || markerId) && <div className="chat-contexts">
         {replyTo && <div className="chat-context"><Reply size={13} /> Replying to {replyTo.memberName}<button type="button" title="Cancel reply" onClick={() => setReplyTo(null)}><X size={13} /></button></div>}
         {markerId && <div className="chat-context"><Link2 size={13} /> Linked trade<button type="button" title="Remove trade link" onClick={() => setMarkerId(null)}><X size={13} /></button></div>}
       </div>}
       <div className="chat-compose-row">
-        {room.kind === 'cult' && selectedMarker && !markerId && <button className="icon-button chat-attach" type="button" title="Link the selected trade" onClick={() => setMarkerId(selectedMarker.id)}><Link2 size={16} /></button>}
+        {room.kind === 'cult' && selectedMarker && !markerId && <button className="icon-btn chat-attach" type="button" title="Link the selected trade" onClick={() => setMarkerId(selectedMarker.id)}><Link2 size={16} /></button>}
         <textarea ref={inputRef} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={onKey} maxLength={1000} rows={1} placeholder={`Message ${room.name}`} aria-label={`Message ${room.name}`} />
-        <button className="primary chat-send" type="submit" title="Send" disabled={!draft.trim()}><Send size={16} /></button>
+        <button className="chat-send" type="submit" title="Send" disabled={!draft.trim()}><Send size={16} /></button>
       </div>
+      {(onTrade || (room.kind === 'cult' && onInvite)) && <div className="chat-tools">
+        {onTrade && <button type="button" className="chat-tool" onClick={onTrade}><CandlestickChart size={14} /> Trade</button>}
+        {room.kind === 'cult' && onInvite && <button type="button" className="chat-tool" onClick={onInvite}><Link2 size={14} /> Invite</button>}
+        <span className="chat-hint">Enter to send · Shift+Enter for a new line</span>
+      </div>}
     </form>
   </div>;
 }

@@ -1,11 +1,11 @@
 'use client';
 
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
-import { X } from 'lucide-react';
+import { X } from './icons';
 import './landing.css';
 
 type LoginMethod = 'google' | 'wallet';
-type Props = { onLogin: (method: LoginMethod) => void; pendingLogin: LoginMethod | null };
+type Props = { onLogin: (method: LoginMethod) => void; pendingLogin: LoginMethod | null; onDemo?: () => void };
 
 const A = '/landing';
 const DOTS = ['dot-pink', 'dot-yellow', 'dot-blue', 'dot-green'];
@@ -287,7 +287,7 @@ const SHEET_COPY: Record<SheetIntent, { title: string; text: string }> = {
   create: { title: 'Create a cult', text: 'Sign in to start your own cult on Monad. Your wallet, your funds, your trades.' },
 };
 
-function LoginSheet({ open, intent, onClose, onLogin }: { open: boolean; intent: SheetIntent; onClose: () => void; onLogin: (method: LoginMethod) => void }) {
+function LoginSheet({ open, intent, onClose, onLogin, onDemo }: { open: boolean; intent: SheetIntent; onClose: () => void; onLogin: (method: LoginMethod) => void; onDemo?: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const firstOption = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -307,12 +307,13 @@ function LoginSheet({ open, intent, onClose, onLogin }: { open: boolean; intent:
       <div className="lp-login__options">
         <button ref={firstOption} type="button" className="lp-btn lp-btn--primary" onClick={() => choose('google')}>Continue with google</button>
         <button type="button" className="lp-btn lp-btn--ghost" onClick={() => choose('wallet')}>Connect wallet</button>
+        {onDemo && <button type="button" className="lp-login__demo" onClick={() => { ref.current?.close(); onDemo(); }}>Explore the demo, no sign-in</button>}
       </div>
     </div>
   </dialog>;
 }
 
-export function Landing({ onLogin, pendingLogin }: Props) {
+export function Landing({ onLogin, pendingLogin, onDemo }: Props) {
   const spinner = (method: LoginMethod) => pendingLogin === method && <span className="button-spinner" aria-hidden="true" />;
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetIntent, setSheetIntent] = useState<SheetIntent>('login');
@@ -451,6 +452,6 @@ export function Landing({ onLogin, pendingLogin }: Props) {
       </footer>
     </section>
 
-    <LoginSheet open={sheetOpen} intent={sheetIntent} onClose={() => setSheetOpen(false)} onLogin={onLogin} />
+    <LoginSheet open={sheetOpen} intent={sheetIntent} onClose={() => setSheetOpen(false)} onLogin={onLogin} onDemo={onDemo} />
   </div>;
 }

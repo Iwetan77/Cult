@@ -3,26 +3,8 @@ import localFont from 'next/font/local';
 import { AppProvider } from '@/components/AppProvider';
 import './globals.css';
 
-const satoshi = localFont({
-  src: [
-    { path: '../fonts/Satoshi-400.woff2', weight: '400', style: 'normal' },
-    { path: '../fonts/Satoshi-500.woff2', weight: '500', style: 'normal' },
-    { path: '../fonts/Satoshi-700.woff2', weight: '700', style: 'normal' },
-  ],
-  variable: '--font-sans',
-  display: 'swap',
-});
-
-const cascadiaMono = localFont({
-  src: [
-    { path: '../fonts/CascadiaMono-400.woff2', weight: '400', style: 'normal' },
-    { path: '../fonts/CascadiaMono-700.woff2', weight: '700', style: 'normal' },
-  ],
-  variable: '--font-mono',
-  display: 'swap',
-});
-
-// Landing page display + body faces (see src/fonts/SOURCES.txt).
+// The only two faces: Insidia for display, Aeonik Pro for everything else
+// (see src/fonts/SOURCES.txt).
 const insidia = localFont({
   src: [{ path: '../fonts/Insidia.otf', weight: '400', style: 'normal' }],
   variable: '--font-insidia',
@@ -43,5 +25,7 @@ const aeonik = localFont({
 
 export const metadata: Metadata = { title: 'Cult | Trade with your cult', description: 'Trading cults on Monad.' };
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${satoshi.variable} ${cascadiaMono.variable} ${insidia.variable} ${aeonik.variable}`}><AppProvider>{children}</AppProvider></body></html>;
+  // Extensions such as Grammarly add attributes to <html>/<body> before React
+  // hydrates; ignore those (this only covers these two tags' own attributes).
+  return <html lang="en" suppressHydrationWarning><body suppressHydrationWarning className={`${insidia.variable} ${aeonik.variable}`}><AppProvider>{children}</AppProvider></body></html>;
 }

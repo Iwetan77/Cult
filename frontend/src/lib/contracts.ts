@@ -22,8 +22,9 @@ export type Member = {
 };
 export type ChatRoom = { id: string; kind: 'global' | 'country' | 'cult'; name: string; icon: string; memberCount: number; lastMessage: ChatMessage | null };
 export type DiscoverCult = { id: string; name: string; visibility: 'public'; memberCount: number; createdAt: string; joined: boolean };
+export type BoardPeriod = 'all' | '30d' | '7d';
 export type LeaderboardEntry = { rank: number; memberId: string; name: string; avatarUrl: string | null; address: string; country: string | null; realizedPnlUsd: number; winRate: number | null; tradeCount: number; copiedTradeCount: number };
-export type Leaderboard = { scope: string; name: string; metric: 'realizedPnlUsd'; period: 'all'; entries: LeaderboardEntry[]; me: (Omit<LeaderboardEntry, 'rank'> & { rank: number | null }) | null; rankedCount: number; memberCount: number; asOf: string };
+export type Leaderboard = { scope: string; name: string; metric: 'realizedPnlUsd'; period: BoardPeriod; entries: LeaderboardEntry[]; me: (Omit<LeaderboardEntry, 'rank'> & { rank: number | null }) | null; rankedCount: number; memberCount: number; asOf: string };
 export type CultStanding = { rank: number; cultId: string; name: string; memberCount: number; realizedPnlUsd: number; winRate: number | null; tradeCount: number; joined: boolean };
 export type ChatMessage = {
   id: string; room: string; kind: 'text' | 'system'; clanId: string | null; memberId: string; memberName: string;
@@ -131,3 +132,21 @@ export type Profile = { id: string; name: string; username: string | null; avata
 export type MarketListing = { venue: Venue; id: string; symbol: string; name: string; priceUsd: number | null; change24hPct: number | null; volume24hUsd: number | null; imageUri: string | null; maxLeverage: number };
 export type MarketDetail = { market: MarketListing; candles: Candle[]; resolution: number };
 export type DepositInfo = { address: string; network: { name: string; chainId: number }; tokens: { symbol: 'MON' | 'USDC' | 'AUSD'; name: string; what: string; balance: number; balanceUsd: number | null }[]; tradingAccountUsd: number | null; totalUsd: number | null };
+// Prediction markets (Polymarket). Demo-only trading for now.
+export type PredictionSide = 'yes' | 'no';
+export type PredictionPosition = {
+  id: string; marketId: string; eventSlug: string; eventTitle: string; outcomeLabel: string; question: string; image: string | null;
+  side: PredictionSide; sideLabel: string; shares: number; avgPrice: number; costUsd: number; openedAt: number;
+};
+export type PredictionOrder = {
+  marketId: string; eventSlug: string; eventTitle: string; outcomeLabel: string; question: string; image: string | null;
+  side: PredictionSide; sideLabel: string; price: number; amountUsd: number; cultIds?: string[];
+};
+export type PredictionSale = { position: PredictionPosition; price: number; proceedsUsd: number; pnlUsd: number };
+export type PredictionClosed = PredictionSale & { closedAt: number };
+export type PredictionBet = {
+  memberId: string; memberName: string; avatarUrl: string | null; cultName: string;
+  marketId: string; outcomeLabel: string; side: PredictionSide; sideLabel: string; shares: number; avgPrice: number;
+};
+export type WithdrawRequest = { symbol: DepositInfo['tokens'][number]['symbol']; amount: number; to: string };
+export type WithdrawResult = WithdrawRequest & { tx: string };

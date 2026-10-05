@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getAccessToken } from '@privy-io/react-auth';
+import { getAccessToken } from '@/lib/auth';
 import { setCountry } from '@/lib/api';
 
 type Props = { currentCode?: string | null; onSaved: () => Promise<unknown>; onSkip?: () => void };
@@ -50,7 +50,7 @@ export function CountryPicker({ currentCode, onSaved, onSkip }: Props) {
       <option value="">Choose a country</option>
       {countries.map(country => <option key={country.code} value={country.code}>{country.name} ({country.code})</option>)}
     </select>
-    <div className="country-actions"><button className="primary" disabled={!code || saving || code === currentCode} onClick={save}>{saving ? 'Saving…' : currentCode ? 'Change country' : 'Continue'}</button>{onSkip && <button className="outline" onClick={onSkip}>Not now</button>}</div>
-    {error && <p className="wallet-warning" role="status">{error}</p>}
+    <div className="country-actions"><button className="btn btn-primary" disabled={!code || saving || code === currentCode} onClick={save}>{saving ? 'Saving…' : currentCode ? 'Change country' : 'Continue'}</button>{onSkip && <button className="btn btn-ghost" onClick={onSkip}>Not now</button>}</div>
+    {error && <p className="notice-line" role="status">{error}</p>}
   </div>;
 }

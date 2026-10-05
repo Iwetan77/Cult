@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getAccessToken } from '@privy-io/react-auth';
+import { getAccessToken } from '@/lib/auth';
 import { QRCodeSVG } from 'qrcode.react';
-import { Copy, RefreshCw, X } from 'lucide-react';
+import { Copy, RefreshCw, X } from './icons';
 import { getDeposit } from '@/lib/api';
 import type { DepositInfo } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
@@ -43,18 +43,18 @@ export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPerm
 
   return <div className="modal-backdrop deposit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="deposit-sheet" role="dialog" aria-modal="true" aria-label="Deposit">
-      <div className="trade-sheet-head"><span className="eyebrow">YOUR WALLET</span><button className="icon-button" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
+      <div className="trade-sheet-head"><span className="eyebrow">YOUR WALLET</span><button className="icon-btn" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
       <h2>Deposit</h2>
-      {!signerReady && <div className="deposit-permission"><strong>Allow Cult to place your trades</strong><p className="field-note">Needed to convert USDC and fund trades automatically</p><button className="outline full" disabled={permissionBusy} onClick={onGrantPermission}>Allow</button></div>}
-      {loading ? <p className="field-note">Loading your wallet...</p> : error && !info ? <><p className="wallet-warning">{error}</p><button className="outline" onClick={() => { setLoading(true); setRevision(value => value + 1); }}><RefreshCw size={14} /> Retry</button></> : info && <>
+      {!signerReady && <div className="deposit-permission"><strong>Allow Cult to place your trades</strong><p className="field-note">Needed to convert USDC and fund trades automatically</p><button className="btn btn-ghost btn-block" disabled={permissionBusy} onClick={onGrantPermission}>Allow</button></div>}
+      {loading ? <p className="field-note">Loading your wallet...</p> : error && !info ? <><p className="notice-line">{error}</p><button className="btn btn-ghost" onClick={() => { setLoading(true); setRevision(value => value + 1); }}><RefreshCw size={14} /> Retry</button></> : info && <>
         <div className="deposit-qr"><QRCodeSVG value={info.address} size={184} level="M" bgColor="#ffffff" fgColor="#151820" /></div>
         <div className="deposit-address-large">{info.address}</div>
-        <button className="outline full" onClick={copy}><Copy size={15} /> {copied ? 'Copied' : 'Copy address'}</button>
+        <button className="btn btn-ghost btn-block" onClick={copy}><Copy size={15} /> {copied ? 'Copied' : 'Copy address'}</button>
         <p className="deposit-instruction">Send MON, USDC or AUSD on {info.network.name} to this address.</p>
         <div className="deposit-tokens">{info.tokens.map(token => <div className="deposit-token" key={token.symbol}><TokenLogo symbol={token.symbol} className="deposit-token-icon" /><span className="deposit-token-name"><strong>{token.name}</strong><small>{token.what}</small></span><span className="deposit-token-balance"><strong>{new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(token.balance)} {token.symbol}</strong><small>{dollars(token.balanceUsd)}</small></span></div>)}</div>
         {info.tradingAccountUsd != null && <div className="deposit-total"><span>Trading account</span><strong>{dollars(info.tradingAccountUsd)}</strong></div>}
         <div className="deposit-total grand"><span>Total</span><strong>{dollars(info.totalUsd)}</strong></div>
-        {error && <p className="wallet-warning" role="status">{error}</p>}
+        {error && <p className="notice-line" role="status">{error}</p>}
       </>}
     </section>
   </div>;
