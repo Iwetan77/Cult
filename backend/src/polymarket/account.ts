@@ -120,14 +120,17 @@ interface BridgeQuote {
 export interface FundPlan {
   actions: WalletAction[]; // sign these on Monad, in order
   depositAddress: string;
-  amountUsd: number;
-  receiveUsd: number | null;
+  amountUsd: number; // what lands in predictions (what the member asked for)
+  sendUsd: number; // what leaves the wallet: the amount plus the bridge's fee
+  feeUsd: number | null; // sendUsd - amountUsd, when the bridge quoted it
+  receiveUsd: number | null; // what the bridge expects to land
   seconds: number | null;
 }
 
 // Dollars (AUSD) from the member's Cult wallet on Monad into their Polymarket
 // account: one transfer to their own bridge address, which credits pUSD to
-// their Deposit Wallet in about half a minute. The member signs it.
+// their Deposit Wallet in about half a minute. The bridge's fee goes on top,
+// so the amount asked for is what lands ($20 asked: about $20.18 sent).
 export async function fundPlan(userId: string, amountUsd: number): Promise<FundPlan> {
   if (env.chainId !== 143) throw new FlowError(409, 'Moving dollars to predictions works on Monad mainnet only.');
   const acct = predictionAccounts.get(userId);
@@ -135,26 +138,49 @@ export async function fundPlan(userId: string, amountUsd: number): Promise<FundP
   if (!(amountUsd >= 2)) throw new FlowError(400, 'The smallest move is $2.');
   const m = members.get(userId)!;
   const { collateralToken, collateralDecimals } = await getExchangeInfo();
-  const raw = ethers.parseUnits(amountUsd.toFixed(collateralDecimals), collateralDecimals);
   const { rpc } = await import('../chain/signer.js');
   const have: bigint = await new ethers.Contract(collateralToken, erc20Abi, rpc()).getFunction('balanceOf')(m.wallet);
-  if (have < raw) throw new FlowError(409, `You have $${Number(ethers.formatUnits(have, collateralDecimals)).toFixed(2)} in your wallet.`);
-  const { address } = await bridgePost<{ address: { evm: string } }>('/deposit', { address: ethers.getAddress(acct.depositWallet) });
-  const quote = await bridgePost<BridgeQuote>('/quote', {
-    fromAmountBaseUnit: raw.toString(),
-    fromChainId: String(env.chainId),
-    fromTokenAddress: collateralToken,
-    recipientAddress: ethers.getAddress(acct.depositWallet),
-    toChainId: POLYGON,
-    toTokenAddress: PUSD,
-  }).catch(() => null);
+  const depositWallet = ethers.getAddress(acct.depositWallet);
+  const { address } = await bridgePost<{ address: { evm: string } }>('/deposit', { address: depositWallet });
+
+  const usd = (raw: bigint) => Number(ethers.formatUnits(raw, collateralDecimals));
+  const cents = (value: number) => ethers.parseUnits((Math.ceil(value * 100) / 100).toFixed(2), collateralDecimals); // rounded up to the cent
+  const landed = async (raw: bigint) => {
+    const q = await bridgePost<BridgeQuote>('/quote', {
+      fromAmountBaseUnit: raw.toString(),
+      fromChainId: String(env.chainId),
+      fromTokenAddress: collateralToken,
+      recipientAddress: depositWallet,
+      toChainId: POLYGON,
+      toTokenAddress: PUSD,
+    }).catch(() => null);
+    // The expected amount, not the worst case: that one carries a slippage
+    // cushion and would charge ~3% to land a little more than asked.
+    const out = q ? q.estOutputUsd : null;
+    return q && out != null && out > 0 ? { usd: out, seconds: Math.round(q.estCheckoutTimeMs / 1000) } : null;
+  };
+  // Grow the amount sent until the bridge says the asked-for amount lands
+  // (its fee is mostly a share, so one or two rounds settle it).
+  let send = cents(amountUsd);
+  let quote = await landed(send);
+  for (let round = 0; quote && quote.usd + 0.005 < amountUsd && round < 3; round++) {
+    send = cents((usd(send) * amountUsd) / quote.usd + 0.01);
+    quote = await landed(send);
+  }
+  if (have < send) {
+    const most = quote ? Math.floor(usd(have) * (quote.usd / usd(send)) * 100) / 100 : usd(have);
+    throw new FlowError(409, `You have $${usd(have).toFixed(2)} in your wallet. With the transfer fee, the most you can move is about $${most.toFixed(2)}.`);
+  }
   forgetBalance(acct.depositWallet);
+  const sendUsd = usd(send);
   return {
-    actions: [{ to: collateralToken, data: erc20Abi.encodeFunctionData('transfer', [address.evm, raw]), chainId: env.chainId, label: `Move $${amountUsd.toFixed(2)} to predictions` }],
+    actions: [{ to: collateralToken, data: erc20Abi.encodeFunctionData('transfer', [address.evm, send]), chainId: env.chainId, label: `Move $${amountUsd.toFixed(2)} to predictions` }],
     depositAddress: address.evm,
     amountUsd,
-    receiveUsd: quote?.estFeeBreakdown?.minReceived ?? quote?.estOutputUsd ?? null,
-    seconds: quote ? Math.round(quote.estCheckoutTimeMs / 1000) : null,
+    sendUsd,
+    feeUsd: quote ? Math.max(0, Math.round((sendUsd - amountUsd) * 100) / 100) : null,
+    receiveUsd: quote?.usd ?? null,
+    seconds: quote?.seconds ?? null,
   };
 }
 
