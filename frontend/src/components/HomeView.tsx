@@ -70,11 +70,12 @@ function RealizedLine({ closed }: { closed: ClosedTrade[] }) {
 export function PortfolioCard({ me, holdings, closed, onDeposit }: { me: Me; holdings: Holding[]; closed: ClosedTrade[] | null; onDeposit: () => void }) {
   const cash = me.balances?.walletUsd ?? null;
   const margin = me.balances?.perplMarginUsd ?? 0;
+  const predictions = me.balances?.predictionsUsd ?? 0;
   const mon = me.balances?.monUsd ?? 0;
   const memes = holdings.filter(item => item.venue === 'nadfun').reduce((sum, item) => sum + item.valueAusd, 0);
   const openPnl = holdings.filter(item => item.venue === 'perpl').reduce((sum, item) => sum + (item.pnlAusd ?? 0), 0);
-  const total = cash == null ? null : cash + margin + mon + memes;
-  const parts = [{ label: 'Dollars', value: cash ?? 0, tone: 'a' }, { label: 'MON', value: mon, tone: 'b' }, { label: 'Perps margin', value: margin, tone: 'c' }, { label: 'Memes', value: memes, tone: 'd' }];
+  const total = cash == null ? null : cash + margin + predictions + mon + memes;
+  const parts = [{ label: 'Dollars', value: cash ?? 0, tone: 'a' }, { label: 'MON', value: mon, tone: 'b' }, { label: 'Perps margin', value: margin, tone: 'c' }, { label: 'Memes', value: memes, tone: 'd' }, ...(predictions > 0 ? [{ label: 'Predictions', value: predictions, tone: 'e' }] : [])];
   const sum = parts.reduce((s, p) => s + p.value, 0) || 1;
   return <section className="card portfolio">
     <div className="card-head"><h2>Portfolio</h2>{holdings.length > 0 && <span className={`portfolio-pnl num ${openPnl >= 0 ? 'up' : 'down'}`}>{signedDollars(openPnl)} open</span>}</div>
