@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSignTypedData, useSigners, useWallets } from '@privy-io/react-auth';
@@ -11,6 +11,7 @@ import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry,
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
 import { privySupported } from '@/lib/privySupport';
+import { BOOT_CLASS, hasStoredSession, markSession } from '@/lib/session';
 import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
 import { dollars, price, shortAddress } from '@/lib/format';
@@ -82,7 +83,8 @@ const NO_PRIVY = {
   wallets: [], walletsReady: true, createWallet: needsSecure, signMessage: needsSecure, signTypedData: needsSecure, sendTransaction: needsSecure, addSigners: needsSecure,
 } as unknown as PrivyAuth;
 
-function WithPrivy({ demoHint }: { demoHint: boolean }) { return <DashboardView privy={usePrivyAuth()} demoHint={demoHint} />; }
+type Hints = { demoHint: boolean; sessionHint: boolean };
+function WithPrivy(hints: Hints) { return <DashboardView privy={usePrivyAuth()} {...hints} />; }
 
 // Part of a position: its size, value and PnL scaled to the share closed.
 const scaleHolding = (holding: Holding, share: number): Holding => share >= 1 ? holding
@@ -91,17 +93,29 @@ const scaleHolding = (holding: Holding, share: number): Holding => share >= 1 ? 
 // TP/SL field text: six significant digits, not a dragged line's raw float.
 const levelDraft = (value: number | null | undefined) => value == null ? '' : String(Number(value.toPrecision(6)));
 
-// demoHint: the URL asked for the demo (?demo=1), so show the splash, not the
-// landing page, until demo mode is read on the client.
-export function Dashboard({ demoHint = false }: { demoHint?: boolean }) {
-  return privySupported() ? <WithPrivy demoHint={demoHint} /> : <DashboardView privy={NO_PRIVY} demoHint={demoHint} />;
+// Both hints mean "show the splash, not the landing page, while loading":
+// demoHint, the URL asked for the demo (?demo=1); sessionHint, this browser
+// was signed in last time (lib/session).
+export function Dashboard({ demoHint = false, sessionHint = false }: Partial<Hints>) {
+  return privySupported() ? <WithPrivy demoHint={demoHint} sessionHint={sessionHint} /> : <DashboardView privy={NO_PRIVY} demoHint={demoHint} sessionHint={sessionHint} />;
 }
 
-function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolean }) {
+function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & Hints) {
   const { login, logout, wallets, walletsReady, createWallet, signMessage, signTypedData, sendTransaction, addSigners } = privy;
   // Demo mode is read after mounting (it lives in the URL and session storage).
   const [demo, setDemo] = useState<boolean | null>(demoEnabled() ? null : false);
-  useEffect(() => { setDemo(isDemo()); }, []);
+  // Read before the first paint, with whether Privy left a session here, so
+  // a signed-in reload goes straight to the splash.
+  const [expectSession, setExpectSession] = useState(sessionHint);
+  const [booted, setBooted] = useState(false);
+  useLayoutEffect(() => {
+    setDemo(isDemo());
+    if (hasStoredSession()) setExpectSession(true);
+    setBooted(true);
+  }, []);
+  useEffect(() => { if (booted) document.documentElement.classList.remove(BOOT_CLASS); }, [booted]);
+  // Remember for the server whether this browser is signed in.
+  useEffect(() => { if (privy.ready && demo === false) markSession(privy.authenticated); }, [privy.ready, privy.authenticated, demo]);
   const ready = demo === true || privy.ready;
   const authenticated = demo === true || privy.authenticated;
   const walletCreateAttempted = useRef(false);
@@ -949,11 +963,11 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
   };
   const searchRooms = useMemo(() => me?.rooms.filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 5) ?? [], [me, search]);
 
-  // App pages (anything but /) show the splash while sign-in loads, not a
-  // flash of the landing page.
+  // While sign-in loads, the splash, never a flash of the landing page: on
+  // app pages (anything but /), for the demo, and for a signed-in browser.
   const splash = <div className="dash-splash" aria-busy="true"><img src="/landing/cult-logo.svg" alt="Cult" width={58} height={30} /></div>;
-  if (demo === null && (demoHint || pathname !== '/')) return splash;
-  if (!ready && pathname !== '/') return splash;
+  const expectApp = demoHint || expectSession || pathname !== '/';
+  if ((demo === null || !ready) && expectApp) return splash;
   if (demo === null || !ready || !authenticated) return <Landing onLogin={requestLogin} pendingLogin={pendingLogin} onDemo={demoEnabled() ? () => { enterDemo(); setDemo(true); } : undefined} />;
   if (me?.needsUsername) return <UsernameGate onSave={async username => { await setUsername(await token(), username); await loadMe(); }} />;
 
