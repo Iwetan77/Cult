@@ -39,7 +39,7 @@ export function UsernameGate({ onSave }: { onSave: (username: string) => Promise
     finally { setSaving(false); }
   };
 
-  return <main className="username-screen"><div className="login-brand">CULT<span>.</span></div><form className="username-form" onSubmit={submit}>
+  return <main className="username-screen"><img className="login-brand" src="/landing/cult-logo.svg" alt="Cult" width={65} height={34} /><form className="username-form" onSubmit={submit}>
     <span className="eyebrow">YOUR ACCOUNT</span><h1>Pick a username</h1>
     <label className="field-label" htmlFor="username">USERNAME</label>
     <input id="username" value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={20} autoFocus />

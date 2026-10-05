@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 // from ./opengraph-image.tsx; this is the page the link opens.
 export default async function SharePage({ params }: Params) {
   const result = await load((await params).id);
-  if (!result) return <main className="pnl-page"><div className="pnl-empty"><span className="pnl-brand">CULT<i>.</i></span><h1>Result unavailable</h1><p>This trade result may have expired or been removed.</p><Link className="pnl-open" href="/">Open Cult <ArrowUpRight size={16} /></Link></div></main>;
+  if (!result) return <main className="pnl-page"><div className="pnl-empty"><img className="pnl-brand" src="/landing/cult-logo.svg" alt="Cult" width={42} height={22} /><h1>Result unavailable</h1><p>This trade result may have expired or been removed.</p><Link className="pnl-open" href="/">Open Cult <ArrowUpRight size={16} /></Link></div></main>;
 
   const up = (result.pnlUsd ?? result.roiPercent ?? 0) >= 0;
   const roi = roiText(result);
@@ -43,7 +43,7 @@ export default async function SharePage({ params }: Params) {
   return <main className="pnl-page">
     <article className={`pnl-card ${up ? 'up' : 'down'}`}>
       <header className="pnl-top">
-        <span className="pnl-brand">CULT<i>.</i></span>
+        <img className="pnl-brand" src="/landing/cult-logo.svg" alt="Cult" width={42} height={22} />
         {rec?.verified ? <span className="pnl-verified"><ShieldCheck size={14} /> Verified on-chain</span> : <span className="pnl-verified muted">{result.closedAt ? 'Closed trade' : 'Open position'}</span>}
       </header>
 

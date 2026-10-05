@@ -14,6 +14,7 @@ import { RoomBadge } from './RoomBadge';
 import { TokenLogo } from './TokenLogo';
 import { PerfBars, type PerfBar } from './PerfBars';
 import type { TradeSheetTarget } from './TradeSheet';
+import type { AccountTab } from '@/lib/routes';
 
 const predictionTitle = (p: PredictionPosition) => p.outcomeLabel === p.question ? p.question : `${p.outcomeLabel} · ${p.eventTitle}`;
 
@@ -27,7 +28,7 @@ type Props = {
   signOutLabel?: string;
 };
 
-export type AccountTab = 'open' | 'closed' | 'settings';
+export type { AccountTab } from '@/lib/routes';
 
 // Realized PnL per day, week or month (whichever gives a readable run of
 // bars for how long you've traded), with the running total behind each.

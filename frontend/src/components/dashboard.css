@@ -1144,8 +1144,7 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 
 /* username gate */
 .username-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 29px; padding: 29px; background: var(--bg); }
-.login-brand { font-family: var(--display); font-size: 33px; text-transform: uppercase; }
-.login-brand span { color: var(--mint); }
+.login-brand { display: block; height: 34px; width: auto; }
 .username-form { width: min(400px, 100%); display: flex; flex-direction: column; gap: 12px; padding: 26px 24px; border-radius: 16px; background: var(--pop); }
 .username-form h1 { font-family: var(--display); font-weight: 400; font-size: 26.5px; text-transform: uppercase; margin-bottom: 7px; }
 .username-available { font-size: 14px; color: var(--mint); }
