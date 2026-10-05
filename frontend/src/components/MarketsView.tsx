@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Flame, Star, TrendingDown, TrendingUp, Zap } from './icons';
+import { HotPill, isHotMarket } from './HotPill';
 import { getMarkets } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { MarketListing } from '@/lib/contracts';
@@ -38,7 +39,7 @@ export function Change({ pct }: { pct: number | null }) {
 
 function MarketRow({ m, onOpen }: { m: MarketListing; onOpen: () => void }) {
   return <button className="mtable-row" role="row" onClick={onOpen}>
-    <span className="mtable-market"><TokenLogo symbol={m.symbol} imageUri={m.imageUri} /><span><strong>{m.symbol}</strong><small>{m.venue === 'perpl' ? 'Perpetual' : m.name}</small></span></span>
+    <span className="mtable-market"><TokenLogo symbol={m.symbol} imageUri={m.imageUri} /><span><strong>{m.symbol}{isHotMarket(m.change24hPct) && <HotPill />}</strong><small>{m.venue === 'perpl' ? 'Perpetual' : m.name}</small></span></span>
     <span className="num strong">{price(m.priceUsd)}</span>
     <span><Change pct={m.change24hPct} /></span>
     <span className="num muted hide-sm">{compactDollars(m.volume24hUsd)}</span>

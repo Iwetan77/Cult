@@ -1,6 +1,6 @@
 /* Signed-out landing page (Figma: Cult Landing / Desktop 1441). Every class is lp- prefixed. */
 .lp {
-  --lp-mint: #63f0d6;
+  --lp-lilac: #c084fc; /* light violet: the markets band and small tags, with dark ink */
   --lp-violet: #9333ea; /* the brand: primary buttons */
   --lp-green: #34d399; /* gains */
   --lp-ink: #0f1318;
@@ -55,7 +55,8 @@
 @media (prefers-reduced-motion: reduce) { .lp-btn .button-spinner { animation-duration: 2.4s; } }
 .lp-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 .lp-btn--fixed { width: 150px; }
-.lp-btn--primary { background: var(--lp-violet); color: #fff; }
+.lp-btn--primary { background: linear-gradient(140.14deg, #9333ea 15.05%, #6b21a8 114.99%) padding-box, linear-gradient(142.51deg, #c084fc 8.65%, #4c1d95 88.82%) border-box; border: 2px solid transparent; border-radius: 999px; color: #fff; text-shadow: 1px 1px 1px #00000040; transition: opacity 0.3s; }
+.lp-btn--primary:hover { transform: none; filter: none; opacity: 0.8; }
 .lp-btn--ghost { background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.16); color: var(--lp-text); }
 .lp-btn--ghost:hover { background: rgba(255, 255, 255, 0.1); }
 /* Secondary button for bright backgrounds (the rays): the nav pill's dark glass. A ghost button's
@@ -74,12 +75,15 @@
 /* Two black sections in a row read as one band: without this their paddings stack into a 280px void. */
 .lp-section--dark + .lp-section--dark { padding-top: calc(var(--lp-section-y) * 0.3); }
 .lp-panel { background: var(--lp-panel); border: 1px solid var(--lp-line); border-radius: 30px; overflow: hidden; }
-.lp-rays { position: relative; isolation: isolate; background: url("/landing/rays-bg.png") center / cover no-repeat; }
-.lp-rays__video { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; max-width: none; object-fit: cover; pointer-events: none; }
-.lp-rays::before { content: ""; position: absolute; inset: 0; z-index: -1; background: rgba(0, 0, 0, 0.15); pointer-events: none; }
+/* The light rays are drawn teal and pink. Shown in grey, with a violet colour
+   layer over them, they keep their light and take Cult's violet. */
+.lp-rays { position: relative; isolation: isolate; background: #000; }
+.lp-rays::after { content: ""; position: absolute; inset: 0; z-index: -3; background: url("/landing/rays-bg.png") center / cover no-repeat; filter: grayscale(1) contrast(1.5) brightness(0.58); pointer-events: none; }
+.lp-rays__video { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; max-width: none; object-fit: cover; pointer-events: none; filter: grayscale(1) contrast(1.5) brightness(0.58); }
+.lp-rays::before { content: ""; position: absolute; inset: 0; z-index: -1; background: #8b2cf5; mix-blend-mode: color; pointer-events: none; }
 :where(.lp-rays) > :where(:not(.lp-rays__video)) { position: relative; } /* no weight, so .lp-join__word can be absolute */
 @media (prefers-reduced-motion: reduce) { .lp-rays__video { display: none; } }
-.lp-pill { background: var(--lp-mint); color: #102b26; border-radius: 999px; font-weight: 500; }
+.lp-pill { background: var(--lp-green); color: #03251a; border-radius: 999px; font-weight: 500; }
 .lp-gain { color: var(--lp-green); font-weight: 500; font-size: 20px; letter-spacing: -0.4px; line-height: 20px; }
 
 /* ---------- hero ---------- */
@@ -181,7 +185,7 @@
 /* ---------- markets ---------- */
 /* The section is the scroll track: one screen for the pinned stage plus 240% of a screen to scroll
    through while it stays stuck and the cards come in (see MarketsScroll in Landing.tsx). */
-.lp-section.lp-markets { position: relative; height: 340vh; height: 340svh; padding: 0; background: var(--lp-mint); color: var(--lp-ink); }
+.lp-section.lp-markets { position: relative; height: 340vh; height: 340svh; padding: 0; background: var(--lp-lilac); color: var(--lp-ink); }
 .lp-markets__stage {
   position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--lp-gap-lead);
@@ -257,7 +261,7 @@
 .lp-step__buttons { display: flex; gap: 12px; }
 .lp-btn--long, .lp-btn--short { width: 120px; padding: 18px 20px; font-weight: 500; color: #410c0c; cursor: default; }
 .lp-btn--long:hover, .lp-btn--short:hover { transform: none; filter: none; }
-.lp-btn--long { background: var(--lp-mint); }
+.lp-btn--long { background: var(--lp-green); }
 .lp-btn--short { background: var(--lp-red); }
 
 /* card 2 */
@@ -274,9 +278,9 @@
 .lp-mini__ticker { display: flex; align-items: center; gap: 2px; }
 .lp-mini__ticker img { width: 14.58px; height: 14.58px; border-radius: 50%; }
 .lp-mini__ticker span { font-weight: 700; font-size: 9.55px; letter-spacing: -0.19px; margin-right: 2px; }
-.lp-mini__ticker em { font-style: normal; background: var(--lp-mint); color: #102b26; font-weight: 500; font-size: 3.18px; padding: 2px 4px; border-radius: 1000px; line-height: 1; }
+.lp-mini__ticker em { font-style: normal; background: var(--lp-lilac); color: #1e0b3a; font-weight: 500; font-size: 3.18px; padding: 2px 4px; border-radius: 1000px; line-height: 1; }
 .lp-mini__graph { width: 123.86px; height: 38.18px; }
-.lp-mini__join { display: block; margin-top: 3px; width: 123px; padding: 5px 10px; border-radius: 58.6px; background: var(--lp-mint); color: #410c0c; font-weight: 500; font-size: 8.28px; line-height: 6px; text-align: center; }
+.lp-mini__join { display: block; margin-top: 3px; width: 123px; padding: 5px 10px; border-radius: 58.6px; background: var(--lp-violet); color: #fff; font-weight: 500; font-size: 8.28px; line-height: 6px; text-align: center; }
 
 /* card 3 */
 .lp-board { position: absolute; top: 30px; left: calc(50% - 141px); width: 282px; display: flex; flex-direction: column; gap: 14px; }
@@ -339,7 +343,7 @@
 @keyframes lp-msg { from { opacity: 0; transform: translateY(10px) scale(0.92); } to { opacity: 1; transform: none; } }
 @keyframes lp-slide { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
 @keyframes lp-medal { from { opacity: 0; transform: scale(0) rotate(-180deg); } to { opacity: 1; transform: none; } }
-@keyframes lp-pulse { 0% { box-shadow: 0 0 0 0 rgba(99, 240, 214, 0.55); } 70%, 100% { box-shadow: 0 0 0 12px rgba(99, 240, 214, 0); } }
+@keyframes lp-pulse { 0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); } 70%, 100% { box-shadow: 0 0 0 12px rgba(52, 211, 153, 0); } }
 @keyframes lp-shimmer { 0% { transform: translateX(-100%); } 45%, 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) {
   .lp-hero .lp-a, .lp-reveal--in .lp-a, .lp-reveal--in.lp-step, .lp-reveal--in.lp-chart__panel,

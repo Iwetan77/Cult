@@ -21,7 +21,7 @@ import { ClanChat } from './ClanChat';
 import { DiscoverCults } from './DiscoverCults';
 import { UsernameGate } from './UsernameGate';
 import { Leaderboards } from './Leaderboards';
-import { HomeView, RoomRow, latestFirst } from './HomeView';
+import { HomeView, RoomRow, UnreadBubble, latestFirst } from './HomeView';
 import { AccountView } from './AccountView';
 import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
@@ -40,7 +40,7 @@ import type { FlowStep, PredictionAccount, PredictionOrder, PredictionPosition, 
 import { PredictionFundSheet } from './PredictionFundSheet';
 import { Landing } from './Landing';
 import { AlertsMenu, notifyDevice } from './AlertsMenu';
-import { lastReadOf, markRead, notifyPref, priceAlerts, pushAlert, removePriceAlert, setUnread, unreadOf, useUnread } from '@/lib/prefs';
+import { lastReadOf, markRead, mentions, notifyPref, priceAlerts, pushAlert, removePriceAlert, setMentioned, setUnread, unreadOf, useMentions, useUnread } from '@/lib/prefs';
 import { getRoomMessages } from '@/lib/api';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
@@ -287,10 +287,11 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   // Unread messages in your cults. When a room's latest message is new, its
   // messages since you last read it (on this device) are counted; opening the
   // room reads it, and so does sending in it. With notifications on, a new
-  // message from someone else also alerts.
+  // message from someone else also alerts. An @mention of you always alerts.
   const openRoomId = view === 'chat' ? roomId : null;
   const countedMessage = useRef<Record<string, string>>({});
   const unread = useUnread(owner ?? 'signed-out');
+  const mentioned = useMentions(owner ?? 'signed-out');
   useEffect(() => {
     if (!me) return;
     const owner = me.id;
@@ -311,6 +312,14 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         const fresh = page.messages.filter(m => m.memberId !== owner && Date.parse(m.createdAt) > since);
         const before = unreadOf(owner)[room.id] ?? 0;
         setUnread(owner, room.id, fresh.length);
+        const mention = fresh.slice(before).filter(m => m.kind === 'text' && mentions(m.body, me.name)).at(-1);
+        if (mention) {
+          setMentioned(owner, room.id, true);
+          const title = `${mention.memberName} mentioned you in ${room.name}`;
+          pushAlert(owner, { kind: 'cult', title, body: mention.body, roomId: room.id });
+          alertNow(title, mention.body);
+          return;
+        }
         const newest = fresh.at(-1);
         if (fresh.length > before && newest?.kind === 'text' && notifyPref(owner)) {
           const title = `${newest.memberName} in ${room.name}`;
@@ -321,6 +330,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     }
   }, [me, openRoomId, alertNow]);
   const unreadTotal = Object.values(unread).reduce((sum, n) => sum + n, 0);
+  const mentionedAny = Object.values(mentioned).some(Boolean);
   // The desktop search sits in the true center: both side columns of the top
   // bar are kept at least as wide as the wider of its two sides.
   const topbarRef = useRef<HTMLElement>(null);
@@ -1064,31 +1074,31 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         {me && <AlertsMenu owner={me.id} onMarket={openMarket} onRoom={openRoom} />}
         {demo && <span className="demo-pill" title="Sample data. Nothing here touches real funds.">Demo</span>}
         <div className="wallet-pill">
-        <button className="balance" onClick={() => setDepositOpen(true)} title="Wallet and trading account"><Wallet size={15} />{balance == null ? '—' : <span className="num">{dollars(balance)}</span>}</button>
+        <span className="balance" title="Wallet and trading account"><Wallet size={15} />{balance == null ? '—' : <span className="num">{dollars(balance)}</span>}</span>
         <button className="btn btn-primary btn-sm topbar-deposit" onClick={() => setDepositOpen(true)}><Plus size={15} /> Deposit</button>
         </div>
         <button className="topbar-me" onClick={() => openAccount()} title="Account"><Avatar name={me?.name ?? 'You'} url={me?.avatarUrl} /><span className="topbar-me-lines"><strong>{me?.name ?? 'You'}</strong><small className="num">{me ? shortAddress(me.address) : ''}</small></span></button>
       </div>
     </header>
 
-    <SideRail me={me} nav={nav} activeRoom={view === 'chat' ? roomId : null} unread={unread}
+    <SideRail me={me} nav={nav} activeRoom={view === 'chat' ? roomId : null} unread={unread} mentioned={mentioned}
       onRoom={openRoom} onCreate={() => setFormOpen('create')}
       settingsActive={view === 'account' && profileId === 'me' && accountTab === 'settings'} onSettings={() => openAccount('me', 'settings')} onSignOut={signOut} />
 
     <main className="stage" key={view === 'chat' ? `chat:${roomId}` : view === 'markets' ? `m:${marketPage ?? ''}` : view === 'account' ? `a:${profileId}` : view}>
       {!me ? <div className="view two-col"><section className="view-main"><div className="skel skel-head" /><div className="skel skel-strip" /><div className="skel skel-chart" /></section><aside className="view-side"><div className="skel skel-card" /><div className="skel skel-card" /></aside></div>
-        : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
+        : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} mentioned={mentioned} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
         : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo || !!config?.features?.predictions} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))} availableUsd={demo ? undefined : predictionAccount?.balanceUsd ?? null} onFund={demo ? undefined : () => setPredictionFund({})} onAccountNeeded={demo ? undefined : () => { void loadPredictionAccount().catch(() => undefined); }}
             onBack={() => goUp({ view: 'markets' })} onBuy={placePrediction} onSell={sellPredictionPosition} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
           : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView owner={me.id} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
-        : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><span className="eyebrow">Your cults</span><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
+        : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><span className="eyebrow">Your cults</span><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
         : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} onPredictionFunds={demo || !config?.features?.predictions ? undefined : () => setPredictionFund({})} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
         : <div className="view two-col room-view">
           <section className="view-main room-main">
             <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => goUp({ view: 'groups' })}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm" onClick={() => setGroupPanelOpen(true)}><PanelRightOpen size={14} /> {activeRoom?.kind === 'cult' ? 'Positions' : 'Rankings'}</button></div>
-            {activeRoom ? <ClanChat key={activeRoom.id} room={activeRoom} liveMessage={activeRoom.kind === 'cult' ? liveMessage : null} selectedMarker={activeRoom.kind === 'cult' ? selected : null} onOpenMarker={openLinkedMarker} onMember={openAccount} onActivity={loadMeSoon} onInvite={activeRoom.kind === 'cult' ? copyInvite : undefined} canPin={!!clan?.isOwner && activeRoom.kind === 'cult'} meId={me.id} markers={activeRoom.kind === 'cult' ? snapshot?.markers : undefined}
+            {activeRoom ? <ClanChat key={activeRoom.id} room={activeRoom} liveMessage={activeRoom.kind === 'cult' ? liveMessage : null} selectedMarker={activeRoom.kind === 'cult' ? selected : null} onOpenMarker={openLinkedMarker} onMember={openAccount} onActivity={loadMeSoon} onInvite={activeRoom.kind === 'cult' ? copyInvite : undefined} canPin={!!clan?.isOwner && activeRoom.kind === 'cult'} meId={me.id} meName={me.name} markers={activeRoom.kind === 'cult' ? snapshot?.markers : undefined}
               onTrade={() => { if (activeRoom.kind === 'cult') setMarketSolo(false); showMarketsTab('perpl'); openMarket(null); }} />
               : <div className="empty"><strong>This room is unavailable.</strong><span>Refresh your account or choose a country in Account.</span></div>}
           </section>
@@ -1109,7 +1119,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     <nav className="tabbar" aria-label="Mobile navigation">
       <button className={view === 'home' ? 'on' : ''} onClick={() => go('home')}><Home size={20} /><span>Home</span></button>
       <button className={view === 'markets' ? 'on' : ''} onClick={() => openMarket(null)}><CandlestickChart size={20} /><span>Markets</span></button>
-      <button className={['groups', 'chat'].includes(view) ? 'on' : ''} onClick={() => go('groups')} aria-label={unreadTotal ? `Cults, ${unreadTotal} unread` : undefined}><span className="badge-wrap"><UsersRound size={20} />{unreadTotal > 0 && <b className="unread-bubble">{unreadTotal > 99 ? '99+' : unreadTotal}</b>}</span><span>Cults</span></button>
+      <button className={['groups', 'chat'].includes(view) ? 'on' : ''} onClick={() => go('groups')} aria-label={mentionedAny ? 'Cults, you were mentioned' : unreadTotal ? `Cults, ${unreadTotal} unread` : undefined}><span className="badge-wrap"><UsersRound size={20} /><UnreadBubble count={unreadTotal} mention={mentionedAny} /></span><span>Cults</span></button>
       <button className={view === 'discover' || view === 'leaderboards' ? 'on' : ''} onClick={() => go('discover')}><Compass size={20} /><span>Discover</span></button>
       <button className={view === 'account' ? 'on' : ''} onClick={() => openAccount()}><UserRound size={20} /><span>Account</span></button>
     </nav>

@@ -1,5 +1,5 @@
 import type { FlowStep, IntentChain, IntentStatus, IntentSwap, IntentWithdraw, PredictionAccount, PredictionFundPlan, PredictionRedeem, WithdrawPrepared } from './contracts';
-import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, PredictionBet, PredictionClosed, PredictionOrder, PredictionPosition, PredictionSale, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
+import type { BackendConfig, ChatMessage, Reaction, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, PredictionBet, PredictionClosed, PredictionOrder, PredictionPosition, PredictionSale, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 import { rememberList, rememberMarket } from './marketCache';
 import { DemoError, demoApi, isDemo } from './demo';
 
@@ -87,6 +87,10 @@ export const setCountry = (token: string, country: string) => api<{ country: { c
 export const getRooms = (token: string) => api<{ rooms: ChatRoom[] }>('/v1/chat/rooms', token);
 export const getRoomMessages = (token: string, room: string, before?: string) => api<ChatPage>(`/v1/chat/${encodeURIComponent(room)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : ''}`, token);
 export const sendRoomMessage = (token: string, room: string, body: string, replyTo?: string, markerId?: string) => api<ChatMessage>(`/v1/chat/${encodeURIComponent(room)}/messages`, token, { method: 'POST', body: json({ body, ...(replyTo ? { replyTo } : {}), ...(markerId ? { markerId } : {}) }) });
+// Reactions and who's typing. The demo serves both; live accounts get them
+// once the backend stores reactions and sends typing events.
+export const reactToMessage = (token: string, room: string, messageId: string, emoji: string) => api<{ reactions: Reaction[] }>(`/v1/chat/${encodeURIComponent(room)}/messages/${encodeURIComponent(messageId)}/reactions`, token, { method: 'POST', body: json({ emoji }) });
+export const getTyping = (token: string, room: string) => api<{ names: string[] }>(`/v1/chat/${encodeURIComponent(room)}/typing`, token);
 export const getRoomEventUrl = (room: string) => {
   if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
   return `${BASE.replace(/\/$/, '')}/v1/chat/${encodeURIComponent(room)}/events`;
