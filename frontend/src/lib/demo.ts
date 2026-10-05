@@ -155,11 +155,18 @@ const memberOf = (id: string): Member => {
   const stats = id === ME_ID ? myStats() : statsFor(id);
   return { id, name: p.name, avatarUrl: p.avatar, address: id === ME_ID ? DEMO_ADDRESS : addr(id), winRate: stats.winRate, realizedPnlUsd: stats.realizedPnlUsd, tradeCount: stats.tradeCount, verified: true, stats };
 };
-const myStats = (): Member['stats'] => ({
-  verified: true, tradeCount: 37, winRate: 0.622, realizedPnlPerplUsd: 1630.2, realizedPnlMon: 2210, realizedPnlUsd: 2558.4,
-  monPriceUsed: 0.42, lastTradeAt: Date.now() - 3_600_000, streak: 3, avgWinPct: 14.6,
-  copied: { tradeCount: 12, winRate: 0.58, realizedPnlUsd: 412.8 },
-});
+const myStats = (): Member['stats'] => {
+  const closed = state?.myClosed ?? [];
+  const pnl = closed.reduce((sum, t) => sum + (t.pnlUsd ?? 0), 0);
+  const perpPnl = closed.filter(t => t.venue === 'perpl').reduce((sum, t) => sum + (t.pnlUsd ?? 0), 0);
+  const wins = closed.filter(t => t.isWin).length;
+  const trades = 37 + closed.length;
+  return {
+    verified: true, tradeCount: trades, winRate: (0.622 * 37 + wins) / trades, realizedPnlPerplUsd: 1630.2 + perpPnl, realizedPnlMon: 2210, realizedPnlUsd: 2558.4 + pnl,
+    monPriceUsed: 0.42, lastTradeAt: closed[0]?.closedAt ?? Date.now() - 3_600_000, streak: 3, avgWinPct: 14.6,
+    copied: { tradeCount: 12, winRate: 0.58, realizedPnlUsd: 412.8 },
+  };
+};
 
 // ---------- state ----------
 type Seed = {
@@ -173,6 +180,8 @@ type State = {
   messages: Record<string, ChatMessage[]>; pinned: Record<string, ChatPage['pinned']>;
   members: Record<string, string[]>; discover: DiscoverCult[]; challenges: Record<string, MirrorPolicy>; next: number;
   predictions?: PredictionPosition[]; predictionHistory?: PredictionClosed[];
+  myClosed?: ClosedTrade[]; // trades you closed in this demo, newest first
+  lastActivity?: number; // when a cult-mate last opened a trade on their own
 };
 let state: State | null = null;
 
@@ -326,6 +335,29 @@ function materialize(s: State, seed: Seed): ChartMarker {
   };
 }
 
+// Every few minutes a cult-mate opens a trade, as they would live: it posts in
+// the cult and lands on its chart (and so reaches your alerts).
+const ACTIVITY_EVERY_MS = 150_000;
+function cultActivity(s: State) {
+  const now = Date.now();
+  if (s.lastActivity == null) { s.lastActivity = now; return; }
+  if (now - s.lastActivity < ACTIVITY_EVERY_MS) return;
+  s.lastActivity = now;
+  const cults = s.me.clans.filter(c => (s.members[c.id] ?? []).some(id => id !== ME_ID));
+  const clan = cults[Math.floor(Math.random() * cults.length)];
+  if (!clan) return;
+  const mates = (s.members[clan.id] ?? []).filter(id => id !== ME_ID);
+  const memberId = mates[Math.floor(Math.random() * mates.length)]!;
+  const symbol = ['BTC-PERP', 'ETH-PERP', 'SOL-PERP', 'HYPE-PERP', 'MON-PERP'][Math.floor(Math.random() * 5)]!;
+  if (!resolveListing(symbol)) return;
+  const side = Math.random() > 0.4 ? 'long' : 'short';
+  const leverage = [3, 5, 10][Math.floor(Math.random() * 3)]!;
+  const id = `mk-${++s.next}`;
+  s.seeds = s.seeds.filter(x => !(x.memberId === memberId && x.cultId === clan.id && x.symbol === symbol));
+  s.seeds.push({ id, cultId: clan.id, memberId, symbol, origin: 'leader', side, entryRatio: priceOf(symbol) / baseOf(s, symbol), notional: 100 + Math.round(Math.random() * 900), leverage, openedAgoMin: 0, tp: null, sl: null, suggestions: [] });
+  post(s, `cult:${clan.id}`, memberId, `opened ${symbol} ${side} ${leverage}x`, 'system', id);
+}
+
 function holdingOf(s: State, pos: Position): Holding {
   const listing = resolveListing(pos.symbol);
   const mark = priceOf(pos.symbol);
@@ -436,7 +468,7 @@ function profile(s: State, id: string): Profile {
     address: mine ? DEMO_ADDRESS : addr(memberId), country: mine ? s.me.country : { code: p.country, name: null },
     memberSince: Date.now() - 86_400_000 * (30 + hash(memberId) % 200), isMe: mine, record: mine ? myStats() : statsFor(memberId),
     openTrades: unique.map(x => { const m = materialize(s, x); return { tradeId: m.tradeId, markerId: m.id, venue: m.venue, market: m.marketId, symbol: x.symbol, side: x.side, leverage: x.leverage, openedAt: m.entryTime * 1000 }; }),
-    closedTrades: closedTrades(memberId), cults: s.me.clans.filter(c => s.members[c.id]?.includes(memberId)).map(c => ({ id: c.id, name: c.name, visibility: c.visibility })),
+    closedTrades: mine ? [...(s.myClosed ?? []), ...closedTrades(memberId)] : closedTrades(memberId), cults: s.me.clans.filter(c => s.members[c.id]?.includes(memberId)).map(c => ({ id: c.id, name: c.name, visibility: c.visibility })),
   };
 }
 
@@ -507,7 +539,7 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
   }
   if (a === 'usernames') return done({ available: !PEOPLE.some(p => p.name.toLowerCase() === (b ?? '').toLowerCase()) });
 
-  if (a === 'me' && !b) return done(withLastMessages(s));
+  if (a === 'me' && !b) { cultActivity(s); return done(withLastMessages(s)); }
   if (a === 'me' && b === 'username') { s.me = { ...s.me, name: String(body.username), username: String(body.username), needsUsername: false }; return done({ username: s.me.username, name: s.me.name }); }
   if (a === 'me' && b === 'country') {
     const code = String(body.country);
@@ -634,12 +666,32 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     const listing = resolveListing(String(body.marketId));
     const symbol = listing?.symbol ?? String(body.marketId);
     const pos = s.positions.find(p => p.symbol === symbol);
-    if (pos) { const h = holdingOf(s, pos); const bal = s.me.balances!; if (pos.side === 'buy') bal.walletUsd += h.valueAusd; else bal.perplMarginUsd = (bal.perplMarginUsd ?? 0) + h.valueAusd; }
-    s.positions = s.positions.filter(p => p.symbol !== symbol);
+    if (!pos) {
+      s.seeds = s.seeds.filter(x => !(x.memberId === ME_ID && x.symbol === symbol));
+      return done({ venue: listing?.venue ?? 'perpl', market: listing?.id ?? symbol, side: 'long', sizeRaw: '0', size: 0, priceAusd: priceOf(symbol), notionalAusd: 0 });
+    }
+    const h = holdingOf(s, pos);
+    const share = body.sizeRaw ? Math.min(1, Math.max(0, Number(body.sizeRaw) / Number(h.sizeRaw))) : 1;
+    const all = share >= 0.999;
+    const proceeds = h.valueAusd * share;
+    const bal = s.me.balances!;
+    if (pos.side === 'buy') bal.walletUsd += proceeds; else bal.perplMarginUsd = (bal.perplMarginUsd ?? 0) + proceeds;
+    const cost = pos.margin * share;
+    const pnl = proceeds - cost;
+    const returnPct = cost > 0 ? Math.round((pnl / cost) * 1000) / 10 : 0;
+    (s.myClosed ??= []).unshift({ venue: h.venue, market: h.market, symbol, side: pos.side, returnPct, pnlUsd: Math.round(pnl * 100) / 100, entryPrice: h.entryPriceAusd, exitPrice: h.markPriceAusd, isWin: pnl > 0, openedAt: pos.openedAt, closedAt: Date.now(), openTx: `0xdemo${(++s.next).toString(16)}`, tradeId: null, copied: false });
     const mine = s.seeds.filter(x => x.memberId === ME_ID && x.symbol === symbol);
-    for (const seed of mine) post(s, `cult:${seed.cultId}`, ME_ID, seed.side === 'buy' ? `sold all ${symbol}` : `closed ${symbol} ${seed.side}`, 'system');
-    s.seeds = s.seeds.filter(x => !(x.memberId === ME_ID && x.symbol === symbol));
-    return done({ venue: listing?.venue ?? 'perpl', market: listing?.id ?? symbol, side: pos?.side ?? 'long', sizeRaw: '0', size: 0, priceAusd: priceOf(symbol), notionalAusd: 0 });
+    const part = `${Math.round(share * 100)}% of `;
+    for (const seed of mine) post(s, `cult:${seed.cultId}`, ME_ID, seed.side === 'buy' ? `sold ${all ? 'all ' : part}${symbol}` : `closed ${all ? '' : part}${symbol} ${seed.side}`, 'system');
+    if (all) {
+      s.positions = s.positions.filter(p => p !== pos);
+      s.seeds = s.seeds.filter(x => !(x.memberId === ME_ID && x.symbol === symbol));
+    } else {
+      pos.margin -= cost;
+      for (const seed of mine) seed.notional *= 1 - share;
+    }
+    const closedRaw = String(Math.round(Number(h.sizeRaw) * share));
+    return done({ venue: h.venue, market: h.market, side: pos.side, sizeRaw: closedRaw, size: h.size * share, priceAusd: h.markPriceAusd, notionalAusd: h.size * share * h.markPriceAusd });
   }
   if (a === 'positions' && b === 'tpsl') {
     const listing = resolveListing(String(body.marketId));

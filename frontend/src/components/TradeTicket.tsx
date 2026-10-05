@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeftRight } from './icons';
-import type { Clan, Me } from '@/lib/contracts';
+import type { Clan, Me, TpslValues } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
 
 // A perps ticket in the terms people bet in: the big number is the money you
@@ -10,7 +10,8 @@ import { dollars } from '@/lib/format';
 // "$50 at 10x" is a $500 position, and moving leverage never changes your
 // stake. Flip the unit to type the position size in the asset instead. The
 // backend moves wallet funds into the Perpl account when it's short. Pick Long or Short at the top; one
-// button places it. Memes: amount and Buy, no leverage.
+// button places it. Perps can also set a take profit and stop loss, placed as
+// real trigger orders once the trade is open. Memes: amount and Buy, no leverage.
 
 export type PostTo = 'all' | 'none' | string; // a cult id
 export type TicketMarket = { venue: 'perpl' | 'nadfun'; id: string; symbol: string; maxLeverage: number; priceUsd: number | null };
@@ -22,7 +23,7 @@ type Props = {
   cults: Clan[];
   defaultPostTo: PostTo;
   busy: boolean;
-  onSubmit: (side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined) => void;
+  onSubmit: (side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => void;
   onDeposit?: () => void;
 };
 
@@ -47,9 +48,12 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
   const [amountText, setAmountText] = useState('');
   const [leverage, setLeverage] = useState(isPerp ? Math.min(2, maxLev) : 1);
   const [side, setSide] = useState<'long' | 'short'>('long');
+  const [levelsOn, setLevelsOn] = useState(false);
+  const [tpText, setTpText] = useState('');
+  const [slText, setSlText] = useState('');
   const [postTo, setPostTo] = useState<PostTo>(defaultPostTo);
   useEffect(() => { setPostTo(defaultPostTo); }, [defaultPostTo]);
-  useEffect(() => { setAmountText(''); setUnit('usd'); setSide('long'); setLeverage(isPerp ? Math.min(2, maxLev) : 1); }, [market.id, isPerp, maxLev]);
+  useEffect(() => { setAmountText(''); setUnit('usd'); setSide('long'); setLevelsOn(false); setTpText(''); setSlText(''); setLeverage(isPerp ? Math.min(2, maxLev) : 1); }, [market.id, isPerp, maxLev]);
 
   // What this trade can draw on, in $ of stake.
   const available = useMemo(() => {
@@ -68,7 +72,13 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
   const stakeUsd = unit === 'usd' ? entered : (entered * price) / lev;
   const positionUsd = stakeUsd * lev;
   const tooBig = available != null && stakeUsd > available * 1.001;
-  const valid = stakeUsd >= 1 && !tooBig && (unit === 'usd' || price > 0);
+  const levels = isPerp && levelsOn;
+  const tp = levels && tpText ? Number(tpText) : null;
+  const sl = levels && slText ? Number(slText) : null;
+  const up = side === 'long';
+  const tpProblem = tp == null ? null : !(tp > 0) ? 'Enter a price.' : price > 0 && (up ? tp <= price : tp >= price) ? `Take profit should be ${up ? 'above' : 'below'} the price.` : null;
+  const slProblem = sl == null ? null : !(sl > 0) ? 'Enter a price.' : price > 0 && (up ? sl >= price : sl <= price) ? `Stop loss should be ${up ? 'below' : 'above'} the price.` : null;
+  const valid = stakeUsd >= 1 && !tooBig && (unit === 'usd' || price > 0) && !tpProblem && !slProblem;
   const shortInAccount = isPerp && balances != null && stakeUsd > (balances.perplMarginUsd ?? 0);
 
   const show = (stake: number, inUnit = unit, withLev = lev) =>
@@ -82,7 +92,10 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
     if (stakeUsd > 0) show(stakeUsd, next);
   };
   const cultIds = cults.length === 0 || postTo === 'all' ? undefined : postTo === 'none' ? [] : [postTo];
-  const submit = (side: 'long' | 'short' | 'buy') => { if (valid) onSubmit(side, stakeUsd, isPerp ? lev : undefined, cultIds); };
+  const submit = (side: 'long' | 'short' | 'buy') => {
+    if (!valid) return;
+    onSubmit(side, stakeUsd, isPerp ? lev : undefined, cultIds, levels && (tp != null || sl != null) ? { ...(tp != null ? { takeProfit: tp } : {}), ...(sl != null ? { stopLoss: sl } : {}) } : undefined);
+  };
   const assetSize = price > 0 && positionUsd > 0 ? `${trim(positionUsd / price, 6)} ${asset}` : null;
 
   const quick = isPerp ? [10, 50, 100, 500] : [10, 100, 500, 1000];
@@ -109,6 +122,17 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
       <div className="ticket-row"><span className="ticket-label">Leverage</span><strong className="num">{lev}x</strong></div>
       <input type="range" min={1} max={maxLev} step={1} value={lev} onChange={event => changeLeverage(Number(event.target.value))} aria-label="Leverage" style={{ '--fill': `${((lev - 1) / Math.max(1, maxLev - 1)) * 100}%` } as React.CSSProperties} />
       <div className="ticket-ticks">{leverageTicks(maxLev).map(t => <button type="button" key={t} className={t === lev ? 'on' : ''} onClick={() => changeLeverage(t)}>{t}x</button>)}</div>
+    </div>}
+
+    {isPerp && <div className="ticket-levels">
+      <label className="ticket-row ticket-levels-toggle"><span className="ticket-label">Take profit / Stop loss</span><input type="checkbox" className="switch" checked={levelsOn} onChange={event => setLevelsOn(event.target.checked)} /></label>
+      {levelsOn && <>
+        <div className="marker-card-fields">
+          <label className="marker-card-field is-up"><span>TP</span><input className="num" inputMode="decimal" placeholder="None" aria-label="Take profit price" value={tpText} onChange={event => setTpText(event.target.value.replace(/[^0-9.]/g, ''))} /></label>
+          <label className="marker-card-field is-down"><span>SL</span><input className="num" inputMode="decimal" placeholder="None" aria-label="Stop loss price" value={slText} onChange={event => setSlText(event.target.value.replace(/[^0-9.]/g, ''))} /></label>
+        </div>
+        <small className={`ticket-levels-note${tpProblem || slProblem ? ' down' : ''}`}>{tpProblem ?? slProblem ?? `Set as orders on Perpl once your ${side} is open. Leave one empty to skip it.`}</small>
+      </>}
     </div>}
 
     <dl className="ticket-summary">

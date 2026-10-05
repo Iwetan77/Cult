@@ -52,7 +52,8 @@ export const getNadMarkets = (token: string) => api<{ markets: NadMarket[] }>('/
 export const getHoldings = (token: string) => api<{ positions: Holding[] }>('/v1/positions', token);
 // cultIds is "Post to": omitted = all your cults, [] = just you.
 export const openPosition = (token: string, marketId: string, side: 'long' | 'short' | 'buy', marginUsd: number, leverage?: number, cultIds?: string[]) => api<Fill>('/v1/positions/open', token, { method: 'POST', body: json({ marketId, side, marginUsd, ...(leverage ? { leverage } : {}), ...(cultIds ? { cultIds } : {}) }) });
-export const closePosition = (token: string, marketId: string) => api<Fill>('/v1/positions/close', token, { method: 'POST', body: json({ marketId }) });
+// sizeRaw closes part of the position (raw size units, from Holding.sizeRaw); omitted closes it all.
+export const closePosition = (token: string, marketId: string, sizeRaw?: string) => api<Fill>('/v1/positions/close', token, { method: 'POST', body: json(sizeRaw ? { marketId, sizeRaw } : { marketId }) });
 export const createClan = (token: string, name: string, visibility: 'private' | 'public') => api<Clan>('/v1/cults', token, { method: 'POST', body: json({ name, visibility }) });
 export const getJoinChallenge = (token: string, target: { inviteCode: string } | { cultId: string }, policy: MirrorPolicy) => api<SignedChallenge>('/v1/cults/join/challenge', token, { method: 'POST', body: json({ ...target, policy }) });
 export const joinClan = (token: string, target: { inviteCode: string } | { cultId: string }) => api<Clan>('/v1/cults/join', token, { method: 'POST', body: json(target) });

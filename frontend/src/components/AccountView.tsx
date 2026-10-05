@@ -104,8 +104,8 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
     return () => { active = false; window.clearInterval(timer); };
   }, [slugsKey]);
 
-  // Your positions changed (a close, a new trade): refresh the lists quietly.
-  const holdingsKey = holdings.map(h => `${h.venue}:${h.market}`).sort().join(',');
+  // Your positions changed (a close, a partial close, a new trade): refresh the lists quietly.
+  const holdingsKey = holdings.map(h => `${h.venue}:${h.market}:${h.sizeRaw}`).sort().join(',');
   const firstHoldings = useRef(holdingsKey);
   useEffect(() => {
     if (id !== 'me' || holdingsKey === firstHoldings.current) return;
@@ -214,9 +214,9 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
             const now = o ? (p.side === 'yes' ? o.yesPrice : o.noPrice) : null;
             const pnl = now == null ? null : p.shares * now - p.costUsd;
             const open = () => onOpenPrediction(p.eventSlug, { outcomeId: p.marketId, side: p.side });
-            return <div className="ttable-row is-link" key={p.id} role="button" tabIndex={0} aria-label={`Open ${predictionTitle(p)}`}
+            return <div className="ttable-row ttable-row--open is-link" key={p.id} role="button" tabIndex={0} aria-label={`Open ${predictionTitle(p)}`}
               onClick={open} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
-              <span className="ttable-main"><EventArt event={{ image: p.image, title: p.eventTitle }} /><span><strong className="ttable-title">{predictionTitle(p)}</strong><small>Polymarket · opened {new Date(p.openedAt).toLocaleDateString()}</small></span></span>
+              <span className="ttable-main"><EventArt event={{ image: p.image, title: p.eventTitle }} /><span><strong className="ttable-title">{predictionTitle(p)}</strong><small><span className="ttable-side-sm">{p.sideLabel} · </span>Polymarket · opened {new Date(p.openedAt).toLocaleDateString()}</small></span></span>
               <span className={`side-chip ${p.side === 'yes' ? 'long' : 'short'}`}>{p.sideLabel.toUpperCase()}</span>
               <span className={`num strong ${(pnl ?? 0) >= 0 ? 'up' : 'down'}`}>{pnl == null ? '' : signedDollars(pnl)}</span>
               {now != null ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onSellPrediction(p, now); }}>Sell</button> : <ArrowRight size={15} className="muted" />}
@@ -226,9 +226,9 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
           const holding = profile.isMe ? holdingFor(trade) : undefined;
           // The whole row opens the trade; Close only closes.
           const open = () => onTrade({ kind: 'trade', tradeId: trade.tradeId });
-          return <div className="ttable-row is-link" key={trade.tradeId} role="button" tabIndex={0} aria-label={`Open ${trade.symbol} trade`}
+          return <div className="ttable-row ttable-row--open is-link" key={trade.tradeId} role="button" tabIndex={0} aria-label={`Open ${trade.symbol} trade`}
             onClick={open} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
-          <span className="ttable-main"><TokenLogo symbol={trade.symbol} /><span><strong>{trade.symbol}</strong><small>{trade.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · opened {new Date(trade.openedAt).toLocaleDateString()}</small></span></span>
+          <span className="ttable-main"><TokenLogo symbol={trade.symbol} /><span><strong>{trade.symbol}</strong><small><span className="ttable-side-sm">{trade.side === 'buy' ? 'Buy' : `${trade.side === 'long' ? 'Long' : 'Short'} ${trade.leverage}x`} · </span>{trade.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · opened {new Date(trade.openedAt).toLocaleDateString()}</small></span></span>
           <span className={`side-chip ${trade.side}`}>{trade.side.toUpperCase()}{trade.venue === 'perpl' ? ` ${trade.leverage}x` : ''}</span>
           <span className={`num strong ${(holding?.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}`}>{holding?.pnlAusd != null ? signedDollars(holding.pnlAusd) : ''}</span>
           {holding ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onCloseHolding(holding); }}>Close</button> : <ArrowRight size={15} className="muted" />}
