@@ -103,7 +103,23 @@ export const markRead = (owner: string, roomId: string, at: string) => {
   const read = lastReadOf(owner);
   if (!read[roomId] || Date.parse(at) > Date.parse(read[roomId]!)) write(readKey(owner), { ...read, [roomId]: at });
   setUnread(owner, roomId, 0);
+  setMentioned(owner, roomId, false);
 };
+
+// Rooms where someone @mentioned you since you last read them.
+const mentionKey = (owner: string) => `cult:mentioned:${owner}`;
+export const useMentions = (owner: string) => useKey<Record<string, boolean>>(mentionKey(owner), NONE);
+export const setMentioned = (owner: string, roomId: string, on: boolean) => {
+  const current = snapshot<Record<string, boolean>>(mentionKey(owner), NONE);
+  if (!!current[roomId] === on) return;
+  const next = { ...current, [roomId]: on };
+  if (!on) delete next[roomId];
+  write(mentionKey(owner), next);
+};
+// Whether a message @mentions this name (any case, whole name only).
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const mentions = (text: string, name: string) =>
+  !!name && new RegExp(`(^|[^\\w])@${escapeRegExp(name)}(?![\\w])`, 'i').test(text);
 
 // Notifications: off until the member turns them on in Settings. On, every
 // alert and every new cult message shows in the app and, with the browser's

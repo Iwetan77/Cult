@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { getAccessToken } from '@/lib/auth';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Link2, Plus, RefreshCw } from './icons';
+import { HotPill } from './HotPill';
 import { discoverCults, getCultStandings } from '@/lib/api';
 import type { CultStanding, DiscoverCult } from '@/lib/contracts';
 import { percent, signedDollars } from '@/lib/format';
@@ -42,6 +43,8 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
     .filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()))
     .sort((a, b) => (a.standing?.rank ?? 1e6) - (b.standing?.rank ?? 1e6)), [cults, standings, search]);
   const top = rows.filter(r => r.standing).slice(0, 4);
+  // The two busiest of them are "hot".
+  const hot = new Set([...top].sort((a, b) => b.standing!.tradeCount - a.standing!.tradeCount).slice(0, 2).map(r => r.id));
 
   // A whole card or row opens the cult: its preview, or its room once you're in.
   const open = (row: Row) => row.joined ? onOpenRoom(`cult:${row.id}`) : setPreview(row);
@@ -74,7 +77,7 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
         {top.length > 0 && !search.trim() && <section className="block">
           <div className="block-head"><h2>Top performing</h2><div className="block-tools"><button className="icon-btn" title="Previous" onClick={() => scrollTop(-1)}><ChevronLeft size={17} /></button><button className="icon-btn" title="Next" onClick={() => scrollTop(1)}><ChevronRight size={17} /></button></div></div>
           <div className="carousel" ref={topRail}>{top.map((row, i) => <article key={row.id} {...clickable(row)} className={`cult-card reveal ${i === 0 ? 'is-first' : ''}`} style={{ '--d': `${i * 60}ms` } as React.CSSProperties}>
-            <div className="cult-card-top"><RoomBadge icon={row.name[0]!.toUpperCase()} kind="cult" size="lg" /><span className="cult-card-rank">#{row.standing!.rank}</span></div>
+            <div className="cult-card-top"><RoomBadge icon={row.name[0]!.toUpperCase()} kind="cult" size="lg" /><span className="cult-card-tags">{hot.has(row.id) && <HotPill />}<span className="cult-card-rank">#{row.standing!.rank}</span></span></div>
             <h3>{row.name}</h3>
             <small>{row.memberCount} members · {row.standing!.tradeCount} trades</small>
             <strong className={`cult-card-pnl num ${row.standing!.realizedPnlUsd >= 0 ? 'up' : 'down'}`}>{signedDollars(row.standing!.realizedPnlUsd)}</strong>
