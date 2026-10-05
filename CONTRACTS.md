@@ -852,6 +852,96 @@ mirror fired. On any event, re-fetch `/chart` or patch the marker locally. Brows
 `EventSource` can't send headers, so fetch the stream with the `Authorization` header
 (for example `@microsoft/fetch-event-source`).
 
+### Predictions (Polymarket) — `/v1/predictions/*`
+
+Live odds and charts come straight from Polymarket's public APIs in the browser
+(`frontend/src/lib/polymarket.ts`). The backend places members' bets.
+
+**The account.** Each member gets a Polymarket **Deposit Wallet** on Polygon, owned by
+their Privy wallet. Dollars there are **pUSD**. Opening it takes up to four
+signatures from the member's own wallet, once: sign in to Polymarket, open the
+wallet (gasless), turn on trading (approvals), and *"Let Cult place your bets"*
+(a **session key**: trade only, it can never withdraw, 180 days). With a session key,
+bets are signed by the backend and need no prompt. Without one (until Polymarket
+enables session keys on our builder key), each bet asks for one signature.
+
+**Signature steps (FlowStep).** Calls that may need the member's signature answer with:
+
+```ts
+type SignatureRequest = { challengeId: string; label: string; kind: 'typedData' | 'message'; typedData: EIP712 | null; message: `0x${string}` | null; expiresAt: string };
+type FlowStep<T> =
+  | { status: 'needs_signature'; flowId: string; signature: SignatureRequest }   // HTTP 202
+  | { status: 'working'; flowId: string; label: string }                        // HTTP 202
+  | { status: 'done'; flowId: string; result: T };                              // HTTP 200
+```
+
+- `needs_signature`: sign `typedData` with `eth_signTypedData_v4` (it already carries
+  `EIP712Domain`), or `message` with `personal_sign`, using the **embedded** wallet. Then
+  `POST /v1/predictions/sign { flowId, challengeId, signature }`, which answers with the
+  next FlowStep. Show `label` (e.g. "Sign in to Polymarket", "Confirm your bet").
+- `working`: `GET /v1/predictions/flows/:flowId` (waits up to 20s), repeat.
+- `done`: `result` is the call's result.
+- A signature from another wallet: `403`. An expired or replaced step: `404/410`, so start again.
+  `DELETE /v1/predictions/flows` cancels the member's open flow.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/predictions/account` | | `{ enabled, step: 'unavailable'\|'needs_setup'\|'needs_funds'\|'ready', reason, wallet, balanceUsd, signsEachBet, funding: { from:'AUSD', minUsd, network } \| null, access: { country, predictions: 'open'\|'close_only'\|'blocked', perps } }` |
+| POST | `/predictions/setup` | | FlowStep → `account` (same shape as above, without `access`) |
+| POST | `/predictions/fund` | `{ amountUsd }` (≥ 2) | `{ actions: WalletAction[], depositAddress, amountUsd, receiveUsd, seconds }`: AUSD from the Cult wallet on Monad to the member's own Polymarket bridge address, landing as pUSD in ~30s. The member signs `actions` like the setup actions |
+| POST | `/predictions/withdraw` | `{ amountUsd }` (≥ 2) | FlowStep → `{ amountUsd, tx, seconds }`: pUSD back to the Cult wallet as AUSD |
+| GET | `/predictions/positions` | | `{ positions: PredictionPosition[], closed: PredictionClosed[], redeemable: string[] }` (`redeemable` = position ids whose market resolved: collect them) |
+| POST | `/predictions/orders` | `PredictionOrder` | `PredictionPosition` (200), or 202 + FlowStep → `PredictionPosition` |
+| POST | `/predictions/sell` | `{ positionId, price }` | `PredictionSale` (200), or 202 + FlowStep → `PredictionSale` |
+| POST | `/predictions/redeem` | `{ positionId }` | FlowStep → `{ positionId, payoutUsd, tx }` |
+| POST | `/predictions/bets` | `{ eventSlug }` | `{ bets: PredictionBet[] }`: cult-mates' open bets on that event, only in cults the bet was posted to |
+
+`PredictionOrder`, `PredictionPosition`, `PredictionSale`, `PredictionClosed` and
+`PredictionBet` are exactly the shapes in `frontend/src/lib/contracts.ts`.
+`marketId` is the Polymarket (Gamma) market id (`PredictionOutcome.id`); `price` is the
+price the member saw for their side. Bets are market orders (fill-and-kill) never more
+than `PREDICTIONS_SLIPPAGE` (default 5%) past that price. `cultIds` works like
+"Post to" on trades. Each bet and sale posts a notice to those cults
+("bet YES on "…" at 52¢").
+
+Errors are `{ message, code? }`:
+- `409 code: 'needs_setup'`: run setup first.
+- `409 code: 'needs_funds'`: move dollars in (`/fund`).
+- `403`: Polymarket doesn't take new bets from the member's location. This is checked
+  from the request IP, falling back to the member's chosen country. Close-only
+  countries (US, UK, France, …) can still sell.
+
+**Location.** Polymarket requires builders to block restricted places. Our
+server's IP must also be allowed: **run the backend in an EU region**
+(Railway: Amsterdam).
+
+### Cross-chain (Aurora Intents) — `/v1/intents/*`
+
+Money in from, and out to, 30+ chains on NEAR Intents' 1Click engine through Aurora
+Intents. **Monad mainnet only.** `GET /v1/config` → `features.crossChain`.
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/intents/chains` | | `{ enabled, chains: [{ chain, name, evm, tokens: [{ assetId, symbol, decimals, priceUsd }] }] }` (Monad left out) |
+| POST | `/intents/deposit` | `{ originAsset, amount, refundTo? }` (`amount` in the coin's units, e.g. `"0.5"`) | `SwapView`: a one-time `depositAddress` (+ `depositMemo` on memo chains) on the origin chain. Whatever is sent there arrives as **USDC in the member's Cult wallet**, which becomes dollars by itself. Refunds go to `refundTo`, or else to the member's own address (EVM) or their Intents account (others) |
+| POST | `/intents/withdraw` | `{ destinationAsset, amountUsd, recipient }` (≥ $5) | `SwapView & { actions: WalletAction[] }`: swap dollars→USDC (if needed), then send to the quote's address. The member signs `actions` |
+| GET | `/intents/status/:depositAddress` | | `{ status, done, received, receivedUsd, refunded, refundReason, txs: [{ hash, url }] }` (`status`: `PENDING_DEPOSIT`, `KNOWN_DEPOSIT_TX`, `PROCESSING`, `SUCCESS`, `INCOMPLETE_DEPOSIT`, `REFUNDED`, `FAILED`) |
+| POST | `/intents/submit` | `{ depositAddress, txHash }` | 204, so it's picked up sooner |
+| GET | `/intents/swaps` | | `{ swaps: [...] }` (the member's recent ones) |
+
+`SwapView = { depositAddress, depositMemo, kind: 'deposit'|'withdraw', chain, chainName, symbol, amountIn, amountInUsd, receive, receiveSymbol, receiveUsd, minReceive, seconds, deadline, status }`.
+
+### Withdraw on Monad — `POST /v1/wallet/withdraw`
+
+`{ symbol: 'MON'|'AUSD'|'USDC', amount, to }` → `{ symbol, amount, to, actions: WalletAction[] }`.
+The backend can't move funds, so the member's wallet sends `actions` and the frontend
+shows the tx hash. MON keeps the gas reserve. Sending to your own Cult address is refused.
+
+### `GET /v1/config` → `features`
+
+`{ predictions: boolean, crossChain: boolean }`. Each is on when its keys are set
+(`POLYMARKET_BUILDER_*`, `AURORA_INTENTS_API_KEY` + mainnet).
+
 ## Indexer API (correlating chain events with clans)
 
 All routes need `X-Indexer-Key`.
@@ -891,7 +981,9 @@ See `backend/.env.example`. Frontend and indexer only need to know:
 - `MIRROR_OPT_OUT_SECONDS`: see decision 3. Read it from `/v1/config`.
 - **Rate limits:**
   - Per member: 240 requests/min, and 20/min on routes that send orders or txs
-    (`positions/open|close|tpsl`, `stack`, `suggest-tpsl`, `funding/usdc/*`).
+    (`positions/open|close|tpsl`, `stack`, `suggest-tpsl`, `funding/usdc/*`,
+    `predictions/orders|sell|redeem|fund|withdraw|setup`, `intents/deposit|withdraw`,
+    `wallet/withdraw`).
   - Per IP: 120/min on public routes.
   - Chat has its own 8 per 10s.
   - Over a limit returns `429 { message }` with a `Retry-After` header in seconds
