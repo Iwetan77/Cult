@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft } from './icons';
+import { ArrowLeft, Star } from './icons';
 import { getMarket } from '@/lib/api';
 import { cachedMarket } from '@/lib/marketCache';
-import type { BackendConfig, ChartMarker, ChartSnapshot, Clan, Holding, Market, MarketDetail, Me, TpslSuggestion } from '@/lib/contracts';
+import type { BackendConfig, ChartMarker, ChartSnapshot, Clan, Holding, Market, MarketDetail, Me, TpslSuggestion, TpslValues } from '@/lib/contracts';
+import { setChartStylePref, toggleStar, useChartStylePref, useStarred } from '@/lib/prefs';
+import { PriceAlertControl } from './AlertsMenu';
 import { compactDollars, dollars, price, signedDollars, signedPct } from '@/lib/format';
 import { SharedChart, type ChartStyle } from './SharedChart';
 import { TokenLogo } from './TokenLogo';
@@ -45,7 +47,7 @@ type Props = {
   social: MarketSocial;
   holdings: Holding[];
   onBack: () => void;
-  onTrade: (market: TicketMarket, side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined) => void;
+  onTrade: (market: TicketMarket, side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => void;
   onDeposit: () => void;
   onProfile: (memberId: string) => void;
 };
@@ -58,7 +60,9 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
   const [detail, setDetail] = useState<MarketDetail | null>(() => cachedMarket(id, resolution));
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'cult' | 'mine' | 'about'>('cult');
-  const [chartStyle, setChartStyle] = useState<ChartStyle>('candles');
+  const chartStyle: ChartStyle = useChartStylePref();
+  const setChartStyle = setChartStylePref;
+  const starred = useStarred(me.id).includes(id);
   // Turning friends back on returns to the cult you last had on.
   const [friendsCult, setFriendsCult] = useState<string | null>(social.cultId ?? social.cults[0]?.id ?? null);
   useEffect(() => { if (social.cultId) setFriendsCult(social.cultId); }, [social.cultId]);
@@ -100,6 +104,10 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
           <div className="mkt-bar-id">
             <TokenLogo symbol={m.symbol} imageUri={m.imageUri} />
             <div className="mkt-bar-name"><h1>{m.symbol}</h1><small><span className="venue">{isPerp ? 'Perpl' : 'Nad.fun'}</span>{isPerp ? `Perpetual · ${Math.floor(m.maxLeverage)}x` : m.name}</small></div>
+            <span className="mkt-bar-actions">
+              <button className={`icon-btn mkt-star${starred ? ' on' : ''}`} aria-pressed={starred} aria-label={starred ? `Unstar ${m.symbol}` : `Star ${m.symbol}`} title={starred ? 'Starred: pinned on Home' : 'Star: pin it on Home'} onClick={() => toggleStar(me.id, m.id)}><Star size={17} fill={starred ? 'currentColor' : 'none'} /></button>
+              <PriceAlertControl owner={me.id} marketId={m.id} symbol={m.symbol} current={m.priceUsd ?? last?.close ?? null} />
+            </span>
           </div>
           <div className="mkt-bar-price"><strong className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{price(m.priceUsd ?? last?.close)}</strong><small>Mark price</small></div>
           <dl className="mkt-stats">
@@ -174,7 +182,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
         <section className="card ticket-card">
           <div className="card-head"><h2>{isPerp ? 'Trade' : 'Buy'} {m.symbol.replace(/-PERP$/, '')}</h2><span className="count num">{price(ticket.priceUsd)}</span></div>
           <TradeTicket market={ticket} balances={me.balances} monPriceUsd={config?.monPriceAusd ?? null}
-            cults={social.cults} defaultPostTo={postTo} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds) => onTrade(ticket, side, margin, lev, cultIds)} onDeposit={onDeposit} />
+            cults={social.cults} defaultPostTo={postTo} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds, tpsl) => onTrade(ticket, side, margin, lev, cultIds, tpsl)} onDeposit={onDeposit} />
         </section>
         {cult && snap && <section className="card">
           <div className="card-head"><h2>{cult.name}</h2></div>
