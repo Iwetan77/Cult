@@ -8,7 +8,7 @@ import type { FlowStep, PredictionAccount, WalletAction } from '@/lib/contracts'
 import { dollars } from '@/lib/format';
 
 // Dollars for predictions live in the member's own Polymarket account. This
-// sheet opens that account (a few signatures, once) and moves dollars between
+// sheet opens that account (one tap: your Privy wallet signs it) and moves dollars between
 // it and the Cult wallet: in arrives in about half a minute, out the same.
 
 type Props = {
@@ -68,7 +68,7 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
     const opened = await runFlow(await setupPredictions(await token()));
     setAccount(opened);
     onChanged();
-    return opened.signsEachBet ? 'Predictions are on. Each bet asks you to confirm it.' : 'Predictions are on.';
+    return 'Predictions are on.';
   });
   const amount = Number(amountText);
   const balance = account?.balanceUsd ?? 0;
@@ -98,7 +98,7 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
         : account.step === 'unavailable' ? <p className="notice-line">{account.reason ?? 'Predictions are not available yet.'}</p>
         : account.access?.predictions === 'blocked' ? <p className="notice-line">Polymarket doesn’t allow trading from your location.</p>
         : account.step === 'needs_setup' ? <>
-          <p className="field-note">Bets are placed on Polymarket from your own account there, which only your wallet controls. Opening it takes a few quick confirmations, once. Cult can place bets for you but can never withdraw.</p>
+          <p className="field-note">Bets are placed on Polymarket from your own account there, which only your wallet controls. Setting it up is one tap. Cult can place bets for you but can never withdraw.</p>
           {error && <p className="notice-line" role="status">{error}</p>}
           <button className="btn btn-primary btn-lg btn-block" disabled={!!busy} onClick={() => void setup()}>{busy === 'setup' ? 'Setting up…' : 'Set up predictions'}</button>
         </> : <>
@@ -124,7 +124,6 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
               {busy === 'in' ? 'Sending…' : busy === 'out' ? 'Moving…' : mode === 'in' ? `Add ${amount > 0 ? dollars(amount) : ''} to predictions` : `Move ${amount > 0 ? dollars(amount) : ''} back`}
             </button>
           </>}
-          {account.signsEachBet && <p className="field-note">Each bet asks you to confirm it in your wallet for now.</p>}
         </>}
     </section>
   </div>;
