@@ -1436,3 +1436,15 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .room-avatar, .token-logo { display: inline-flex !important; flex: none !important; flex-direction: row !important; align-items: center; justify-content: center; gap: 0 !important; }
 .room-badge { display: inline-grid !important; flex: none !important; gap: 0 !important; }
 .chat-trade-main small, .chat-trade-main small time, .chat-trade-main small b { white-space: nowrap; }
+
+/* Cross-chain deposit / withdraw (Aurora Intents) */
+.xchain { display: flex; flex-direction: column; gap: 18px; }
+.xchain-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.xchain-select { width: 100%; min-width: 0; height: 44px; padding: 0 36px 0 14px; border: 0; border-radius: var(--r-ctl); background: var(--s2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b939d' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 13px center; color: var(--text); font-size: 15px; -webkit-appearance: none; appearance: none; }
+.xchain-status { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-radius: var(--r-inner); background: var(--s2); font-size: 14px; color: var(--muted); }
+.xchain-status.up { color: var(--mint); }
+.xchain-status.down { color: var(--red); }
+.xchain-status .link { margin-left: auto; }
+.xchain-status .button-spinner { width: 14px; height: 14px; flex: none; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: xchain-spin 0.8s linear infinite; }
+@keyframes xchain-spin { to { transform: rotate(360deg); } }
+.deposit-instruction strong { color: var(--text); font-weight: 500; }

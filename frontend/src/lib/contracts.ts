@@ -55,6 +55,8 @@ export type ChartSnapshot = {
 export type BackendConfig = {
   chainId: number; venues: Venue[]; displayUnit: 'USD'; monPriceAusd: number | null;
   autoMirrorOptOutWindowSeconds: number; autoFollowDefaults: { balancePercentCap: number; maxUsdPerTrade: number }; mirrorPolicyBounds: unknown; markets: Market[];
+  // What the backend has switched on (older backends omit it: treat as off).
+  features?: { predictions: boolean; crossChain: boolean };
 };
 export type Me = {
   id: string; address: `0x${string}`; name: string; username: string | null; needsUsername: boolean; avatarUrl: string | null; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
@@ -150,3 +152,37 @@ export type PredictionBet = {
 };
 export type WithdrawRequest = { symbol: DepositInfo['tokens'][number]['symbol']; amount: number; to: string };
 export type WithdrawResult = WithdrawRequest & { tx: string };
+
+// Steps only the member's own wallet may sign (opening the Polymarket account,
+// a bet without a session key, moving money out) come back as a FlowStep:
+// sign `signature`, POST it, repeat until `done`. See CONTRACTS.md.
+export type SignatureRequest = {
+  challengeId: string; label: string; kind: 'typedData' | 'message';
+  typedData: { domain: Record<string, unknown>; types: Record<string, { name: string; type: string }[]>; primaryType: string; message: Record<string, unknown> } | null;
+  message: `0x${string}` | null; expiresAt: string;
+};
+export type FlowStep<T> =
+  | { status: 'needs_signature'; flowId: string; signature: SignatureRequest }
+  | { status: 'working'; flowId: string; label: string }
+  | { status: 'done'; flowId: string; result: T };
+export type GeoAccess = 'open' | 'close_only' | 'blocked';
+export type PredictionAccount = {
+  enabled: boolean; step: 'unavailable' | 'needs_setup' | 'needs_funds' | 'ready'; reason: string | null;
+  wallet: string | null; balanceUsd: number | null; signsEachBet: boolean;
+  funding: { from: 'AUSD'; minUsd: number; network: string } | null;
+  access?: { country: string | null; predictions: GeoAccess; perps: GeoAccess };
+};
+export type PredictionFundPlan = { actions: WalletAction[]; depositAddress: string; amountUsd: number; receiveUsd: number | null; seconds: number | null };
+export type PredictionRedeem = { positionId: string; payoutUsd: number; tx: string | null };
+// A Monad send the member's wallet signs (the backend can't move funds).
+export type WithdrawPrepared = WithdrawRequest & { actions: WalletAction[] };
+// Cross-chain (Aurora Intents).
+export type IntentChain = { chain: string; name: string; evm: boolean; tokens: { assetId: string; symbol: string; decimals: number; priceUsd: number | null }[] };
+export type IntentSwapStatus = 'PENDING_DEPOSIT' | 'KNOWN_DEPOSIT_TX' | 'INCOMPLETE_DEPOSIT' | 'PROCESSING' | 'SUCCESS' | 'REFUNDED' | 'FAILED';
+export type IntentSwap = {
+  depositAddress: string; depositMemo: string | null; kind: 'deposit' | 'withdraw'; chain: string; chainName: string; symbol: string;
+  amountIn: string; amountInUsd: number | null; receive: string; receiveSymbol: string; receiveUsd: number | null; minReceive: string;
+  seconds: number; deadline: string; status: IntentSwapStatus;
+};
+export type IntentWithdraw = IntentSwap & { actions: WalletAction[] };
+export type IntentStatus = { status: IntentSwapStatus; done: boolean; received: string | null; receivedUsd: number | null; refunded: string | null; refundReason: string | null; txs: { hash: string; url: string | null }[] };
