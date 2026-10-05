@@ -128,7 +128,6 @@ const pickTrending = (list: MarketListing[]) => {
   const memes = list.filter(m => m.venue === 'nadfun').sort((a, b) => (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0));
   return [...perps.slice(0, 5), ...memes.slice(0, 3)];
 };
-const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
 
 export function HomeView({ me, holdings, unread, mentioned, search, onMarket, onRoom, onProfile, onTrade, onDeposit, onCreate, onDiscover }: Props) {
   const [home, setHome] = useState<Home | null>(null);
@@ -170,7 +169,7 @@ export function HomeView({ me, holdings, unread, mentioned, search, onMarket, on
         <button className="btn btn-primary" onClick={onDeposit}><Plus size={16} /> Deposit</button>
       </section>
       <header className="page-head">
-        <div><span className="eyebrow">{greeting()}</span><h1 className="display">{me.name}</h1></div>
+        <div><h1 className="display">{me.name}</h1></div>
         <div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={onDiscover}><Compass size={14} /> Discover cults</button><button className="btn btn-primary btn-sm" onClick={onCreate}><Plus size={14} /> Create a cult</button></div>
       </header>
 

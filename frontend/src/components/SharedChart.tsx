@@ -21,7 +21,7 @@ type Hit = { id: string; x: number; y: number; width: number; height: number };
 type GuideHit = { markerId: string; kind: GuideKind; x: number; y: number };
 type Drag = { markerId: string; kind: GuideKind; price: number; startY: number; moved: boolean };
 
-const markerColor = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? '#8fb4ff' : origin === 'manual_stack' ? '#f6bf68' : '#c084fc';
+const markerColor = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? '#e9d5ff' : origin === 'manual_stack' ? '#fde68a' : '#c084fc';
 const guideColor = (kind: GuideKind) => kind === 'takeProfit' ? '#34d399' : '#ff6b6b';
 const guideLabel = (kind: GuideKind) => kind === 'takeProfit' ? 'TP' : 'SL';
 const seriesData = (candles: Candle[], style: ChartStyle) => style === 'line'
@@ -165,14 +165,14 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
             const price = preview ?? actual;
             const guideY = price == null ? null : series.priceToCoordinate(price);
             if (price != null && guideY != null && guideY >= 0 && guideY <= height) {
-              ctx.strokeStyle = preview != null ? '#f6bf68' : guideColor(kind);
+              ctx.strokeStyle = preview != null ? '#fde68a' : guideColor(kind);
               ctx.globalAlpha = selected ? 0.8 : 0.24;
               ctx.lineWidth = selected ? 1.5 : 1;
               ctx.setLineDash(preview != null ? [5, 4] : [3, 4]);
               ctx.beginPath(); ctx.moveTo(0, guideY); ctx.lineTo(width - 56, guideY); ctx.stroke();
               ctx.setLineDash([]); ctx.globalAlpha = 1;
               if (selected) {
-                ctx.fillStyle = preview != null ? '#f6bf68' : guideColor(kind);
+                ctx.fillStyle = preview != null ? '#fde68a' : guideColor(kind);
                 ctx.fillText(`${guideLabel(kind)} ${dollars(price, price < 1 ? 6 : 2)}${preview != null ? ' DRAFT' : ''}`, 12, Math.max(10, guideY - 10));
               }
             }
@@ -253,7 +253,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         ctx.font = `500 11.5px ${font}`;
         ctx.fillStyle = value == null ? '#7d8792' : !perp ? '#eceef1' : value >= 0 ? '#34d399' : '#ff6b6b';
         ctx.fillText(amount, faceX + 17, markerY + 1);
-        if (marker.pendingAdd) { ctx.fillStyle = '#f6bf68'; ctx.font = `500 10px ${font}`; ctx.fillText('ADD', faceX + 23 + textWidth, markerY + 1); }
+        if (marker.pendingAdd) { ctx.fillStyle = '#fde68a'; ctx.font = `500 10px ${font}`; ctx.fillText('ADD', faceX + 23 + textWidth, markerY + 1); }
         ctx.font = `12px ${font}`;
         hits.push({ id: marker.id, x, y: markerY - 15, width: badgeWidth, height: 30 });
       });

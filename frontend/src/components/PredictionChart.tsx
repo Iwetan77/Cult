@@ -7,7 +7,7 @@ import type { PricePoint } from '@/lib/polymarket';
 // Odds over time: one area for a yes/no question, a line per option (up to
 // four) for multi-outcome events. Values are 0..1, shown as percent.
 
-export const LINE_COLORS = ['#c084fc', '#8fb4ff', '#f6bf68', '#ff8fc7'];
+export const LINE_COLORS = ['#c084fc', '#fde68a', '#fb7185', '#e9d5ff'];
 export type ChartLine = { id: string; label: string; points: PricePoint[] };
 
 const percent = (p: number) => `${Math.round(p * 100)}%`;

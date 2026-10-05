@@ -60,7 +60,6 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
     <section className="view-main">
       <header className="page-head">
         <div>
-          <span className="eyebrow">Discover</span>
           <h1 className="display">Find your cult</h1>
           <p className="page-sub">Public cults trade in the open. Join one and every member&apos;s position shows on your chart, live, with PnL.</p>
         </div>
