@@ -21,6 +21,8 @@ export type PnlSheetMode = 'closed' | 'live' | 'confirm';
 type Props = {
   result: TradeResult; mode?: PnlSheetMode; busy?: boolean;
   confirmLabel?: string; onConfirm?: () => void;
+  // Before a close: how much of the position to close (1 = all).
+  closeShare?: number; onCloseShare?: (share: number) => void;
   // Real accounts can also share a public link to an open position.
   onShareLink?: () => void;
   onClose: () => void;
@@ -28,7 +30,7 @@ type Props = {
 
 type Gif = { pick: GifPick; frames: GifFrames };
 
-export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLabel = 'Close position', onConfirm, onShareLink, onClose }: Props) {
+export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLabel = 'Close position', onConfirm, closeShare = 1, onCloseShare, onShareLink, onClose }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [renderer, setRenderer] = useState<CardRenderer | null>(null);
   const [gif, setGif] = useState<Gif | null>(null);
@@ -160,6 +162,9 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
       </div>
       {giphyEnabled() && <div className="pnl-sheet-gifbar">
         <button className="btn btn-ghost btn-sm" disabled={gifLoading || busy || progress != null} onClick={() => setReroll(value => value + 1)}><Shuffle size={14} /> New GIF</button>
+      </div>}
+      {mode === 'confirm' && onCloseShare && <div className="seg seg--fill pnl-sheet-share" role="radiogroup" aria-label="How much to close">
+        {[0.25, 0.5, 0.75, 1].map(share => <button key={share} type="button" role="radio" aria-checked={closeShare === share} className={closeShare === share ? 'on' : ''} disabled={busy} onClick={() => onCloseShare(share)}>{share === 1 ? 'All' : `${share * 100}%`}</button>)}
       </div>}
       {mode === 'confirm' ? <div className="pnl-sheet-actions" key="confirm">
         <button className="btn btn-ghost" disabled={busy} onClick={onClose}>Keep open</button>
