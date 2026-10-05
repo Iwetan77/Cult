@@ -8,7 +8,7 @@ import type { FlowStep, PredictionAccount, WalletAction } from '@/lib/contracts'
 import { dollars } from '@/lib/format';
 
 // Dollars for predictions live in the member's own Polymarket account. This
-// sheet opens that account (a few signatures, once) and moves dollars between
+// sheet opens that account (one tap: your Privy wallet signs it) and moves dollars between
 // it and the Cult wallet: in arrives in about half a minute, out the same.
 
 type Props = {
@@ -68,7 +68,7 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
     const opened = await runFlow(await setupPredictions(await token()));
     setAccount(opened);
     onChanged();
-    return opened.signsEachBet ? 'Predictions are on. Each bet asks you to confirm it.' : 'Predictions are on.';
+    return 'Predictions are on.';
   });
   const amount = Number(amountText);
   const balance = account?.balanceUsd ?? 0;
@@ -76,7 +76,7 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
     const plan = await fundPredictions(await token(), amount);
     await onSend(plan.actions);
     void watchBalance(account?.balanceUsd ?? null);
-    return `${dollars(plan.amountUsd)} is on its way${plan.receiveUsd != null ? ` (about ${dollars(plan.receiveUsd)} after the transfer)` : ''}. It lands in ${plan.seconds ? `about ${plan.seconds}s` : 'a minute or so'}.`;
+    return `${dollars(plan.amountUsd)} is on its way${plan.feeUsd ? ` (plus a ${dollars(plan.feeUsd)} transfer fee)` : ''}. It lands in ${plan.seconds ? `about ${plan.seconds}s` : 'a minute or so'}.`;
   });
   const moveOut = () => act('out', async () => {
     const result = await runFlow(await withdrawPredictions(await token(), amount));
@@ -98,7 +98,7 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
         : account.step === 'unavailable' ? <p className="notice-line">{account.reason ?? 'Predictions are not available yet.'}</p>
         : account.access?.predictions === 'blocked' ? <p className="notice-line">Polymarket doesn’t allow trading from your location.</p>
         : account.step === 'needs_setup' ? <>
-          <p className="field-note">Bets are placed on Polymarket from your own account there, which only your wallet controls. Opening it takes a few quick confirmations, once. Cult can place bets for you but can never withdraw.</p>
+          <p className="field-note">Bets are placed on Polymarket from your own account there, which only your wallet controls. Setting it up is one tap. Cult can place bets for you but can never withdraw.</p>
           {error && <p className="notice-line" role="status">{error}</p>}
           <button className="btn btn-primary btn-lg btn-block" disabled={!!busy} onClick={() => void setup()}>{busy === 'setup' ? 'Setting up…' : 'Set up predictions'}</button>
         </> : <>
@@ -115,8 +115,8 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
             <div className="field">
               <div className="field-top"><span className="field-label">Amount</span><small>{mode === 'in' ? 'From your wallet' : 'To your wallet'}</small></div>
               <label className="ticket-input"><span className="ticket-prefix">$</span><input inputMode="decimal" placeholder="0" value={amountText} aria-label="Amount in dollars" onChange={event => setAmountText(amountInput(event.target.value))} />
-                <button type="button" className="ticket-unit" onClick={() => setAmountText(String(Math.floor(((mode === 'in' ? walletUsd : balance) ?? 0) * 100) / 100))}>Max</button></label>
-              {problem ? <small className="withdraw-error">{problem}</small> : <small className="withdraw-hint">{mode === 'in' ? 'Arrives in about 30 seconds. A small transfer cost applies.' : 'Back in your wallet in about 30 seconds.'}</small>}
+                <button type="button" className="ticket-unit" onClick={() => setAmountText(String(Math.floor((mode === 'in' ? (walletUsd ?? 0) * 0.985 : balance) * 100) / 100))}>Max</button></label>
+              {problem ? <small className="withdraw-error">{problem}</small> : <small className="withdraw-hint">{mode === 'in' ? 'Arrives in about 30 seconds. The transfer fee (under 1%) is added on top.' : 'Back in your wallet in about 30 seconds.'}</small>}
             </div>
             {error && <p className="notice-line" role="status">{error}</p>}
             {done && <p className="field-note"><Check size={14} /> {done}</p>}
@@ -124,7 +124,6 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
               {busy === 'in' ? 'Sending…' : busy === 'out' ? 'Moving…' : mode === 'in' ? `Add ${amount > 0 ? dollars(amount) : ''} to predictions` : `Move ${amount > 0 ? dollars(amount) : ''} back`}
             </button>
           </>}
-          {account.signsEachBet && <p className="field-note">Each bet asks you to confirm it in your wallet for now.</p>}
         </>}
     </section>
   </div>;

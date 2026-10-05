@@ -175,7 +175,8 @@ export type PredictionAccount = {
   funding: { from: 'AUSD'; minUsd: number; network: string } | null;
   access?: { country: string | null; predictions: GeoAccess; perps: GeoAccess };
 };
-export type PredictionFundPlan = { actions: WalletAction[]; depositAddress: string; amountUsd: number; receiveUsd: number | null; seconds: number | null };
+// amountUsd lands; sendUsd leaves the wallet (amountUsd plus the bridge's fee, feeUsd).
+export type PredictionFundPlan = { actions: WalletAction[]; depositAddress: string; amountUsd: number; sendUsd: number; feeUsd: number | null; receiveUsd: number | null; seconds: number | null };
 export type PredictionRedeem = { positionId: string; payoutUsd: number; tx: string | null };
 // A Monad send the member's wallet signs (the backend can't move funds).
 export type WithdrawPrepared = WithdrawRequest & { actions: WalletAction[] };
