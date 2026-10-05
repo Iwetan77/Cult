@@ -94,7 +94,10 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
   const range = candles.slice(-24);
   const high = range.length ? Math.max(...range.map(c => c.high)) : null;
   const low = range.length ? Math.min(...range.map(c => c.low)) : null;
-  const ticket: TicketMarket | null = m ? { venue: m.venue, id: m.id, symbol: m.symbol, maxLeverage: m.maxLeverage, priceUsd: m.priceUsd ?? last?.close ?? null } : null;
+  // The taker fee, from the config's market list or the cult chart's.
+  const sameMarket = (x: Market) => x.id.toLowerCase() === id.toLowerCase();
+  const takerFeeBps = config?.markets.find(sameMarket)?.takerFeeBps ?? social.snapshot?.markets.find(sameMarket)?.takerFeeBps ?? null;
+  const ticket: TicketMarket | null = m ? { venue: m.venue, id: m.id, symbol: m.symbol, maxLeverage: m.maxLeverage, priceUsd: m.priceUsd ?? last?.close ?? null, takerFeeBps } : null;
 
   return <div className="view two-col market-view">
     {error && !m ? <section className="view-main"><button className="back" onClick={onBack}><ArrowLeft size={15} /> All markets</button><p className="notice-line">{error}</p></section> : !m || !chartMarket || !ticket ? <section className="view-main"><div className="skel skel-head" /><div className="skel skel-chart" /></section> : <>

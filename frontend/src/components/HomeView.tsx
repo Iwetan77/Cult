@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Compass, Plus, Trophy, Wallet } from './icons';
+import { HotPill, isHotMarket } from './HotPill';
 import { getHome, getMarkets, getProfile } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { ChatRoom, ClosedTrade, Holding, Home, MarketListing, Me } from '@/lib/contracts';
@@ -12,7 +13,7 @@ import { TokenLogo } from './TokenLogo';
 import { RoomBadge } from './RoomBadge';
 
 type Props = {
-  me: Me; holdings: Holding[]; unread: Record<string, number>; search: string; onMarket: (id: string) => void;
+  me: Me; holdings: Holding[]; unread: Record<string, number>; mentioned: Record<string, boolean>; search: string; onMarket: (id: string) => void;
   onRoom: (roomId: string) => void; onProfile: (memberId: string) => void;
   onTrade: (trade: Home['topTrades'][number]) => void; onDeposit: () => void;
   onCreate: () => void; onDiscover: () => void;
@@ -23,12 +24,14 @@ const lastAt = (room: ChatRoom) => room.lastMessage ? Date.parse(room.lastMessag
 export const latestFirst = (rooms: ChatRoom[]) => [...rooms].sort((a, b) => lastAt(b) - lastAt(a));
 
 // Unread messages, as a bubble on a room's badge.
-export const UnreadBubble = ({ count }: { count?: number }) => count ? <b className="unread-bubble" aria-label={`${count} unread`}>{count > 99 ? '99+' : count}</b> : null;
+// White with the count; peach "@" when someone mentioned you there.
+export const UnreadBubble = ({ count, mention }: { count?: number; mention?: boolean }) => mention ? <b className="unread-bubble mention" aria-label="You were mentioned">@</b>
+  : count ? <b className="unread-bubble" aria-label={`${count} unread`}>{count > 99 ? '99+' : count}</b> : null;
 
-export function RoomRow({ room, unread, onOpen }: { room: ChatRoom; unread?: number; onOpen: () => void }) {
+export function RoomRow({ room, unread, mention, onOpen }: { room: ChatRoom; unread?: number; mention?: boolean; onOpen: () => void }) {
   const last = room.lastMessage;
   return <button className={`room-row${unread ? ' is-unread' : ''}`} onClick={onOpen}>
-    <span className="badge-wrap"><RoomBadge icon={room.icon} kind={room.kind} size="lg" /><UnreadBubble count={unread} /></span>
+    <span className="badge-wrap"><RoomBadge icon={room.icon} kind={room.kind} size="lg" /><UnreadBubble count={unread} mention={mention} /></span>
     <span className="room-row-lines"><strong>{room.name}</strong><small>{last ? (last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`) : 'No messages yet'}</small></span>
     <span className="room-row-meta"><small>{room.memberCount} {room.memberCount === 1 ? 'member' : 'members'}</small>{last && <time>{timeAgo(Date.parse(last.createdAt))}</time>}</span>
     <ArrowRight size={16} className="room-row-go" />
@@ -96,7 +99,7 @@ export function PositionsCard({ holdings, onMarket, title = 'Open positions' }: 
 
 function MarketCard({ m, onOpen }: { m: MarketListing; onOpen: () => void }) {
   return <button className="mkt-card" onClick={onOpen}>
-    <span className="mkt-card-top"><TokenLogo symbol={m.symbol} imageUri={m.imageUri} /><span><strong>{m.symbol.replace(/-PERP$/, '')}</strong><small>{m.venue === 'perpl' ? `Perp · ${Math.floor(m.maxLeverage)}x` : 'Meme'}</small></span></span>
+    <span className="mkt-card-top"><TokenLogo symbol={m.symbol} imageUri={m.imageUri} /><span><strong>{m.symbol.replace(/-PERP$/, '')}</strong><small>{m.venue === 'perpl' ? `Perp · ${Math.floor(m.maxLeverage)}x` : 'Meme'}</small></span>{isHotMarket(m.change24hPct) && <HotPill />}</span>
     <span className="mkt-card-price num">{price(m.priceUsd)}</span>
     <span className="mkt-card-foot"><b className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(m.change24hPct)}</b><small className="num">{compactDollars(m.volume24hUsd)} vol</small></span>
   </button>;
@@ -127,7 +130,7 @@ const pickTrending = (list: MarketListing[]) => {
 };
 const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
 
-export function HomeView({ me, holdings, unread, search, onMarket, onRoom, onProfile, onTrade, onDeposit, onCreate, onDiscover }: Props) {
+export function HomeView({ me, holdings, unread, mentioned, search, onMarket, onRoom, onProfile, onTrade, onDeposit, onCreate, onDiscover }: Props) {
   const [home, setHome] = useState<Home | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [markets, setMarkets] = useState<MarketListing[]>(() => cachedList('') ?? []);
@@ -193,7 +196,7 @@ export function HomeView({ me, holdings, unread, search, onMarket, onRoom, onPro
 
       <section className="block reveal" style={{ '--d': '200ms' } as React.CSSProperties}>
         <div className="block-head"><h2>My cults</h2></div>
-        <div className="card flush">{cults.length ? cults.map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} onOpen={() => onRoom(room.id)} />) : <div className="empty"><strong>{query ? 'No cults match your search.' : 'You are not in a cult yet.'}</strong>{!query && <span>Trade together: everyone&apos;s positions show on one chart.</span>}{!query && <div className="empty-actions"><button className="btn btn-primary btn-sm" onClick={onCreate}>Create a cult</button><button className="btn btn-ghost btn-sm" onClick={onDiscover}>Find one</button></div>}</div>}</div>
+        <div className="card flush">{cults.length ? cults.map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => onRoom(room.id)} />) : <div className="empty"><strong>{query ? 'No cults match your search.' : 'You are not in a cult yet.'}</strong>{!query && <span>Trade together: everyone&apos;s positions show on one chart.</span>}{!query && <div className="empty-actions"><button className="btn btn-primary btn-sm" onClick={onCreate}>Create a cult</button><button className="btn btn-ghost btn-sm" onClick={onDiscover}>Find one</button></div>}</div>}</div>
       </section>
     </section>
 

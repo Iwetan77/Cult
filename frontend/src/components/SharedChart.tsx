@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { CandlestickSeries, ColorType, createChart, LineSeries, type AutoscaleInfo, type IChartApi, type ISeriesApi, type SeriesType, type UTCTimestamp } from 'lightweight-charts';
 import type { Candle, ChartMarker, Market } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
+import { liquidationPrice } from '@/lib/risk';
 import { avatarSrc, initialsOf } from './Avatar';
 
 export type ChartStyle = 'candles' | 'line';
@@ -180,6 +181,20 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
               const handleY = guideY ?? (y == null ? null : y + sideOffset);
               if (handleY != null) guides.push({ markerId: marker.id, kind, x: width - (kind === 'takeProfit' ? 154 : 104), y: Math.max(17, Math.min(height - 17, handleY)) });
             }
+          }
+        }
+        // Your own perps: a dashed red line at the estimated liquidation price.
+        if (marker.isMine && marker.venue === 'perpl' && marker.entryPrice != null && marker.side !== 'buy') {
+          const liq = liquidationPrice(marker.entryPrice, marker.side, marker.leverage ?? 1, market.maxLeverage);
+          const liqY = liq == null ? null : series.priceToCoordinate(liq);
+          if (liq != null && liqY != null && liqY >= 0 && liqY <= height) {
+            ctx.strokeStyle = '#ff6b6b'; ctx.globalAlpha = selected ? 0.85 : 0.45; ctx.lineWidth = 1;
+            ctx.setLineDash([2, 5]);
+            ctx.beginPath(); ctx.moveTo(0, liqY); ctx.lineTo(width - 56, liqY); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#ff6b6b'; ctx.globalAlpha = selected ? 1 : 0.7;
+            ctx.fillText(`LIQ ≈ ${dollars(liq, liq < 1 ? 6 : 2)}`, 12, Math.max(10, liqY - 10));
+            ctx.globalAlpha = 1;
           }
         }
         if (y == null || y < 12 || y > height - 24) return;

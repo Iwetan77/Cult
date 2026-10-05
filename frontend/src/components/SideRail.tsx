@@ -18,6 +18,7 @@ type Props = {
   me: Me | null; nav: NavItem[];
   activeRoom: string | null;
   unread: Record<string, number>;
+  mentioned: Record<string, boolean>;
   onRoom: (id: string) => void;
   onCreate: () => void;
   settingsActive: boolean; onSettings: () => void; onSignOut: () => void;
@@ -29,7 +30,7 @@ const preview = (room: ChatRoom) => {
   return last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`;
 };
 
-export function SideRail({ me, nav, activeRoom, unread, onRoom, onCreate, settingsActive, onSettings, onSignOut }: Props) {
+export function SideRail({ me, nav, activeRoom, unread, mentioned, onRoom, onCreate, settingsActive, onSettings, onSignOut }: Props) {
   // A short delay each way, so passing the cursor across doesn't flicker it.
   const [open, setOpen] = useState(false);
   const timer = useRef<number | undefined>(undefined);
@@ -46,8 +47,8 @@ export function SideRail({ me, nav, activeRoom, unread, onRoom, onCreate, settin
   const others = rooms.filter(r => r.kind !== 'cult');
   const room = (r: ChatRoom) => {
     const at = r.lastMessage ? Date.parse(r.lastMessage.createdAt) : null;
-    return <button key={r.id} className={`rail-room ${activeRoom === r.id ? 'on' : ''}`} title={open ? undefined : r.name} aria-label={unread[r.id] ? `${r.name}, ${unread[r.id]} unread` : r.name} onClick={() => pick(() => onRoom(r.id))}>
-      <span className="badge-wrap"><RoomBadge icon={r.icon} kind={r.kind} /><UnreadBubble count={unread[r.id]} /></span>
+    return <button key={r.id} className={`rail-room ${activeRoom === r.id ? 'on' : ''}`} title={open ? undefined : r.name} aria-label={mentioned[r.id] ? `${r.name}, you were mentioned` : unread[r.id] ? `${r.name}, ${unread[r.id]} unread` : r.name} onClick={() => pick(() => onRoom(r.id))}>
+      <span className="badge-wrap"><RoomBadge icon={r.icon} kind={r.kind} /><UnreadBubble count={unread[r.id]} mention={mentioned[r.id]} /></span>
       <span className="rail-room-lines"><strong>{r.name}</strong><small>{preview(r)}</small></span>
       {at != null && <time>{timeAgo(at)}</time>}
     </button>;

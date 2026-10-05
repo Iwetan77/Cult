@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeftRight } from './icons';
 import type { Clan, Me, TpslValues } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
+import { HIGH_LEVERAGE, liquidationMove, liquidationPrice } from '@/lib/risk';
 
 // A perps ticket in the terms people bet in: the big number is the money you
 // put in; leverage multiplies it into the position size shown under it. So
@@ -14,7 +15,7 @@ import { dollars } from '@/lib/format';
 // real trigger orders once the trade is open. Memes: amount and Buy, no leverage.
 
 export type PostTo = 'all' | 'none' | string; // a cult id
-export type TicketMarket = { venue: 'perpl' | 'nadfun'; id: string; symbol: string; maxLeverage: number; priceUsd: number | null };
+export type TicketMarket = { venue: 'perpl' | 'nadfun'; id: string; symbol: string; maxLeverage: number; priceUsd: number | null; takerFeeBps?: number | null };
 
 type Props = {
   market: TicketMarket;
@@ -49,11 +50,13 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
   const [leverage, setLeverage] = useState(isPerp ? Math.min(2, maxLev) : 1);
   const [side, setSide] = useState<'long' | 'short'>('long');
   const [levelsOn, setLevelsOn] = useState(false);
+  // Above HIGH_LEVERAGE, the first press asks you to confirm.
+  const [confirming, setConfirming] = useState(false);
   const [tpText, setTpText] = useState('');
   const [slText, setSlText] = useState('');
   const [postTo, setPostTo] = useState<PostTo>(defaultPostTo);
   useEffect(() => { setPostTo(defaultPostTo); }, [defaultPostTo]);
-  useEffect(() => { setAmountText(''); setUnit('usd'); setSide('long'); setLevelsOn(false); setTpText(''); setSlText(''); setLeverage(isPerp ? Math.min(2, maxLev) : 1); }, [market.id, isPerp, maxLev]);
+  useEffect(() => { setAmountText(''); setUnit('usd'); setSide('long'); setLevelsOn(false); setTpText(''); setSlText(''); setConfirming(false); setLeverage(isPerp ? Math.min(2, maxLev) : 1); }, [market.id, isPerp, maxLev]);
 
   // What this trade can draw on, in $ of stake.
   const available = useMemo(() => {
@@ -92,8 +95,15 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
     if (stakeUsd > 0) show(stakeUsd, next);
   };
   const cultIds = cults.length === 0 || postTo === 'all' ? undefined : postTo === 'none' ? [] : [postTo];
-  const submit = (side: 'long' | 'short' | 'buy') => {
+  // Risk, shown before you trade: the taker fee and where you'd be liquidated.
+  const feeUsd = isPerp && market.takerFeeBps != null && positionUsd > 0 ? positionUsd * market.takerFeeBps / 10_000 : null;
+  const liq = isPerp && price > 0 ? liquidationPrice(price, side, lev, maxLev) : null;
+  const liqMove = isPerp ? liquidationMove(lev, maxLev) : null;
+  useEffect(() => { setConfirming(false); }, [lev, side]);
+  const submit = (side: 'long' | 'short' | 'buy', confirmed = false) => {
     if (!valid) return;
+    if (isPerp && lev > HIGH_LEVERAGE && !confirmed) { setConfirming(true); return; }
+    setConfirming(false);
     onSubmit(side, stakeUsd, isPerp ? lev : undefined, cultIds, levels && (tp != null || sl != null) ? { ...(tp != null ? { takeProfit: tp } : {}), ...(sl != null ? { stopLoss: sl } : {}) } : undefined);
   };
   const assetSize = price > 0 && positionUsd > 0 ? `${trim(positionUsd / price, 6)} ${asset}` : null;
@@ -139,6 +149,8 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
       <div><dt>You put in</dt><dd className="num">{dollars(stakeUsd)}</dd></div>
       {isPerp && <div><dt>Position</dt><dd className="num">{dollars(positionUsd)}</dd></div>}
       {isPerp && <div><dt>Entry ≈</dt><dd className="num">{price > 0 ? dollars(price, price < 1 ? 6 : 2) : '—'}</dd></div>}
+      {isPerp && <div title="An estimate: assumes a maintenance margin of half the initial margin at this market's max leverage."><dt>Liquidation ≈ <span className="ticket-est">est.</span></dt><dd className="num down">{liq == null ? '—' : dollars(liq, liq < 1 ? 6 : 2)}</dd></div>}
+      {feeUsd != null && <div><dt>Fee ≈</dt><dd className="num">{dollars(feeUsd)} <span className="ticket-est">{(market.takerFeeBps! / 100).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}%</span></dd></div>}
     </dl>
     {tooBig && <p className="ticket-warn">More than you have available.{onDeposit && <button type="button" className="link" onClick={onDeposit}>Deposit</button>}</p>}
     {!tooBig && shortInAccount && stakeUsd > 0 && <p className="ticket-note">Funds move from your wallet automatically.</p>}
@@ -152,7 +164,15 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
       </select>
     </label> : <p className="ticket-note">You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</p>}
 
-    {isPerp ? <button type="button" className={`ticket-submit ${side}`} disabled={!valid || busy} onClick={() => submit(side)}>{side === 'long' ? 'Long' : 'Short'} {asset}{positionUsd > 0 && <small className="num">{dollars(positionUsd)}</small>}</button>
+    {isPerp && confirming ? <div className="ticket-confirm" role="alertdialog" aria-label={`Confirm ${lev}x leverage`}>
+      <strong>{lev}x is high leverage</strong>
+      <p>A {liqMove == null ? 'small' : `${(liqMove * 100).toFixed(liqMove < 0.1 ? 1 : 0)}%`} move against you liquidates this position{liq == null ? '' : ` (around ${dollars(liq, liq < 1 ? 6 : 2)})`}, and you lose the {dollars(stakeUsd)} you put in.</p>
+      <div className="ticket-confirm-actions">
+        <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
+        <button type="button" className={`ticket-submit ${side}`} disabled={!valid || busy} onClick={() => submit(side, true)}>Open {lev}x {side}</button>
+      </div>
+    </div>
+      : isPerp ? <button type="button" className={`ticket-submit ${side}`} disabled={!valid || busy} onClick={() => submit(side)}>{side === 'long' ? 'Long' : 'Short'} {asset}{positionUsd > 0 && <small className="num">{dollars(positionUsd)}</small>}</button>
       : <button type="button" className="ticket-submit long" disabled={!valid || busy} onClick={() => submit('buy')}>Buy {market.symbol}{stakeUsd > 0 && <small className="num">{dollars(stakeUsd)}</small>}</button>}
     {cults.length > 0 && <p className="ticket-foot">{postTo === 'none' ? 'Only you see this trade.' : 'Cult-mates on Auto-follow copy it, sized to their own limits.'}</p>}
   </div>;
