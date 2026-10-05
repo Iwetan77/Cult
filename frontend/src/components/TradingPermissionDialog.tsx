@@ -1,6 +1,6 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { X } from './icons';
 
 export function TradingPermissionDialog({ onDecision }: { onDecision: (allowed: boolean) => void }) {
   return <div className="modal-backdrop permission-backdrop">

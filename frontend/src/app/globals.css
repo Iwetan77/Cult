@@ -2,7 +2,7 @@
    the landing's in components/landing.css. */
 :root{color-scheme:dark;--bg:#000;--surface:#121314;--surface2:#1a1b1d;--line:rgba(255,255,255,.08);--text:#f4f6f8;--muted:#98a2ae;--green:#63f0d6;--blue:#7aaaff;--amber:#f6bf68;--red:#ff6b6b}
 *{box-sizing:border-box}
-html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:var(--font-aeonik),var(--font-sans),Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:var(--font-aeonik),sans-serif;-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 button:disabled{opacity:.45;cursor:not-allowed}
@@ -12,10 +12,10 @@ h1,h2,h3,h4,p{margin:0}
 .positive{color:var(--green)!important}.negative{color:var(--red)!important}
 
 .config-state{min-height:100vh;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;padding:10vw}
-.config-state .brand{font-family:var(--font-insidia),Impact,sans-serif;font-size:32px}.config-state .brand-dot{color:var(--green)}
+.config-state .brand{font-family:var(--font-insidia),sans-serif;font-size:32px}.config-state .brand-dot{color:var(--green)}
 .config-state h1{font-size:28px;margin-top:24px}.config-state p{color:var(--muted)}
 
-.room-avatar{position:relative;overflow:hidden;flex:none;width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#1f3b36,#13201e);color:#c9fff3;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;letter-spacing:-.2px}
+.room-avatar{position:relative;overflow:hidden;flex:none;width:36px;height:36px;border-radius:50%;background:#1a2a27;color:#c9fff3;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;letter-spacing:-.2px}
 .room-avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .token-logo{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;overflow:hidden;background:#1d2224;color:var(--green);font-weight:700;font-size:13px}
 .token-logo img{width:100%;height:100%;object-fit:cover}
@@ -32,23 +32,23 @@ h1,h2,h3,h4,p{margin:0}
 .pnl-card:after{content:'';position:absolute;inset:0;background-image:linear-gradient(#ffffff08 1px,transparent 1px),linear-gradient(90deg,#ffffff08 1px,transparent 1px);background-size:34px 34px;mask-image:linear-gradient(180deg,#000 0%,transparent 75%);pointer-events:none}
 .pnl-card>*{position:relative;z-index:1}
 .pnl-top{display:flex;align-items:center;justify-content:space-between}
-.pnl-brand{font-size:22px;font-weight:800;letter-spacing:.5px}.pnl-brand i{color:var(--green);font-style:normal}
+.pnl-brand{font-size:22px;font-weight:700;letter-spacing:.5px}.pnl-brand i{color:var(--green);font-style:normal}
 .pnl-verified{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--green);border:1px solid #3f6a5d;background:#1b2e29;border-radius:999px;padding:5px 11px}
 .pnl-verified.muted{color:#aeb8c0;border-color:#3a424e;background:#20252e}
 .pnl-market{display:flex;align-items:center;gap:14px}
 .pnl-market .token-logo.pnl-logo{width:52px;height:52px}
 .pnl-market>div{display:flex;flex-direction:column;gap:6px}
-.pnl-market strong{font-size:24px;font-family:var(--font-mono),monospace}
+.pnl-market strong{font-size:24px;font-weight:500;font-variant-numeric:tabular-nums}
 .pnl-market span{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
 .pnl-market .side-chip{font-size:12px;padding:4px 8px}
 .pnl-figures{display:flex;flex-direction:column;gap:4px}
-.pnl-roi{font-family:var(--font-mono),monospace;font-weight:800;font-size:clamp(56px,14vw,88px);line-height:1;letter-spacing:-2px}
-.pnl-usd{font-family:var(--font-mono),monospace;font-size:24px;font-weight:700}
+.pnl-roi{font-family:var(--font-insidia),sans-serif;font-weight:400;font-size:clamp(56px,14vw,88px);line-height:1;letter-spacing:-2px}
+.pnl-usd{font-size:24px;font-weight:500;font-variant-numeric:tabular-nums}
 .pnl-card.up .pnl-roi,.pnl-card.up .pnl-usd{color:var(--green)}.pnl-card.down .pnl-roi,.pnl-card.down .pnl-usd{color:#ff8f97}
 .pnl-prices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0;padding:14px;border-radius:14px;background:#ffffff08;border:1px solid #ffffff10}
 .pnl-prices div{display:flex;flex-direction:column;gap:4px}
 .pnl-prices dt{color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
-.pnl-prices dd{margin:0;font-family:var(--font-mono),monospace;font-size:15px}
+.pnl-prices dd{margin:0;font-size:15px;font-variant-numeric:tabular-nums}
 .pnl-trader{display:flex;align-items:center;gap:12px;padding-top:4px}
 .pnl-trader .room-avatar{width:44px;height:44px;border-radius:50%;font-size:15px}
 .pnl-trader>div{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
@@ -57,7 +57,7 @@ h1,h2,h3,h4,p{margin:0}
 .pnl-cult{font-size:12px;font-weight:700;color:#c9d4ff;background:#2b2f3f;border:1px solid #474f66;border-radius:999px;padding:5px 11px;white-space:nowrap}
 .pnl-cta{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;color:var(--muted);font-size:13px;max-width:460px}
 .pnl-cta p{margin:0}
-.pnl-open{display:inline-flex;align-items:center;gap:6px;background:var(--green);color:#10231d;font-weight:800;border-radius:10px;padding:11px 18px;text-decoration:none}
+.pnl-open{display:inline-flex;align-items:center;gap:6px;background:var(--green);color:#10231d;font-weight:700;border-radius:10px;padding:11px 18px;text-decoration:none}
 .pnl-empty{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 .pnl-empty h1{margin:10px 0 0;font-size:24px}.pnl-empty p{margin:0;color:var(--muted)}
 @media(max-width:480px){.pnl-card{padding:22px 18px 18px;gap:18px}.pnl-prices dd{font-size:13px}}

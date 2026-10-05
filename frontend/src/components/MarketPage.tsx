@@ -1,18 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, UsersRound } from 'lucide-react';
+import { ArrowLeft } from './icons';
 import { getMarket } from '@/lib/api';
 import { cachedMarket } from '@/lib/marketCache';
 import type { BackendConfig, ChartMarker, ChartSnapshot, Clan, Holding, Market, MarketDetail, Me, TpslSuggestion } from '@/lib/contracts';
 import { compactDollars, dollars, price, signedDollars, signedPct } from '@/lib/format';
-import { SharedChart } from './SharedChart';
+import { SharedChart, type ChartStyle } from './SharedChart';
 import { TokenLogo } from './TokenLogo';
 import { Avatar } from './Avatar';
 import { MarkerCard } from './MarkerCard';
-import { Change } from './MarketsView';
 import { TradeTicket, type PostTo, type TicketMarket } from './TradeTicket';
-import { RoomBadge } from './RoomBadge';
 
 // A market is also its cult's chart: pick one of your cults and every
 // cult-mate's position on this market is drawn on it, with name and live PnL.
@@ -60,6 +58,10 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
   const [detail, setDetail] = useState<MarketDetail | null>(() => cachedMarket(id, resolution));
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'cult' | 'mine' | 'about'>('cult');
+  const [chartStyle, setChartStyle] = useState<ChartStyle>('candles');
+  // Turning friends back on returns to the cult you last had on.
+  const [friendsCult, setFriendsCult] = useState<string | null>(social.cultId ?? social.cults[0]?.id ?? null);
+  useEffect(() => { if (social.cultId) setFriendsCult(social.cultId); }, [social.cultId]);
   useEffect(() => {
     let active = true;
     setDetail(cachedMarket(id, resolution));
@@ -79,6 +81,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
   const chartMarket: Market | null = m ? { venue: m.venue, id: m.id, symbol: m.symbol, baseSymbol: m.symbol.replace('-PERP', '').replace('$', ''), quoteSymbol: 'USD', maxLeverage: m.maxLeverage, makerFeeBps: null, takerFeeBps: null } : null;
   const selected = social.selected && markers.some(x => x.id === social.selected!.id) ? social.selected : null;
   const avatarOf = (memberId: string) => snap?.members.find(x => x.id === memberId)?.avatarUrl ?? null;
+  const avatars = useMemo(() => Object.fromEntries(snap?.members.map(x => [x.id, x.avatarUrl]) ?? []), [snap]);
   const postTo: PostTo = cult ? cult.id : 'all';
   const mine = holdings.find(h => h.market.toLowerCase() === id.toLowerCase());
   const longs = markers.filter(x => x.side !== 'short').length;
@@ -92,45 +95,48 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
   return <div className="view two-col market-view">
     {error && !m ? <section className="view-main"><button className="back" onClick={onBack}><ArrowLeft size={15} /> All markets</button><p className="notice-line">{error}</p></section> : !m || !chartMarket || !ticket ? <section className="view-main"><div className="skel skel-head" /><div className="skel skel-chart" /></section> : <>
       <section className="view-main">
-        <div className="mkt-head">
-          <button className="icon-btn" title="All markets" onClick={onBack}><ArrowLeft size={17} /></button>
-          <TokenLogo symbol={m.symbol} imageUri={m.imageUri} className="mkt-head-logo" />
-          <div className="mkt-head-name"><h1>{m.symbol}</h1><small><span className="venue">{isPerp ? 'Perpl' : 'Nad.fun'}</span>{isPerp ? `Perpetual · up to ${Math.floor(m.maxLeverage)}x` : m.name}</small></div>
-          <div className="mkt-head-price"><strong className="num">{price(m.priceUsd ?? last?.close)}</strong><Change pct={m.change24hPct} /></div>
-        </div>
-
-        <div className="pills">
-          <div className="pill-stat"><span>24H change</span><b className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(m.change24hPct)}</b></div>
-          <div className="pill-stat"><span>24H volume</span><b className="num">{compactDollars(m.volume24hUsd)}</b></div>
-          <div className="pill-stat"><span>Range high</span><b className="num">{price(high)}</b></div>
-          <div className="pill-stat"><span>Range low</span><b className="num">{price(low)}</b></div>
-          <div className="pill-stat"><span>{isPerp ? 'Max leverage' : 'Venue'}</span><b>{isPerp ? `${Math.floor(m.maxLeverage)}x` : 'Spot'}</b></div>
-          {cult && <div className="pill-stat sentiment"><span>{cult.name} sentiment</span>{longPct == null ? <b>No positions</b> : <><b className="num"><em className="up">{longPct}% long</em> · <em className="down">{100 - longPct}% short</em></b><i className="sentiment-bar"><i style={{ width: `${longPct}%` }} /></i></>}</div>}
-        </div>
+        <section className="card mkt-bar">
+          <button className="icon-btn" title="All markets" onClick={onBack}><ArrowLeft size={16} /></button>
+          <div className="mkt-bar-id">
+            <TokenLogo symbol={m.symbol} imageUri={m.imageUri} />
+            <div className="mkt-bar-name"><h1>{m.symbol}</h1><small><span className="venue">{isPerp ? 'Perpl' : 'Nad.fun'}</span>{isPerp ? `Perpetual · ${Math.floor(m.maxLeverage)}x` : m.name}</small></div>
+          </div>
+          <div className="mkt-bar-price"><strong className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{price(m.priceUsd ?? last?.close)}</strong><small>Mark price</small></div>
+          <dl className="mkt-stats">
+            <div><dt>24H change</dt><dd className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(m.change24hPct)}</dd></div>
+            <div><dt>24H volume</dt><dd className="num">{compactDollars(m.volume24hUsd)}</dd></div>
+            <div><dt>Range high / low</dt><dd className="num">{price(high)} / {price(low)}</dd></div>
+            <div><dt>{isPerp ? 'Max leverage' : 'Venue'}</dt><dd>{isPerp ? `${Math.floor(m.maxLeverage)}x` : 'Spot'}</dd></div>
+            {cult && <div className="sentiment"><dt>{cult.name} sentiment</dt>{longPct == null ? <dd>No positions</dd> : <dd className="num"><em className="up">{longPct}% long</em> · <em className="down">{100 - longPct}% short</em><i className="sentiment-bar"><i style={{ width: `${longPct}%` }} /></i></dd>}</div>}
+          </dl>
+        </section>
 
         <section className="card chart-card">
           <div className="chart-tools">
             <div className="seg seg--sm">{RESOLUTIONS.map(r => <button key={r.seconds} className={resolution === r.seconds ? 'on' : ''} onClick={() => social.onResolution(r.seconds)}>{r.label}</button>)}</div>
-            {social.cults.length > 0 && <div className="friends" role="tablist" aria-label="Friends on chart">
-              <span className="friends-label"><UsersRound size={14} /> Friends on chart</span>
-              {social.cults.map(c => <button key={c.id} role="tab" aria-selected={social.cultId === c.id} className={social.cultId === c.id ? 'on' : ''} onClick={() => social.onCult(c.id)}><RoomBadge icon={c.name.trim()[0]?.toUpperCase() ?? 'C'} kind="cult" size="sm" />{c.name}</button>)}
-              <button role="tab" aria-selected={!social.cultId} className={!social.cultId ? 'on' : ''} onClick={() => social.onCult(null)}>Off</button>
-            </div>}
+            <div className="seg seg--sm" role="radiogroup" aria-label="Chart type">{(['candles', 'line'] as const).map(kind => <button key={kind} role="radio" aria-checked={chartStyle === kind} className={chartStyle === kind ? 'on' : ''} onClick={() => setChartStyle(kind)}>{kind === 'candles' ? 'Candles' : 'Line'}</button>)}</div>
             {cult && <span className={`live ${social.live ? 'on' : ''}`}><i />{social.live ? 'Live' : 'Synced'} · {markers.length}</span>}
           </div>
           <div className="chart-wrap">
-            <SharedChart candles={candles} markers={markers} market={chartMarket} selectedId={selected?.id ?? null} onSelect={marker => social.onSelect(marker)} onGuideDrop={social.onGuideDrop} guidesDisabled={!!busy} />
+            <SharedChart candles={candles} markers={markers} market={chartMarket} selectedId={selected?.id ?? null} onSelect={marker => social.onSelect(marker)} onGuideDrop={social.onGuideDrop} guidesDisabled={!!busy} avatars={avatars} chartStyle={chartStyle} />
             {selected && <MarkerCard marker={selected} symbol={m.symbol} busy={!!busy} now={social.now} avatarUrl={avatarOf(selected.memberId)}
               stackUsd={social.stackUsd} onStackUsd={social.onStackUsd} onStack={social.onStack}
               tpDraft={social.tpDraft} slDraft={social.slDraft} onTpDraft={social.onTpDraft} onSlDraft={social.onSlDraft} onSaveLevels={social.onSaveLevels}
               onApplySuggestion={social.onApplySuggestion} onSkip={social.onSkip} onClosePosition={() => social.onClosePosition(m.id)} onShare={() => social.onShare(selected)} onDismiss={() => social.onSelect(null)} />}
           </div>
-          {cult && <div className="chart-legend"><span><i className="lg-own" />Own trade</span><span><i className="lg-auto" />Auto copy</span><span><i className="lg-stack" />Stacked</span><span className="chart-legend-hint">Tap a badge to stack or suggest TP/SL</span></div>}
+          {social.cults.length > 0 && <div className="chart-legend">
+            <label className="friends-toggle">
+              <input className="switch" type="checkbox" checked={!!cult} onChange={event => social.onCult(event.target.checked ? friendsCult : null)} />
+              <span>Friends on chart</span>
+            </label>
+            {cult && social.cults.length > 1 && <select className="friends-pick" value={cult.id} aria-label="Cult on chart" onChange={event => social.onCult(event.target.value)}>{social.cults.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>}
+            {cult && <><span><i className="lg-own" />Own trade</span><span><i className="lg-auto" />Auto copy</span><span><i className="lg-stack" />Stacked</span><span className="chart-legend-hint">Tap a photo to see their trade</span></>}
+          </div>}
         </section>
 
         <section className="card">
           <div className="tabs">
-            <button className={tab === 'cult' ? 'on' : ''} onClick={() => setTab('cult')}>{cult ? `${cult.name} positions` : 'Cult positions'}<b>{markers.length}</b></button>
+            <button className={tab === 'cult' ? 'on' : ''} onClick={() => setTab('cult')}>{cult ? `${cult.name} positions` : 'Cult positions'}</button>
             <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>My position{mine && <b>1</b>}</button>
             <button className={tab === 'about' ? 'on' : ''} onClick={() => setTab('about')}>About</button>
           </div>
@@ -141,7 +147,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
             <b className={`num ${x.venue === 'perpl' ? ((x.pnlUsd ?? 0) >= 0 ? 'up' : 'down') : ''}`}>{x.venue === 'perpl' ? (x.pnlUsd == null ? 'Pending' : signedDollars(x.pnlUsd)) : (x.valueUsd == null ? 'Pending' : dollars(x.valueUsd))}</b>
             {!x.isMine && <span className="feed-copy" role="presentation">Stack</span>}
           </button>)}</div> : <div className="empty"><strong>Nobody in {cult.name} is in {m.symbol} yet.</strong><span>Open one and it shows up here, on everyone&apos;s chart.</span></div>
-            : <div className="empty"><strong>{social.cults.length ? 'Pick a cult above' : 'Trade with friends'}</strong><span>{social.cults.length ? 'Your friends’ positions on this market show on the chart with their PnL.' : 'Join or create a cult and your friends’ positions show on this chart.'}</span></div>)
+            : <div className="empty"><strong>{social.cults.length ? 'Friends on chart is off' : 'Trade with friends'}</strong><span>{social.cults.length ? 'Turn it on under the chart to see your friends’ positions here, with their PnL.' : 'Join or create a cult and your friends’ positions show on this chart.'}</span></div>)
           : tab === 'mine' ? (mine ? <div className="my-pos">
             <div className="my-pos-grid">
               <div><span>Side</span><b><span className={`side-chip ${mine.side}`}>{mine.side.toUpperCase()}{mine.venue === 'perpl' ? ` ${mine.leverage}x` : ''}</span></b></div>
@@ -171,7 +177,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
             cults={social.cults} defaultPostTo={postTo} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds) => onTrade(ticket, side, margin, lev, cultIds)} onDeposit={onDeposit} />
         </section>
         {cult && snap && <section className="card">
-          <div className="card-head"><h2>{cult.name}</h2><span className="count">{snap.members.length} members</span></div>
+          <div className="card-head"><h2>{cult.name}</h2></div>
           <div className="mini-members">{snap.members.slice(0, 6).map(member => <button key={member.id} onClick={() => onProfile(member.id)}><Avatar name={member.name} url={member.avatarUrl} /><span><strong>{member.name}</strong><small>{member.winRate == null ? '—' : `${Math.round(member.winRate * 100)}% win`}</small></span><b className={`num ${(member.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{member.realizedPnlUsd == null ? '—' : signedDollars(member.realizedPnlUsd)}</b></button>)}</div>
         </section>}
       </aside>

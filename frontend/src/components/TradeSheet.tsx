@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, X } from 'lucide-react';
+import { ArrowRight, X } from './icons';
 import { getTrade } from '@/lib/api';
 import type { ClosedTrade, Home, TradeView, Venue } from '@/lib/contracts';
 import { dollars, percent, shortAddress, signedDollars } from '@/lib/format';

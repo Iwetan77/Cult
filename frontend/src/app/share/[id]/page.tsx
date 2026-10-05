@@ -1,4 +1,4 @@
-import { ArrowUpRight, Flame, ShieldCheck } from 'lucide-react';
+import { ArrowUpRight, Flame, ShieldCheck } from '@/components/icons';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getPublicShare } from '@/lib/api';

@@ -1,13 +1,6 @@
-Satoshi 400, 500, 700
-Source: https://fontshare.com/fonts/satoshi
-License: ITF Free Font License, https://fontshare.com/licenses/itf-ffl
-These WOFF2 files are self-hosted for this application.
-
-Insidia 400; Aeonik Pro 300, 400, 500, 700, 900 (landing page)
+Insidia 400 (display: titles, logo marks, headline numbers)
+Aeonik Pro 300, 400, 500, 700, 900 (everything else)
 Source: supplied by the design team (Cult Landing, Figma).
 License: commercial; confirm the web-embedding licence before a public deploy.
 
-Cascadia Mono 400, 700
-Source: https://github.com/microsoft/cascadia-code
-Webfont package: https://fontsource.org/fonts/cascadia-mono
-License: SIL Open Font License 1.1, see Cascadia-LICENSE.txt.
+These are the only two typefaces the app uses.

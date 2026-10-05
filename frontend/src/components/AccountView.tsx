@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, ArrowUpRight, Camera, LogOut, ShieldCheck, Wallet } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Camera, LogOut, Wallet } from './icons';
 import { deleteAvatar, getPredictionPositions, getProfile, uploadAvatar } from '@/lib/api';
 import type { ClosedTrade, Holding, PredictionClosed, PredictionPosition, Profile } from '@/lib/contracts';
 import { getEvent, type PredictionOutcome } from '@/lib/polymarket';
@@ -182,7 +182,6 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
         <div className="profile-id">
           {profile.isMe ? <><button className="profile-avatar" type="button" title="Change photo" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Avatar name={profile.name} url={profile.avatarUrl} /><span className="profile-camera"><Camera size={14} /></span></button><input ref={fileInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; if (file) void changePhoto(file); }} /></> : <span className="profile-avatar"><Avatar name={profile.name} url={profile.avatarUrl} /></span>}
           <div className="profile-name">
-            <span className="eyebrow">{profile.isMe ? 'Your account' : 'Trader'}{record.verified && <><ShieldCheck size={12} /> Verified</>}</span>
             <h1>{profile.name}</h1>
             <small>{shortAddress(profile.address)} · {profile.country?.name ?? profile.country?.code ?? 'Country not set'} · since {new Date(profile.memberSince).toLocaleDateString([], { month: 'short', year: 'numeric' })}</small>
           </div>
@@ -205,8 +204,8 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
 
       <section className="card" ref={tabsCard}>
         <div className="tabs">
-          <button className={tab === 'open' ? 'on' : ''} onClick={() => setTab('open')}>Open<b>{openItems.length}</b></button>
-          <button className={tab === 'closed' ? 'on' : ''} onClick={() => setTab('closed')}>Closed<b>{closedItems.length}</b></button>
+          <button className={tab === 'open' ? 'on' : ''} onClick={() => setTab('open')}>Open</button>
+          <button className={tab === 'closed' ? 'on' : ''} onClick={() => setTab('closed')}>Closed</button>
           {profile.isMe && <button className={tab === 'settings' ? 'on' : ''} onClick={() => setTab('settings')}>Settings</button>}
         </div>
         {tab === 'open' ? (openItems.length ? <div className="ttable">{openItems.map(item => {
@@ -259,7 +258,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
 
     <aside className="view-side">
       <section className="card record">
-        <div className="card-head"><h2>Track record</h2>{record.verified ? <span className="verified"><ShieldCheck size={14} /> Verified</span> : <span className="count">Unverified</span>}</div>
+        <div className="card-head"><h2>Track record</h2></div>
         <dl className="record-lines">
           <div><dt>Perps PnL</dt><dd className={`num ${record.realizedPnlPerplUsd >= 0 ? 'up' : 'down'}`}>{signedDollars(record.realizedPnlPerplUsd)}</dd></div>
           <div><dt>Meme PnL</dt><dd className="num">{record.realizedPnlMon.toLocaleString()} MON</dd></div>
@@ -269,7 +268,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
         </dl>
       </section>
       <section className="card">
-        <div className="card-head"><h2>Cults</h2><span className="count">{profile.cults.length}</span></div>
+        <div className="card-head"><h2>Cults</h2></div>
         {profile.cults.length ? <div className="side-rooms">{profile.cults.map(cult => <button key={cult.id} onClick={() => onRoom(`cult:${cult.id}`)}><RoomBadge icon={cult.name[0]!.toUpperCase()} kind="cult" /><span><strong>{cult.name}</strong><small>{cult.visibility === 'public' ? 'Public' : 'Private'}</small></span><ArrowRight size={14} /></button>)}</div> : <div className="empty compact"><span>Not in any cult yet.</span></div>}
       </section>
     </aside>

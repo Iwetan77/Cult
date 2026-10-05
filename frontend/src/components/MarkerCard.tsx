@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, Share2, X } from 'lucide-react';
+import { ArrowRight, Share2, X } from './icons';
 import type { ChartMarker, TpslSuggestion } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
 import { Avatar } from './Avatar';

@@ -4,7 +4,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FormEvent,
 import { getAccessToken } from '@/lib/auth';
 import { isDemo } from '@/lib/demo';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { ArrowDown, ArrowRight, CandlestickChart, Link2, Pin, Reply, RotateCcw, Send, X } from 'lucide-react';
+import { ArrowDown, ArrowRight, CandlestickChart, Link2, Pin, Reply, RotateCcw, Send, X } from './icons';
 import { getRoomEventUrl, getRoomMessages, pinRoomMessage, sendRoomMessage } from '@/lib/api';
 import type { ChatMessage, ChatPage, ChatRoom, ChartMarker } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
