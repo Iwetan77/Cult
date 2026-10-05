@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, ChevronLeft, ChevronRight, Compass, Plus, Trophy, Wallet } from './icons';
-import { getHome, getMarkets } from '@/lib/api';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Compass, Plus, Star, Trophy, Wallet } from './icons';
+import { getHome, getMarkets, getProfile } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
-import type { ChatRoom, Holding, Home, MarketListing, Me } from '@/lib/contracts';
+import type { ChatRoom, ClosedTrade, Holding, Home, MarketListing, Me } from '@/lib/contracts';
 import { compactDollars, dollars, price, signedDollars, signedPct, timeAgo } from '@/lib/format';
+import { useStarred } from '@/lib/prefs';
 import { Avatar } from './Avatar';
 import { TokenLogo } from './TokenLogo';
 import { RoomBadge } from './RoomBadge';
@@ -28,8 +29,36 @@ export function RoomRow({ room, onOpen }: { room: ChatRoom; onOpen: () => void }
   </button>;
 }
 
-// The money side: one total, what it's made of, and a way to add more.
-export function PortfolioCard({ me, holdings, onDeposit }: { me: Me; holdings: Holding[]; onDeposit: () => void }) {
+const DAY = 86_400_000;
+
+// Realized PnL over the last 30 days, as a running total: one point per close.
+// The backend keeps no history of the account's value, so this is the honest
+// line we can draw.
+function RealizedLine({ closed }: { closed: ClosedTrade[] }) {
+  const now = Date.now();
+  const start = now - 30 * DAY;
+  const recent = closed.filter(t => t.closedAt >= start && t.pnlUsd != null).sort((a, b) => a.closedAt - b.closedAt);
+  let running = 0;
+  const points = [{ t: start, v: 0 }, ...recent.map(t => ({ t: t.closedAt, v: (running += t.pnlUsd ?? 0) })), { t: now, v: running }];
+  const lo = Math.min(0, ...points.map(p => p.v)), hi = Math.max(0, ...points.map(p => p.v));
+  const span = hi - lo || 1;
+  const x = (t: number) => ((t - start) / (now - start)) * 300;
+  const y = (v: number) => 4 + (1 - (v - lo) / span) * 48;
+  // A step line: the total only moves when a trade closes.
+  const path = points.map((p, i) => i === 0 ? `M${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}` : `H${x(p.t).toFixed(1)}V${y(p.v).toFixed(1)}`).join('');
+  return <div className="portfolio-line">
+    <div className="portfolio-line-head"><span>Realized, 30 days</span><b className={`num ${running >= 0 ? 'up' : 'down'}`}>{recent.length ? signedDollars(running) : '—'}</b></div>
+    <svg viewBox="0 0 300 56" preserveAspectRatio="none" role="img" aria-label={recent.length ? `Realized PnL over 30 days: ${signedDollars(running)} from ${recent.length} closed trades` : 'No closed trades in the last 30 days'}>
+      <line x1="0" x2="300" y1={y(0)} y2={y(0)} className="portfolio-line-zero" />
+      <path d={path} className={running >= 0 ? 'is-up' : 'is-down'} />
+    </svg>
+    {!recent.length && <small className="portfolio-line-empty">No closed trades in the last 30 days.</small>}
+  </div>;
+}
+
+// The money side: one total, what it's made of, how closed trades have gone,
+// and a way to add more.
+export function PortfolioCard({ me, holdings, closed, onDeposit }: { me: Me; holdings: Holding[]; closed: ClosedTrade[] | null; onDeposit: () => void }) {
   const cash = me.balances?.walletUsd ?? null;
   const margin = me.balances?.perplMarginUsd ?? 0;
   const mon = me.balances?.monUsd ?? 0;
@@ -43,6 +72,7 @@ export function PortfolioCard({ me, holdings, onDeposit }: { me: Me; holdings: H
     <strong className="portfolio-total num">{dollars(total)}</strong>
     <div className="portfolio-bar" aria-hidden="true">{parts.map(p => <i key={p.label} className={`tone-${p.tone}`} style={{ width: `${(p.value / sum) * 100}%` }} />)}</div>
     <dl className="portfolio-lines">{parts.map(p => <div key={p.label}><dt><i className={`tone-${p.tone}`} />{p.label}</dt><dd className="num">{dollars(p.value)}</dd></div>)}</dl>
+    {closed && <RealizedLine closed={closed} />}
     <button className="btn btn-primary btn-block" onClick={onDeposit}><Wallet size={16} /> Deposit</button>
   </section>;
 }
@@ -58,6 +88,32 @@ export function PositionsCard({ holdings, onMarket, title = 'Open positions' }: 
   </section>;
 }
 
+function MarketCard({ m, onOpen }: { m: MarketListing; onOpen: () => void }) {
+  return <button className="mkt-card" onClick={onOpen}>
+    <span className="mkt-card-top"><TokenLogo symbol={m.symbol} imageUri={m.imageUri} /><span><strong>{m.symbol.replace(/-PERP$/, '')}</strong><small>{m.venue === 'perpl' ? `Perp · ${Math.floor(m.maxLeverage)}x` : 'Meme'}</small></span></span>
+    <span className="mkt-card-price num">{price(m.priceUsd)}</span>
+    <span className="mkt-card-foot"><b className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(m.change24hPct)}</b><small className="num">{compactDollars(m.volume24hUsd)} vol</small></span>
+  </button>;
+}
+
+// A new account's first steps, until all three are done.
+function FirstSteps({ funded, inCult, traded, onDeposit, onDiscover, onMarket }: { funded: boolean; inCult: boolean; traded: boolean; onDeposit: () => void; onDiscover: () => void; onMarket: (id: string) => void }) {
+  const steps = [
+    { done: funded, title: 'Add funds', body: 'Deposit USDC, AUSD or MON to your Cult wallet.', action: <button className="btn btn-primary btn-sm" onClick={onDeposit}><Plus size={14} /> Deposit</button> },
+    { done: inCult, title: 'Join a cult', body: 'Everyone in it trades on one shared chart.', action: <button className="btn btn-ghost btn-sm" onClick={onDiscover}><Compass size={14} /> Find one</button> },
+    { done: traded, title: 'Make your first trade', body: 'Pick a market, go long or short, and your cult sees it.', action: <button className="btn btn-ghost btn-sm" onClick={() => onMarket('')}>Browse markets <ArrowRight size={14} /></button> },
+  ];
+  const next = steps.findIndex(s => !s.done);
+  return <section className="card first-steps reveal">
+    <div className="card-head"><h2>Get started</h2></div>
+    <ol className="first-steps-list">{steps.map((step, i) => <li key={step.title} className={step.done ? 'is-done' : i === next ? 'is-next' : ''}>
+      <span className="first-steps-mark" aria-hidden="true">{step.done ? <Check size={14} /> : i + 1}</span>
+      <span className="first-steps-lines"><strong>{step.title}</strong><small>{step.done ? 'Done' : step.body}</small></span>
+      {!step.done && i === next && step.action}
+    </li>)}</ol>
+  </section>;
+}
+
 const pickTrending = (list: MarketListing[]) => {
   const perps = list.filter(m => m.venue === 'perpl').sort((a, b) => Math.abs(b.change24hPct ?? 0) * Math.log10((b.volume24hUsd ?? 1) + 10) - Math.abs(a.change24hPct ?? 0) * Math.log10((a.volume24hUsd ?? 1) + 10));
   const memes = list.filter(m => m.venue === 'nadfun').sort((a, b) => (b.volume24hUsd ?? 0) - (a.volume24hUsd ?? 0));
@@ -68,17 +124,20 @@ const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Up lat
 export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, onTrade, onDeposit, onCreate, onDiscover }: Props) {
   const [home, setHome] = useState<Home | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [trending, setTrending] = useState<MarketListing[]>(() => pickTrending(cachedList('') ?? []));
+  const [markets, setMarkets] = useState<MarketListing[]>(() => cachedList('') ?? []);
+  // Your closed trades: the realized line, and whether you've traded yet.
+  const [closed, setClosed] = useState<ClosedTrade[] | null>(null);
   const rail = useRef<HTMLDivElement>(null);
   useEffect(() => {
     let active = true;
-    getMarkets().then(r => { if (active) setTrending(pickTrending(r.markets)); }).catch(() => {});
+    getMarkets().then(r => { if (active) setMarkets(r.markets); }).catch(() => {});
     return () => { active = false; };
   }, []);
   useEffect(() => {
     let active = true;
     getAccessToken().then(token => {
       if (!token) throw new Error('Sign in again to load Home.');
+      void getProfile(token, 'me').then(p => { if (active) setClosed(p.closedTrades); }).catch(() => { if (active) setClosed([]); });
       return getHome(token);
     }).then(value => { if (active) setHome(value); })
       .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Home is unavailable.'); });
@@ -87,8 +146,15 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
   const scroll = (dir: number) => rail.current?.scrollBy({ left: dir * (rail.current.clientWidth * 0.8), behavior: 'smooth' });
   const query = search.trim().toLowerCase();
   const cults = me.rooms.filter(room => room.kind === 'cult' && room.name.toLowerCase().includes(query));
+  const trending = useMemo(() => pickTrending(markets), [markets]);
+  const starredIds = useStarred(me.id);
+  const starred = useMemo(() => starredIds.map(id => markets.find(m => m.id === id)).filter((m): m is MarketListing => !!m), [starredIds, markets]);
 
   const wallet = me.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) : null;
+  const funded = (wallet ?? 0) + (me.balances?.monUsd ?? 0) > 0 || holdings.length > 0;
+  const inCult = me.clans.length > 0;
+  const traded = holdings.length > 0 || (closed?.length ?? 0) > 0;
+  const newcomer = closed !== null && !(funded && inCult && traded);
 
   return <div className="view two-col">
     <section className="view-main">
@@ -100,6 +166,13 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
         <div><span className="eyebrow">{greeting()}</span><h1 className="display">{me.name}</h1></div>
         <div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={onDiscover}><Compass size={14} /> Discover cults</button><button className="btn btn-primary btn-sm" onClick={onCreate}><Plus size={14} /> Create a cult</button></div>
       </header>
+
+      {newcomer && <FirstSteps funded={funded} inCult={inCult} traded={traded} onDeposit={onDeposit} onDiscover={onDiscover} onMarket={onMarket} />}
+
+      {starred.length > 0 && <section className="block reveal">
+        <div className="block-head"><h2><Star size={18} /> Starred</h2></div>
+        <div className="mkt-grid mkt-grid--all">{starred.map(m => <MarketCard key={`${m.venue}:${m.id}`} m={m} onOpen={() => onMarket(m.id)} />)}</div>
+      </section>}
 
       <section className="block reveal" style={{ '--d': '80ms' } as React.CSSProperties}>
         <div className="block-head"><h2><Trophy size={18} /> Top trades this week</h2><div className="block-tools"><button className="icon-btn" title="Previous" onClick={() => scroll(-1)}><ChevronLeft size={17} /></button><button className="icon-btn" title="Next" onClick={() => scroll(1)}><ChevronRight size={17} /></button></div></div>
@@ -116,11 +189,7 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
 
       <section className="block reveal" style={{ '--d': '140ms' } as React.CSSProperties}>
         <div className="block-head"><h2>Trending markets</h2><button className="link" onClick={() => onMarket('')}>All markets <ArrowRight size={13} /></button></div>
-        <div className="mkt-grid">{trending.length ? trending.map(m => <button key={`${m.venue}:${m.id}`} className="mkt-card" onClick={() => onMarket(m.id)}>
-          <span className="mkt-card-top"><TokenLogo symbol={m.symbol} imageUri={m.imageUri} /><span><strong>{m.symbol.replace(/-PERP$/, '')}</strong><small>{m.venue === 'perpl' ? `Perp · ${Math.floor(m.maxLeverage)}x` : 'Meme'}</small></span></span>
-          <span className="mkt-card-price num">{price(m.priceUsd)}</span>
-          <span className="mkt-card-foot"><b className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(m.change24hPct)}</b><small className="num">{compactDollars(m.volume24hUsd)} vol</small></span>
-        </button>) : Array.from({ length: 8 }, (_, i) => <span key={i} className="mkt-card skel" />)}</div>
+        <div className="mkt-grid">{trending.length ? trending.map(m => <MarketCard key={`${m.venue}:${m.id}`} m={m} onOpen={() => onMarket(m.id)} />) : Array.from({ length: 8 }, (_, i) => <span key={i} className="mkt-card skel" />)}</div>
       </section>
 
       <section className="block reveal" style={{ '--d': '200ms' } as React.CSSProperties}>
@@ -130,7 +199,7 @@ export function HomeView({ me, holdings, search, onMarket, onRoom, onProfile, on
     </section>
 
     <aside className="view-side">
-      <PortfolioCard me={me} holdings={holdings} onDeposit={onDeposit} />
+      <PortfolioCard me={me} holdings={holdings} closed={closed} onDeposit={onDeposit} />
       <PositionsCard holdings={holdings} onMarket={onMarket} />
     </aside>
   </div>;

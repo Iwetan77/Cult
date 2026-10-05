@@ -130,4 +130,4 @@ export const GripHorizontal = icon('GripHorizontal', [
 ]);
 
 // Not in the Figma set yet; Lucide's, at the same 1.5 stroke.
-export { ArrowDown, ArrowLeftRight, Check, Crown, Flame, Globe2, PanelRightOpen, Pin, RefreshCw, Reply, RotateCcw, Send } from 'lucide-react';
+export { ArrowDown, ArrowLeftRight, Bell, Check, Crown, Flame, Globe2, PanelRightOpen, Pin, RefreshCw, Reply, RotateCcw, Send, Star } from 'lucide-react';
