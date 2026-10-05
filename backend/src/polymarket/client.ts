@@ -30,8 +30,10 @@ export function builderCreds(): { key: string; secret: string; passphrase: strin
 }
 
 export const predictionsEnabled = () => strEnv('PREDICTIONS', 'on') !== 'off' && !!builderCreds();
-// Off: skip session keys and have members sign each bet in the browser.
-export const sessionKeysWanted = () => strEnv('POLYMARKET_SESSION_KEYS', 'on') !== 'off';
+// Off (default): no session key; each bet is signed by the member's Privy
+// wallet in the browser, without a pop-up. On: setup also authorizes a CLOB
+// session key (Polymarket must enable it for our builder key).
+export const sessionKeysWanted = () => strEnv('POLYMARKET_SESSION_KEYS', 'off') === 'on';
 
 // pUSD, Polymarket's collateral on Polygon (6 decimals).
 export const PUSD = '0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB';
