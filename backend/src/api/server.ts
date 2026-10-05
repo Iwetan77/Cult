@@ -43,6 +43,10 @@ import { recentConversion } from '../funding/usdc.js';
 import { FundsError } from '../funding/margin.js';
 import { SwapUnavailable } from '../swap/kuruFlow.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
+import { predictionRoutes } from './predictions.js';
+import { intentRoutes, withdrawActions, WithdrawError } from './intents.js';
+import { predictionsEnabled } from '../polymarket/client.js';
+import { intentsEnabled } from '../intents/aurora.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
 
@@ -108,6 +112,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof FundsError) return c.json({ message: err.message }, 409);
+    if (err instanceof WithdrawError) return c.json({ message: err.message }, err.status);
     if (err instanceof SwapUnavailable) return c.json({ message: `Couldn't swap for this trade right now (${err.message}). Try again shortly.` }, 503);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -157,6 +162,9 @@ export function createApp(engine: MirrorEngine) {
       autoFollowDefaults: AUTO_FOLLOW_DEFAULTS, // what the Auto-follow switch suggests
       mirrorPolicyBounds: { balancePercentCap: { min: 0, minExclusive: true, max: 100 }, maxUsdPerTrade: { min: 1, max: 1_000_000 } },
       markets: ctx.markets.filter((m) => m.config.is_open).map(toApiMarket),
+      // What's switched on. predictions: Polymarket bets (needs the builder key);
+      // crossChain: deposits from / withdrawals to other chains (Aurora Intents, mainnet).
+      features: { predictions: predictionsEnabled(), crossChain: intentsEnabled() && env.chainId === 143 },
     });
   });
 
@@ -814,6 +822,15 @@ export function createApp(engine: MirrorEngine) {
     });
   });
 
+  authed.route('/predictions', predictionRoutes());
+  authed.route('/intents', intentRoutes());
+
+  // A plain send on Monad: wallet actions for the member to sign (the backend
+  // can't move funds). Other chains: POST /v1/intents/withdraw.
+  authed.post('/wallet/withdraw', async (c) => {
+    const b = z.object({ symbol: z.enum(['MON', 'AUSD', 'USDC']), amount: z.number().positive(), to: z.string() }).parse(await c.req.json());
+    return c.json(await withdrawActions(c.get('userId'), b));
+  });
   authed.route('/cults', cultRoutes);
   authed.route('/clans', cultRoutes);
   app.route('/v1', authed);
