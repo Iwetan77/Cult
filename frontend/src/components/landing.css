@@ -47,6 +47,10 @@
 }
 .lp-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
 .lp-btn:active { transform: translateY(0); }
+/* Sign-in in progress: a small spinner inside the button (was unstyled, so it never showed). */
+.lp-btn .button-spinner { display: inline-block; width: 14px; height: 14px; flex: none; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -2px; animation: lp-btn-spin 0.8s linear infinite; }
+@keyframes lp-btn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .lp-btn .button-spinner { animation-duration: 2.4s; } }
 .lp-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
 .lp-btn--fixed { width: 150px; }
 .lp-btn--primary { background: var(--lp-mint); color: var(--lp-ink-green); }
