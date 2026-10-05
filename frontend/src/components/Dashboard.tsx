@@ -19,7 +19,7 @@ import { ClanChat } from './ClanChat';
 import { DiscoverCults } from './DiscoverCults';
 import { UsernameGate } from './UsernameGate';
 import { Leaderboards } from './Leaderboards';
-import { HomeView, RoomRow } from './HomeView';
+import { HomeView, RoomRow, latestFirst } from './HomeView';
 import { AccountView, type AccountTab } from './AccountView';
 import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
@@ -37,7 +37,8 @@ import { buyPrediction, sellPrediction } from '@/lib/api';
 import type { PredictionOrder, PredictionPosition } from '@/lib/contracts';
 import { Landing } from './Landing';
 import { AlertsMenu, notifyDevice } from './AlertsMenu';
-import { priceAlerts, pushAlert, removePriceAlert } from '@/lib/prefs';
+import { lastReadOf, markRead, notifyPref, priceAlerts, pushAlert, removePriceAlert, setUnread, unreadOf, useUnread } from '@/lib/prefs';
+import { getRoomMessages } from '@/lib/api';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
 import { SideRail, type NavItem } from './SideRail';
@@ -209,7 +210,7 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
   // removed; cult alerts come from each cult room's latest message (the first
   // look only takes note of what's there, so old trades don't alert).
   const owner = me?.id ?? null;
-  const alertNow = (title: string, body: string) => { setNotice(`${title}. ${body}`); notifyDevice(title, body); };
+  const alertNow = useCallback((title: string, body: string) => { setNotice(`${title}. ${body}`); if (owner) notifyDevice(owner, title, body); }, [owner]);
   useEffect(() => {
     if (!owner || !authenticated || demo === null) return;
     let active = true;
@@ -230,7 +231,7 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
     void check();
     const timer = window.setInterval(() => void check(), 20_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [owner, authenticated, demo]);
+  }, [owner, authenticated, demo, alertNow]);
   const seenCultMessage = useRef<Record<string, string> | null>(null);
   useEffect(() => {
     if (!me) return;
@@ -240,12 +241,65 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
       const last = room.lastMessage;
       if (room.kind !== 'cult' || !last || seen[room.id] === last.id) continue;
       seen[room.id] = last.id;
-      if (first || last.kind !== 'system' || last.memberId === me.id || !/^(opened|bought) /.test(last.body)) continue;
-      const title = `${last.memberName} ${last.body}`;
+      if (first || last.kind !== 'system') continue;
+      // A cult-mate's new trade, or auto-follow copying one into your account.
+      const copied = last.memberId === me.id && /^auto-copied /.test(last.body);
+      if (!copied && (last.memberId === me.id || !/^(opened|bought) /.test(last.body))) continue;
+      const title = copied ? last.body.replace(/^auto-copied /, 'Auto-follow copied ') : `${last.memberName} ${last.body}`;
       pushAlert(me.id, { kind: 'cult', title, body: room.name, roomId: room.id });
       alertNow(title, `In ${room.name}`);
     }
-  }, [me]);
+  }, [me, alertNow]);
+  // Unread messages in your cults. When a room's latest message is new, its
+  // messages since you last read it (on this device) are counted; opening the
+  // room reads it, and so does sending in it. With notifications on, a new
+  // message from someone else also alerts.
+  const openRoomId = view === 'chat' ? roomId : null;
+  const countedMessage = useRef<Record<string, string>>({});
+  const unread = useUnread(owner ?? 'signed-out');
+  useEffect(() => {
+    if (!me) return;
+    const owner = me.id;
+    for (const room of me.rooms) {
+      if (room.kind !== 'cult') continue;
+      const last = room.lastMessage;
+      const read = lastReadOf(owner)[room.id];
+      // A room seen for the first time on this device starts out read.
+      // Typing in a room reads it; your own trade notices (opened, auto-copied) don't.
+      if (!read || room.id === openRoomId || (last?.memberId === owner && last.kind === 'text')) {
+        if (last || !read) markRead(owner, room.id, last?.createdAt ?? new Date().toISOString());
+        continue;
+      }
+      if (!last || Date.parse(last.createdAt) <= Date.parse(read) || countedMessage.current[room.id] === last.id) continue;
+      countedMessage.current[room.id] = last.id;
+      void token().then(t => getRoomMessages(t, room.id)).then(page => {
+        const since = Date.parse(lastReadOf(owner)[room.id] ?? last.createdAt);
+        const fresh = page.messages.filter(m => m.memberId !== owner && Date.parse(m.createdAt) > since);
+        const before = unreadOf(owner)[room.id] ?? 0;
+        setUnread(owner, room.id, fresh.length);
+        const newest = fresh.at(-1);
+        if (fresh.length > before && newest?.kind === 'text' && notifyPref(owner)) {
+          const title = `${newest.memberName} in ${room.name}`;
+          pushAlert(owner, { kind: 'cult', title, body: newest.body, roomId: room.id });
+          alertNow(title, newest.body);
+        }
+      }).catch(() => undefined);
+    }
+  }, [me, openRoomId, alertNow]);
+  const unreadTotal = Object.values(unread).reduce((sum, n) => sum + n, 0);
+  // The desktop search sits in the true center: both side columns of the top
+  // bar are kept at least as wide as the wider of its two sides.
+  const topbarRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const bar = topbarRef.current;
+    if (!bar || typeof ResizeObserver === 'undefined') return;
+    const sides = [bar.querySelector<HTMLElement>('.topbar-logo'), bar.querySelector<HTMLElement>('.topbar-right')].filter((el): el is HTMLElement => !!el);
+    const fit = () => bar.style.setProperty('--topbar-side', `${Math.ceil(Math.max(...sides.map(el => el.offsetWidth)))}px`);
+    const observer = new ResizeObserver(fit);
+    sides.forEach(el => observer.observe(el));
+    fit();
+    return () => observer.disconnect();
+  }, [me, demo, authenticated]);
   // New members join their country's room straight away, from where they're
   // connecting (Vercel's IP country). They can change it in Account.
   const countryTried = useRef(false);
@@ -868,7 +922,7 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
   ];
 
   return <div className="dash">
-    <header className="topbar">
+    <header className="topbar" ref={topbarRef}>
       <button className="topbar-logo" onClick={() => go('home')} aria-label="Cult home"><img src="/landing/cult-logo.svg" alt="Cult" width={58} height={30} /></button>
       <div className="search">
         <label className="search-box"><Search size={16} /><input ref={searchRef} value={search} onChange={event => { setSearch(event.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)} onBlur={() => window.setTimeout(() => setSearchOpen(false), 160)}
@@ -886,23 +940,25 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
       <div className="topbar-right">
         {me && <AlertsMenu owner={me.id} onMarket={openMarket} onRoom={openRoom} />}
         {demo && <span className="demo-pill" title="Sample data. Nothing here touches real funds.">Demo</span>}
+        <div className="wallet-pill">
         <button className="balance" onClick={() => setDepositOpen(true)} title="Wallet and trading account"><Wallet size={15} />{balance == null ? '—' : <span className="num">{dollars(balance)}</span>}</button>
         <button className="btn btn-primary btn-sm topbar-deposit" onClick={() => setDepositOpen(true)}><Plus size={15} /> Deposit</button>
+        </div>
         <button className="topbar-me" onClick={() => openAccount()} title="Account"><Avatar name={me?.name ?? 'You'} url={me?.avatarUrl} /><span className="topbar-me-lines"><strong>{me?.name ?? 'You'}</strong><small className="num">{me ? shortAddress(me.address) : ''}</small></span></button>
       </div>
     </header>
 
-    <SideRail me={me} nav={nav} activeRoom={view === 'chat' ? roomId : null}
+    <SideRail me={me} nav={nav} activeRoom={view === 'chat' ? roomId : null} unread={unread}
       onRoom={openRoom} onCreate={() => setFormOpen('create')}
       settingsActive={view === 'account' && profileId === 'me' && accountTab === 'settings'} onSettings={() => openAccount('me', 'settings')} onSignOut={signOut} />
 
     <main className="stage" key={view === 'chat' ? `chat:${roomId}` : view === 'markets' ? `m:${marketPage ?? ''}` : view === 'account' ? `a:${profileId}` : view}>
       {!me ? <div className="view two-col"><section className="view-main"><div className="skel skel-head" /><div className="skel skel-strip" /><div className="skel skel-chart" /></section><aside className="view-side"><div className="skel skel-card" /><div className="skel skel-card" /></aside></div>
-        : view === 'home' ? <HomeView me={me} holdings={holdings} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
+        : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
         : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))}
             onBack={() => openMarket(null)} onBuy={placePrediction} onSell={sellPredictionPosition} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
-          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => openMarket(null)} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
-        : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><span className="eyebrow">Your cults</span><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{me.rooms.filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} onOpen={() => openRoom(room.id)} />)}</div></section></div>
+          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => openMarket(null)} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView owner={me.id} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
+        : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><span className="eyebrow">Your cults</span><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
         : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={setAccountTab} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
@@ -930,7 +986,7 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
     <nav className="tabbar" aria-label="Mobile navigation">
       <button className={view === 'home' ? 'on' : ''} onClick={() => go('home')}><Home size={20} /><span>Home</span></button>
       <button className={view === 'markets' ? 'on' : ''} onClick={() => openMarket(null)}><CandlestickChart size={20} /><span>Markets</span></button>
-      <button className={['groups', 'chat'].includes(view) ? 'on' : ''} onClick={() => { setGroupPanelOpen(false); go('groups'); }}><UsersRound size={20} /><span>Cults</span></button>
+      <button className={['groups', 'chat'].includes(view) ? 'on' : ''} onClick={() => { setGroupPanelOpen(false); go('groups'); }} aria-label={unreadTotal ? `Cults, ${unreadTotal} unread` : undefined}><span className="badge-wrap"><UsersRound size={20} />{unreadTotal > 0 && <b className="unread-bubble">{unreadTotal > 99 ? '99+' : unreadTotal}</b>}</span><span>Cults</span></button>
       <button className={view === 'discover' || view === 'leaderboards' ? 'on' : ''} onClick={() => go('discover')}><Compass size={20} /><span>Discover</span></button>
       <button className={view === 'account' ? 'on' : ''} onClick={() => openAccount()}><UserRound size={20} /><span>Account</span></button>
     </nav>

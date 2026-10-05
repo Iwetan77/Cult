@@ -83,3 +83,32 @@ export const clearAlerts = (owner: string) => write(keys(owner).feed, []);
 export type StoredChartStyle = 'candles' | 'line';
 export const useChartStylePref = () => useKey<StoredChartStyle>('cult:chart-style', 'candles');
 export const setChartStylePref = (style: StoredChartStyle) => write('cult:chart-style', style);
+
+// Unread messages per cult room, counted against when you last read each room
+// on this device. Opening a room reads it.
+const NONE: Record<string, never> = {};
+const unreadKey = (owner: string) => `cult:unread:${owner}`;
+const readKey = (owner: string) => `cult:read:${owner}`;
+export const useUnread = (owner: string) => useKey<Record<string, number>>(unreadKey(owner), NONE);
+export const unreadOf = (owner: string) => snapshot<Record<string, number>>(unreadKey(owner), NONE);
+export const lastReadOf = (owner: string) => snapshot<Record<string, string>>(readKey(owner), NONE);
+export const setUnread = (owner: string, roomId: string, count: number) => {
+  const current = unreadOf(owner);
+  if ((current[roomId] ?? 0) === count) return;
+  const next = { ...current, [roomId]: count };
+  if (!count) delete next[roomId];
+  write(unreadKey(owner), next);
+};
+export const markRead = (owner: string, roomId: string, at: string) => {
+  const read = lastReadOf(owner);
+  if (!read[roomId] || Date.parse(at) > Date.parse(read[roomId]!)) write(readKey(owner), { ...read, [roomId]: at });
+  setUnread(owner, roomId, 0);
+};
+
+// Notifications: off until the member turns them on in Settings. On, every
+// alert and every new cult message shows in the app and, with the browser's
+// permission, as a system notification when Cult is in the background.
+const notifyKey = (owner: string) => `cult:notify:${owner}`;
+export const useNotifyPref = (owner: string) => useKey<boolean>(notifyKey(owner), false);
+export const notifyPref = (owner: string) => snapshot<boolean>(notifyKey(owner), false);
+export const setNotifyPref = (owner: string, on: boolean) => write(notifyKey(owner), on);

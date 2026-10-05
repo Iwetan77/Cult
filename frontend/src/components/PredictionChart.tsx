@@ -7,7 +7,7 @@ import type { PricePoint } from '@/lib/polymarket';
 // Odds over time: one area for a yes/no question, a line per option (up to
 // four) for multi-outcome events. Values are 0..1, shown as percent.
 
-export const LINE_COLORS = ['#63f0d6', '#8fb4ff', '#f6bf68', '#ff8fc7'];
+export const LINE_COLORS = ['#c084fc', '#8fb4ff', '#f6bf68', '#ff8fc7'];
 export type ChartLine = { id: string; label: string; points: PricePoint[] };
 
 const percent = (p: number) => `${Math.round(p * 100)}%`;
@@ -25,7 +25,7 @@ export function PredictionChart({ lines }: { lines: ChartLine[] }) {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: 'rgba(0,0,0,0)' }, textColor: '#7d8792', fontFamily: font, fontSize: 11, attributionLogo: false },
       grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
-      crosshair: { vertLine: { color: 'rgba(99,240,214,0.35)', labelBackgroundColor: '#1d2a28' }, horzLine: { color: 'rgba(99,240,214,0.35)', labelBackgroundColor: '#1d2a28' } },
+      crosshair: { vertLine: { color: 'rgba(168,85,247,0.35)', labelBackgroundColor: '#2a2340' }, horzLine: { color: 'rgba(168,85,247,0.35)', labelBackgroundColor: '#2a2340' } },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', scaleMargins: { top: 0.1, bottom: 0.08 } },
       timeScale: { borderColor: 'rgba(255,255,255,0.06)', timeVisible: true, secondsVisible: false },
       localization: { priceFormatter: percent },
@@ -43,7 +43,7 @@ export function PredictionChart({ lines }: { lines: ChartLine[] }) {
     seriesRef.current = lines.map((line, i) => {
       const color = LINE_COLORS[i % LINE_COLORS.length]!;
       const series = lines.length === 1
-        ? chart.addSeries(AreaSeries, { lineColor: color, topColor: 'rgba(99,240,214,0.28)', bottomColor: 'rgba(99,240,214,0)', lineWidth: 2, priceFormat: format, priceLineColor: 'rgba(99,240,214,0.5)', priceLineStyle: 2 })
+        ? chart.addSeries(AreaSeries, { lineColor: color, topColor: 'rgba(192,132,252,0.28)', bottomColor: 'rgba(192,132,252,0)', lineWidth: 2, priceFormat: format, priceLineColor: 'rgba(168,85,247,0.5)', priceLineStyle: 2 })
         : chart.addSeries(LineSeries, { color, lineWidth: 2, priceFormat: format, priceLineVisible: false, lastValueVisible: true });
       // One point per second at most; the API can repeat timestamps.
       const seen = new Set<number>();
