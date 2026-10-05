@@ -1,3 +1,4 @@
+import type { FlowStep, IntentChain, IntentStatus, IntentSwap, IntentWithdraw, PredictionAccount, PredictionFundPlan, PredictionRedeem, WithdrawPrepared } from './contracts';
 import type { BackendConfig, ChatMessage, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, PredictionBet, PredictionClosed, PredictionOrder, PredictionPosition, PredictionSale, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 import { rememberList, rememberMarket } from './marketCache';
 import { DemoError, demoApi, isDemo } from './demo';
@@ -5,7 +6,8 @@ import { DemoError, demoApi, isDemo } from './demo';
 const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly retryAfterSeconds: number | null = null) { super(message); }
+  // code: a machine-readable reason some routes add (e.g. 'needs_setup', 'needs_funds').
+  constructor(message: string, readonly status: number, readonly retryAfterSeconds: number | null = null, readonly code: string | null = null) { super(message); }
 }
 
 export async function api<T>(path: string, token: string | null, options: RequestInit = {}): Promise<T> {
@@ -28,7 +30,7 @@ async function request<T>(path: string, token: string | null, options: RequestIn
     cache: 'no-store',
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { message?: string };
+    const body = await response.json().catch(() => ({})) as { message?: string; code?: string };
     const message = body.message ?? `Request failed (${response.status})`;
     if (response.status === 503 && path === '/v1/positions/open') {
       throw new ApiError("Couldn't swap for this trade right now. Try again shortly.", 503);
@@ -38,7 +40,7 @@ async function request<T>(path: string, token: string | null, options: RequestIn
       const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : null;
       throw new ApiError(seconds == null ? 'Slow down, try again shortly.' : `Slow down, try again in ${seconds}s.`, 429, seconds);
     }
-    throw new ApiError(response.status === 503 && !/retry/i.test(message) ? `${message} Retry shortly.` : message, response.status);
+    throw new ApiError(response.status === 503 && !/retry/i.test(message) ? `${message} Retry shortly.` : message, response.status, null, body.code ?? null);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -103,18 +105,35 @@ export const setUsername = (token: string, username: string) => api<{ username: 
 export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: string }>('/v1/me/avatar', token, { method: 'POST', body: json({ image }) });
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
 // Prediction markets: market data comes straight from Polymarket
-// (lib/polymarket.ts). Trading runs in the demo only until a Polygon wallet
-// and venue adapter exist on the backend.
+// (lib/polymarket.ts); bets go through the backend (Polymarket account per
+// member). The demo answers locally. Steps the member's wallet must sign come
+// back as a FlowStep (see runFlow in Dashboard).
 export const PREDICTIONS_SOON = 'Prediction trading is coming to Cult soon. Try it in the demo.';
-export const getPredictionPositions = (token: string) => isDemo() ? api<{ positions: PredictionPosition[]; closed: PredictionClosed[] }>('/v1/predictions/positions', token) : Promise.resolve({ positions: [] as PredictionPosition[], closed: [] as PredictionClosed[] });
-export const buyPrediction = (token: string, order: PredictionOrder) => isDemo() ? api<PredictionPosition>('/v1/predictions/orders', token, { method: 'POST', body: json(order) }) : Promise.reject(new ApiError(PREDICTIONS_SOON, 501));
-export const sellPrediction = (token: string, positionId: string, price: number) => isDemo() ? api<PredictionSale>('/v1/predictions/sell', token, { method: 'POST', body: json({ positionId, price }) }) : Promise.reject(new ApiError(PREDICTIONS_SOON, 501));
+export const isFlowStep = <T,>(value: T | FlowStep<T>): value is FlowStep<T> =>
+  !!value && typeof value === 'object' && 'status' in value && 'flowId' in value && ['needs_signature', 'working', 'done'].includes(String((value as { status: unknown }).status));
+const DEMO_PREDICTION_ACCOUNT: PredictionAccount = { enabled: true, step: 'ready', reason: null, wallet: null, balanceUsd: null, signsEachBet: false, funding: null, access: { country: null, predictions: 'open', perps: 'open' } };
+export const getPredictionAccount = (token: string) => isDemo() ? Promise.resolve(DEMO_PREDICTION_ACCOUNT) : api<PredictionAccount>('/v1/predictions/account', token);
+export const setupPredictions = (token: string) => api<FlowStep<PredictionAccount>>('/v1/predictions/setup', token, { method: 'POST' });
+export const signFlowStep = (token: string, flowId: string, challengeId: string, signature: string) => api<FlowStep<unknown>>('/v1/predictions/sign', token, { method: 'POST', body: json({ flowId, challengeId, signature }) });
+export const pollFlow = (token: string, flowId: string) => api<FlowStep<unknown>>(`/v1/predictions/flows/${encodeURIComponent(flowId)}`, token);
+export const fundPredictions = (token: string, amountUsd: number) => api<PredictionFundPlan>('/v1/predictions/fund', token, { method: 'POST', body: json({ amountUsd }) });
+export const withdrawPredictions = (token: string, amountUsd: number) => api<FlowStep<{ amountUsd: number; tx: string | null; seconds: number }>>('/v1/predictions/withdraw', token, { method: 'POST', body: json({ amountUsd }) });
+export const redeemPrediction = (token: string, positionId: string) => api<FlowStep<PredictionRedeem>>('/v1/predictions/redeem', token, { method: 'POST', body: json({ positionId }) });
+export const getPredictionPositions = (token: string) => api<{ positions: PredictionPosition[]; closed: PredictionClosed[]; redeemable?: string[] }>('/v1/predictions/positions', token);
+export const buyPrediction = (token: string, order: PredictionOrder) => api<PredictionPosition | FlowStep<PredictionPosition>>('/v1/predictions/orders', token, { method: 'POST', body: json(order) });
+export const sellPrediction = (token: string, positionId: string, price: number) => api<PredictionSale | FlowStep<PredictionSale>>('/v1/predictions/sell', token, { method: 'POST', body: json({ positionId, price }) });
 export const getPredictionBets = (token: string, eventSlug: string, outcomes: { id: string; label: string; yesPrice: number; yesLabel: string; noLabel: string }[]) =>
-  isDemo() ? api<{ bets: PredictionBet[] }>('/v1/predictions/bets', token, { method: 'POST', body: json({ eventSlug, outcomes }) }) : Promise.resolve({ bets: [] as PredictionBet[] });
+  api<{ bets: PredictionBet[] }>('/v1/predictions/bets', token, { method: 'POST', body: json({ eventSlug, outcomes }) });
 export const getDeposit = (token: string) => api<DepositInfo>('/v1/wallet/deposit', token);
-// Demo only for now: the backend can't move funds out by design, so a real
-// withdrawal will be signed by the member's own wallet once it's built.
-export const withdraw = (token: string, body: WithdrawRequest) => api<WithdrawResult>('/v1/wallet/withdraw', token, { method: 'POST', body: JSON.stringify(body) });
+// The backend can't move funds out by design: it answers with the send for
+// the member's own wallet to sign (the demo answers with a finished one).
+export const withdraw = (token: string, body: WithdrawRequest) => api<WithdrawResult | WithdrawPrepared>('/v1/wallet/withdraw', token, { method: 'POST', body: JSON.stringify(body) });
+// Cross-chain money in/out (Aurora Intents, Monad mainnet).
+export const getIntentChains = (token: string) => api<{ enabled: boolean; chains: IntentChain[] }>('/v1/intents/chains', token);
+export const quoteIntentDeposit = (token: string, originAsset: string, amount: string, refundTo?: string) => api<IntentSwap>('/v1/intents/deposit', token, { method: 'POST', body: json({ originAsset, amount, ...(refundTo ? { refundTo } : {}) }) });
+export const prepareIntentWithdraw = (token: string, destinationAsset: string, amountUsd: number, recipient: string) => api<IntentWithdraw>('/v1/intents/withdraw', token, { method: 'POST', body: json({ destinationAsset, amountUsd, recipient }) });
+export const getIntentStatus = (token: string, depositAddress: string) => api<IntentStatus>(`/v1/intents/status/${encodeURIComponent(depositAddress)}`, token);
+export const submitIntentDeposit = (token: string, depositAddress: string, txHash: string) => api<void>('/v1/intents/submit', token, { method: 'POST', body: json({ depositAddress, txHash }) });
 export const getMarkets = (query = '', venue?: Venue) => api<{ markets: MarketListing[] }>(`/v1/markets?${new URLSearchParams({ ...(query ? { q: query } : {}), ...(venue ? { venue } : {}), limit: '100' })}`, null)
   .then(r => { rememberList(query, venue, r.markets); return r; });
 export const getMarket = (id: string, resolutionSec = 3600) => api<MarketDetail>(`/v1/markets/${encodeURIComponent(id)}?resolution=${resolutionSec}`, null)

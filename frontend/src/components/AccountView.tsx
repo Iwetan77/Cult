@@ -22,6 +22,8 @@ type Props = {
   onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void; onAvatarSaved: () => Promise<unknown>; onRoom: (roomId: string) => void;
   tab: AccountTab; onTab: (tab: AccountTab) => void;
   predictionRevision: number; onOpenPrediction: (slug: string, pick?: PredictionPick) => void; onSellPrediction: (position: PredictionPosition, price: number) => void;
+  // Live accounts: collect a resolved bet, and open the predictions balance.
+  onRedeemPrediction?: (position: PredictionPosition) => void; onPredictionFunds?: () => void;
   signOutLabel?: string;
 };
 
@@ -62,7 +64,7 @@ function performanceBars(trades: ClosedTrade[], now: number): PerfBar[] {
   return bars.slice(-8);
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onPredictionFunds, signOutLabel = 'Sign out' }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -80,13 +82,13 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
     return () => { active = false; };
   }, [id]);
   // Your prediction bets (open and sold), with live odds for the open ones.
-  const [predictions, setPredictions] = useState<{ open: PredictionPosition[]; closed: PredictionClosed[] }>({ open: [], closed: [] });
+  const [predictions, setPredictions] = useState<{ open: PredictionPosition[]; closed: PredictionClosed[]; redeemable: string[] }>({ open: [], closed: [], redeemable: [] });
   const [odds, setOdds] = useState<Record<string, PredictionOutcome>>({});
   useEffect(() => {
-    if (id !== 'me') { setPredictions({ open: [], closed: [] }); return; }
+    if (id !== 'me') { setPredictions({ open: [], closed: [], redeemable: [] }); return; }
     let active = true;
     getAccessToken().then(token => token ? getPredictionPositions(token) : null)
-      .then(r => { if (active && r) setPredictions({ open: r.positions, closed: r.closed }); }).catch(() => undefined);
+      .then(r => { if (active && r) setPredictions({ open: r.positions, closed: r.closed, redeemable: r.redeemable ?? [] }); }).catch(() => undefined);
     return () => { active = false; };
   }, [id, predictionRevision]);
   const slugsKey = [...new Set(predictions.open.map(p => p.eventSlug))].sort().join('|');
@@ -185,7 +187,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
             <h1>{profile.name}</h1>
             <small>{shortAddress(profile.address)} · {profile.country?.name ?? profile.country?.code ?? 'Country not set'} · since {new Date(profile.memberSince).toLocaleDateString([], { month: 'short', year: 'numeric' })}</small>
           </div>
-          {profile.isMe && <div className="profile-actions"><button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
+          {profile.isMe && <div className="profile-actions">{onPredictionFunds && <button className="btn btn-glass btn-sm" onClick={onPredictionFunds}>Predictions</button>}<button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
         </div>
         {profile.isMe && (profile.avatarUrl || photoBusy || error) && <div className="profile-photo-note">{profile.avatarUrl && <button className="link" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}{photoBusy && <span>Updating photo…</span>}{error && <span className="down">{error}</span>}</div>}
       </section>
@@ -219,7 +221,8 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
               <span className="ttable-main"><EventArt event={{ image: p.image, title: p.eventTitle }} /><span><strong className="ttable-title">{predictionTitle(p)}</strong><small><span className="ttable-side-sm">{p.sideLabel} · </span>Polymarket · opened {new Date(p.openedAt).toLocaleDateString()}</small></span></span>
               <span className={`side-chip ${p.side === 'yes' ? 'long' : 'short'}`}>{p.sideLabel.toUpperCase()}</span>
               <span className={`num strong ${(pnl ?? 0) >= 0 ? 'up' : 'down'}`}>{pnl == null ? '' : signedDollars(pnl)}</span>
-              {now != null ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onSellPrediction(p, now); }}>Sell</button> : <ArrowRight size={15} className="muted" />}
+              {onRedeemPrediction && predictions.redeemable.includes(p.id) ? <button className="btn btn-primary btn-sm" onClick={event => { event.stopPropagation(); onRedeemPrediction(p); }}>Collect</button>
+                : now != null ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onSellPrediction(p, now); }}>Sell</button> : <ArrowRight size={15} className="muted" />}
             </div>;
           }
           const trade = item.trade;
