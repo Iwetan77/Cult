@@ -12,6 +12,7 @@ import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
 import { privySupported } from '@/lib/privySupport';
 import { BOOT_CLASS, hasStoredSession, markSession } from '@/lib/session';
+import { signsQuietly } from '@/lib/quietSign';
 import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
 import { dollars, price, shortAddress } from '@/lib/format';
@@ -590,7 +591,10 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (request.kind === 'typedData' && request.typedData) {
       // Privy adds the domain type itself.
       const types = Object.fromEntries(Object.entries(request.typedData.types).filter(([name]) => name !== 'EIP712Domain'));
-      const result = await signTypedData({ domain: request.typedData.domain, types, primaryType: request.typedData.primaryType, message: request.typedData.message } as Parameters<typeof signTypedData>[0], { address: wallet.address, uiOptions: { title: request.label } });
+      // Steps that move no money (sign-in, Polymarket approvals, a bet just
+      // placed) sign without a pop-up; the rest ask (lib/quietSign).
+      const uiOptions = signsQuietly(request) ? { showWalletUIs: false } : { title: request.label };
+      const result = await signTypedData({ domain: request.typedData.domain, types, primaryType: request.typedData.primaryType, message: request.typedData.message } as Parameters<typeof signTypedData>[0], { address: wallet.address, uiOptions });
       return result.signature;
     }
     const provider = await wallet.getEthereumProvider();
@@ -619,7 +623,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     setPredictionAccount(account);
     return account;
   };
-  // Open the member's Polymarket account if it isn't yet (a few signatures, once).
+  // Open the member's Polymarket account if it isn't yet (signed by their Privy wallet, no pop-ups).
   const readyForPredictions = async () => {
     let account = await loadPredictionAccount();
     if (account.step === 'unavailable') throw new Error(account.reason ?? PREDICTIONS_UNAVAILABLE);
