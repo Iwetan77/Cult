@@ -76,7 +76,7 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
     const plan = await fundPredictions(await token(), amount);
     await onSend(plan.actions);
     void watchBalance(account?.balanceUsd ?? null);
-    return `${dollars(plan.amountUsd)} is on its way${plan.receiveUsd != null ? ` (about ${dollars(plan.receiveUsd)} after the transfer)` : ''}. It lands in ${plan.seconds ? `about ${plan.seconds}s` : 'a minute or so'}.`;
+    return `${dollars(plan.amountUsd)} is on its way${plan.feeUsd ? ` (plus a ${dollars(plan.feeUsd)} transfer fee)` : ''}. It lands in ${plan.seconds ? `about ${plan.seconds}s` : 'a minute or so'}.`;
   });
   const moveOut = () => act('out', async () => {
     const result = await runFlow(await withdrawPredictions(await token(), amount));
@@ -115,8 +115,8 @@ export function PredictionFundSheet({ suggestUsd, walletUsd, onClose, onChanged,
             <div className="field">
               <div className="field-top"><span className="field-label">Amount</span><small>{mode === 'in' ? 'From your wallet' : 'To your wallet'}</small></div>
               <label className="ticket-input"><span className="ticket-prefix">$</span><input inputMode="decimal" placeholder="0" value={amountText} aria-label="Amount in dollars" onChange={event => setAmountText(amountInput(event.target.value))} />
-                <button type="button" className="ticket-unit" onClick={() => setAmountText(String(Math.floor(((mode === 'in' ? walletUsd : balance) ?? 0) * 100) / 100))}>Max</button></label>
-              {problem ? <small className="withdraw-error">{problem}</small> : <small className="withdraw-hint">{mode === 'in' ? 'Arrives in about 30 seconds. A small transfer cost applies.' : 'Back in your wallet in about 30 seconds.'}</small>}
+                <button type="button" className="ticket-unit" onClick={() => setAmountText(String(Math.floor((mode === 'in' ? (walletUsd ?? 0) * 0.985 : balance) * 100) / 100))}>Max</button></label>
+              {problem ? <small className="withdraw-error">{problem}</small> : <small className="withdraw-hint">{mode === 'in' ? 'Arrives in about 30 seconds. The transfer fee (under 1%) is added on top.' : 'Back in your wallet in about 30 seconds.'}</small>}
             </div>
             {error && <p className="notice-line" role="status">{error}</p>}
             {done && <p className="field-note"><Check size={14} /> {done}</p>}

@@ -888,7 +888,7 @@ type FlowStep<T> =
 |---|---|---|---|
 | GET | `/predictions/account` | | `{ enabled, step: 'unavailable'\|'needs_setup'\|'needs_funds'\|'ready', reason, wallet, balanceUsd, signsEachBet, funding: { from:'AUSD', minUsd, network } \| null, access: { country, predictions: 'open'\|'close_only'\|'blocked', perps } }` |
 | POST | `/predictions/setup` | | FlowStep → `account` (same shape as above, without `access`) |
-| POST | `/predictions/fund` | `{ amountUsd }` (≥ 2) | `{ actions: WalletAction[], depositAddress, amountUsd, receiveUsd, seconds }`: AUSD from the Cult wallet on Monad to the member's own Polymarket bridge address, landing as pUSD in ~30s. The member signs `actions` like the setup actions |
+| POST | `/predictions/fund` | `{ amountUsd }` (≥ 2) | `{ actions: WalletAction[], depositAddress, amountUsd, sendUsd, feeUsd, receiveUsd, seconds }`: AUSD from the Cult wallet on Monad to the member's own Polymarket bridge address, landing as pUSD in ~30s. The bridge fee goes on top: `amountUsd` is what lands, `sendUsd` (= `amountUsd` + `feeUsd`) is what leaves the wallet. The member signs `actions` like the setup actions |
 | POST | `/predictions/withdraw` | `{ amountUsd }` (≥ 2) | FlowStep → `{ amountUsd, tx, seconds }`: pUSD back to the Cult wallet as AUSD |
 | GET | `/predictions/positions` | | `{ positions: PredictionPosition[], closed: PredictionClosed[], redeemable: string[] }` (`redeemable` = position ids whose market resolved: collect them) |
 | POST | `/predictions/orders` | `PredictionOrder` | `PredictionPosition` (200), or 202 + FlowStep → `PredictionPosition` |
