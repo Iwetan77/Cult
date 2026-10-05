@@ -81,7 +81,7 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon }: Props) {
   return <div className="modal-backdrop deposit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="deposit-sheet" role="dialog" aria-modal="true" aria-label="Withdraw">
       <div className="trade-sheet-head">
-        {step === 'review' ? <button className="icon-btn" title="Back" onClick={() => { setStep('form'); setError(null); }}><ArrowLeft size={18} /></button> : <span className="eyebrow">YOUR WALLET</span>}
+        {step === 'review' ? <button className="icon-btn" title="Back" onClick={() => { setStep('form'); setError(null); }}><ArrowLeft size={18} /></button> : <span />}
         <button className="icon-btn" title="Close withdraw" onClick={onClose}><X size={18} /></button>
       </div>
       <h2>{step === 'review' ? 'Review' : step === 'done' ? 'Sent' : 'Withdraw'}</h2>

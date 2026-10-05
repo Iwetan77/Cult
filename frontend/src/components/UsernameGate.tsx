@@ -40,7 +40,7 @@ export function UsernameGate({ onSave }: { onSave: (username: string) => Promise
   };
 
   return <main className="username-screen"><div className="login-brand">CULT<span>.</span></div><form className="username-form" onSubmit={submit}>
-    <span className="eyebrow">YOUR ACCOUNT</span><h1>Pick a username</h1>
+    <h1>Pick a username</h1>
     <label className="field-label" htmlFor="username">USERNAME</label>
     <input id="username" value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={20} autoFocus />
     <p className={available ? 'username-available' : 'field-note'} aria-live="polite">{checking ? 'Checking…' : available ? 'Available' : reason ?? 'This is how other traders will know you.'}</p>

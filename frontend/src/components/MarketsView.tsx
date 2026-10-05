@@ -104,7 +104,7 @@ export function MarketsView({ owner, search, onOpen, onPredict, predictionRevisi
   return <div className="view one-col">
     <section className="view-main">
       <header className="page-head">
-        <div><span className="eyebrow">Markets</span><h1 className="display">{watching ? 'Watchlist' : TABS.find(t => t.id === tab)!.title}</h1></div>
+        <div><h1 className="display">{watching ? 'Watchlist' : TABS.find(t => t.id === tab)!.title}</h1></div>
         {(watching || tab !== 'predictions') && <div className="seg" role="radiogroup" aria-label="Markets or watchlist">
           <button role="radio" aria-checked={!watching} className={!watching ? 'on' : ''} onClick={() => setMode('markets')}>Markets</button>
           <button role="radio" aria-checked={watching} className={watching ? 'on' : ''} onClick={() => setMode('watchlist')}><Star size={14} /> Watchlist</button>
