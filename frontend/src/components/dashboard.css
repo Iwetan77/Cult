@@ -225,16 +225,17 @@
 .search-name strong, .search-price strong { font-size: 14.5px; font-weight: 500; }
 .search-name small { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-price { align-items: flex-end; }
+.search-drop .pm-art { width: 30px; height: 30px; border-radius: 8px; }
+.search-drop .pm-art b { font-size: 13px; }
+.search-name strong.search-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; }
 .search-empty { padding: 17px 12px; color: var(--muted); font-size: 14px; }
 .topbar-right { justify-self: end; display: flex; align-items: center; gap: 12px; }
 .demo-pill { height: 26px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 6px; background: rgba(253, 230, 138, 0.1); color: var(--amber); font-size: 11.5px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
-.balance { display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border: 0; border-radius: var(--r-inner); background: var(--panel); color: var(--text); font-size: 14.5px; font-weight: 500; }
-.balance svg { color: var(--muted); }
 .topbar-deposit { height: 40px; }
-/* Wallet: the balance and Deposit in one container; either opens the deposit sheet. */
-.wallet-pill { display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: 14px; background: var(--panel); }
-.wallet-pill .balance { height: 36px; padding: 0 10px 0 12px; background: none; }
-.wallet-pill .topbar-deposit { height: 36px; }
+/* The wallet: the amount and a violet "+" that opens Deposit. */
+.wallet-pill { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 14px; border-radius: var(--r-inner); background: var(--panel); color: var(--text); font-size: 15px; font-weight: 500; white-space: nowrap; }
+.wallet-add { flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: var(--accent); color: #fff; transition: opacity 0.15s; }
+.wallet-add:hover { opacity: 0.85; }
 .topbar-me { display: flex; align-items: center; gap: 11px; height: 40px; padding: 0 14px 0 5px; border: 0; border-radius: var(--r-inner); background: var(--panel); text-align: left; }
 .topbar-me:hover { background: var(--s3); }
 .topbar-me .room-avatar { width: 32px; height: 32px; font-size: 12px; }
@@ -365,8 +366,6 @@
 .room-row-go { color: var(--dim); transition: color 0.15s; }
 .room-row:hover .room-row-go { color: var(--accent-text); }
 
-/* Home wallet: on phones, the balance and Deposit at the top of Home. */
-.home-wallet { display: none; }
 .search-clear { display: none; }
 
 /* portfolio: the total, a bar of what it's made of, and the lines */
@@ -1311,7 +1310,6 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 
 }
 @media (max-width: 860px) {
-  .balance { display: none; }
 }
 
 /* Phones: no rail or ticker; a bottom tab bar instead. */
@@ -1419,8 +1417,10 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
   .marker-sheet .marker-card-own .btn, .marker-sheet .marker-card-levels .btn { height: 46px; }
   .marker-card-stack > div { height: 48px; padding: 0 4px 0 16px; }
   .marker-card-field { height: 44px; }
-  .topbar-deposit, .wallet-pill { display: none; } /* Deposit lives in the wallet strip on Home */
-  .topbar-right { margin-left: 0; gap: 6px; } /* only the bell shows; balance, Deposit and profile live elsewhere */
+  .topbar-right { margin-left: 0; gap: 8px; } /* the wallet, then the bell; the profile is in the tab bar */
+  .wallet-pill { height: 44px; order: -1; padding: 0 8px 0 14px; font-size: 16px; }
+  .wallet-add { width: 30px; height: 30px; }
+  .topbar-right .alerts-bell { width: 44px; height: 44px; border-radius: 12px; background: var(--panel); } /* boxed like search and the wallet */
   .icon-btn, .block-tools .icon-btn, .tabs-end.icon-btn { width: 40px; height: 40px; }
   .icon-btn--sm { width: 36px; height: 36px; }
   .seg button { height: 36px; padding: 0 15px; }
@@ -1469,9 +1469,6 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
   .mkt-grid:not(.mkt-grid--all) > :nth-child(n+5) { display: none; }
 
   /* Home wallet strip. */
-  .home-wallet { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 17px 19px; }
-  .home-wallet-lines { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
-  .home-wallet-lines strong { font-size: 26px; font-weight: 500; letter-spacing: -0.03em; line-height: 1; }
 
   /* Search: just its icon until tapped (the input covers the icon, so one tap
      focuses it and opens the keyboard); then it spans the top bar. It stays
@@ -1480,7 +1477,8 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
   .search-box { position: relative; width: 44px; height: 44px; padding: 0; justify-content: center; background: var(--panel); }
   .search-box > svg { width: 20px; height: 20px; }
   .search-box input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
-  .search:is(:focus-within, :has(input:not(:placeholder-shown))) { position: absolute; z-index: 5; top: 8px; left: 14px; right: 14px; }
+  /* Tapped: the search takes the whole top row, over the logo, wallet and bell. */
+  .search:is(:focus-within, :has(input:not(:placeholder-shown))) { position: absolute; z-index: 5; top: 8px; left: 16px; right: 16px; width: auto; max-width: none; justify-self: stretch; margin: 0; }
   .search:is(:focus-within, :has(input:not(:placeholder-shown))) .search-box { width: 100%; padding: 0 4px 0 14px; justify-content: flex-start; }
   .search:is(:focus-within, :has(input:not(:placeholder-shown))) .search-box input { position: static; opacity: 1; cursor: text; }
   .search-clear { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: var(--r-ctl); background: none; color: var(--muted); }
@@ -1549,8 +1547,9 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .cult-card-tags { display: flex; align-items: center; gap: 8px; }
 @media (prefers-reduced-motion: reduce) { .typing-dots i { animation: none; opacity: 0.7; } }
 @media (max-width: 760px) {
-  .mkt-card-top .hot-pill { width: 21px; padding: 0; justify-content: center; }
-  .mkt-card-top .hot-pill-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  :is(.mkt-card-top, .mtable-market) .hot-pill { width: 21px; padding: 0; justify-content: center; }
+  .mtable-market strong { white-space: nowrap; }
+  :is(.mkt-card-top, .mtable-market) .hot-pill-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .mkt-card-top small { white-space: nowrap; }
 }
 @media (max-width: 760px) {
@@ -1565,3 +1564,22 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .chat-row:has(> .chat-bubble-wrap > .reaction-picker) > .chat-avatar { margin-bottom: 48px; }
 .chat-row:has(> .chat-bubble-wrap > .chat-reactions):has(> .chat-bubble-wrap > .reaction-picker) > .chat-avatar { margin-bottom: 80px; }
 @media (max-width: 760px) { .dash { --section-gap: 26px; } }
+@media (max-width: 760px) {
+  /* Prediction header on phones: the whole title, no big chance figure (each
+     outcome's chance is in the legend and the list below). */
+  .pm-head .mkt-bar-price { display: none; }
+  .pm-head .mkt-bar-id { align-items: flex-start; }
+  .pm-head .mkt-bar-name { gap: 8px; }
+  .pm-head .mkt-bar-name h1 { white-space: normal; overflow: visible; text-overflow: clip; font-size: 17px; line-height: 1.3; }
+  .pm-head .mkt-bar-name small { flex-wrap: wrap; white-space: normal; }
+  /* Every market page (perps, memes, predictions): the back button sits alone at
+     the top left of the header; the title starts on the line below. */
+  .mkt-bar { padding-left: 17px; }
+  .mkt-bar > .icon-btn:first-child { width: 40px; height: 40px; margin: -8px calc(100% - 30px) -6px -10px; }
+  /* Chart legend: one outcome per line, chance on the right. */
+  .pm-legend { flex-direction: column; align-items: stretch; gap: 10px; width: 100%; flex: 1 1 100%; }
+  .pm-legend span { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; align-items: baseline; gap: 10px; line-height: 1.35; }
+  .pm-legend i { align-self: center; }
+  /* Outcome names wrap instead of cutting off. */
+  .pm-outcome-name strong { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.35; }
+}

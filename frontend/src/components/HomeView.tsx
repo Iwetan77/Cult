@@ -129,6 +129,8 @@ const pickTrending = (list: MarketListing[]) => {
   return [...perps.slice(0, 5), ...memes.slice(0, 3)];
 };
 
+const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'; };
+
 export function HomeView({ me, holdings, unread, mentioned, search, onMarket, onRoom, onProfile, onTrade, onDeposit, onCreate, onDiscover }: Props) {
   const [home, setHome] = useState<Home | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -164,12 +166,8 @@ export function HomeView({ me, holdings, unread, mentioned, search, onMarket, on
 
   return <div className="view two-col">
     <section className="view-main">
-      <section className="card home-wallet" aria-label="Wallet">
-        <span className="home-wallet-lines"><span className="eyebrow"><Wallet size={13} /> Wallet</span><strong className="num">{dollars(wallet)}</strong></span>
-        <button className="btn btn-primary" onClick={onDeposit}><Plus size={16} /> Deposit</button>
-      </section>
       <header className="page-head">
-        <div><h1 className="display">{me.name}</h1></div>
+        <div><span className="eyebrow">{greeting()}</span><h1 className="display">{me.name}</h1></div>
         <div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={onDiscover}><Compass size={14} /> Discover cults</button><button className="btn btn-primary btn-sm" onClick={onCreate}><Plus size={14} /> Create a cult</button></div>
       </header>
 

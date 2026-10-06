@@ -39,6 +39,9 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
     return () => { active = false; };
   }, [revision]);
 
+  // Searching shows the matching cults, so leave the Leaderboards tab.
+  useEffect(() => { if (search.trim()) setTab('cults'); }, [search]);
+
   const rows: Row[] = useMemo(() => cults.map(c => ({ ...c, standing: standings.find(s => s.cultId === c.id) ?? null }))
     .filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()))
     .sort((a, b) => (a.standing?.rank ?? 1e6) - (b.standing?.rank ?? 1e6)), [cults, standings, search]);
