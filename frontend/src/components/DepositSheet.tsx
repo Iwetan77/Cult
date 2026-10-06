@@ -43,8 +43,7 @@ export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPerm
 
   return <div className="modal-backdrop deposit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="deposit-sheet" role="dialog" aria-modal="true" aria-label="Deposit">
-      <div className="trade-sheet-head"><span /><button className="icon-btn" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
-      <h2>Deposit</h2>
+      <div className="trade-sheet-head"><h2>Deposit</h2><button className="icon-btn" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
       {!signerReady && <div className="deposit-permission"><strong>Allow Cult to place your trades</strong><p className="field-note">Needed to convert USDC and fund trades automatically</p><button className="btn btn-ghost btn-block" disabled={permissionBusy} onClick={onGrantPermission}>Allow</button></div>}
       {loading ? <p className="field-note">Loading your wallet...</p> : error && !info ? <><p className="notice-line">{error}</p><button className="btn btn-ghost" onClick={() => { setLoading(true); setRevision(value => value + 1); }}><RefreshCw size={14} /> Retry</button></> : info && <>
         <div className="deposit-qr"><QRCodeSVG value={info.address} size={184} level="M" bgColor="#ffffff" fgColor="#151820" /></div>

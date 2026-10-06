@@ -33,7 +33,7 @@ import { PnlCardSheet, type PnlSheetMode } from './PnlCardSheet';
 import { PredictionPage } from './PredictionPage';
 import { EventArt, type PredictionPick } from './PredictionsBrowse';
 import { CATEGORIES, chance, listEvents, type PredictionEvent } from '@/lib/polymarket';
-import { resultOfClose, resultOfMarker, resultOfSale, type TradeResult } from '@/lib/pnlCard';
+import { resultOfClose, resultOfMarker, resultOfPrediction, resultOfSale, type TradeResult } from '@/lib/pnlCard';
 import { buyPrediction, sellPrediction } from '@/lib/api';
 import type { PredictionOrder, PredictionPosition } from '@/lib/contracts';
 import { Landing } from './Landing';
@@ -771,12 +771,18 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
     const posted = order.cultIds?.length === 0 ? 'Only you see it.' : 'Posted to your cults.';
     setNotice(`Bet placed: ${order.sideLabel} at ${Math.round(order.price * 100)}¢. ${posted}`);
   });
-  const sellPredictionPosition = (position: PredictionPosition, price: number) => perform('predict-sell', async () => {
+  // Selling a prediction asks first, with the card as it would close.
+  const runSellPrediction = (position: PredictionPosition, price: number) => perform('predict-sell', async () => {
     const sale = await sellPrediction(await token(), position.id, price);
     await loadMe();
     setPredictionRev(value => value + 1);
     setCardSheet({ mode: 'closed', result: resultOfSale(sale, trader()) });
   });
+  const sellPredictionPosition = (position: PredictionPosition, price: number) =>
+    setCardSheet({ mode: 'confirm', result: resultOfPrediction(position, price, trader()), confirmLabel: `Sell for ${dollars(position.shares * price)}`, onConfirm: () => void runSellPrediction(position, price) });
+  // A bet you keep, as a card to share.
+  const sharePrediction = (position: PredictionPosition, price: number) =>
+    setCardSheet({ mode: 'live', result: resultOfPrediction(position, price, trader(), true) });
   const closeTrade = (holding: Holding) => askClose(holding, holding.market, marketId ?? undefined);
   const stack = () => perform('stack', async () => {
     if (!clanId || !selected) throw new Error('Select a cult position first.');
@@ -999,7 +1005,7 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
       {!me ? <div className="view two-col"><section className="view-main"><div className="skel skel-head" /><div className="skel skel-strip" /><div className="skel skel-chart" /></section><aside className="view-side"><div className="skel skel-card" /><div className="skel skel-card" /></aside></div>
         : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} mentioned={mentioned} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
         : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))}
-            onBack={() => openMarket(null)} onBuy={placePrediction} onSell={sellPredictionPosition} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
+            onBack={() => openMarket(null)} onBuy={placePrediction} onSell={sellPredictionPosition} onShare={sharePrediction} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
           : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => openMarket(null)} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView owner={me.id} onSection={setMarketsTab} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
@@ -1061,7 +1067,7 @@ function DashboardView({ privy, demoHint }: { privy: PrivyAuth; demoHint: boolea
         </>}
       </section>
     </div>}
-    {cardSheet && <PnlCardSheet {...cardSheet} busy={cardSheet.mode === 'confirm' && busy === 'close'} onClose={() => setCardSheet(null)}
+    {cardSheet && <PnlCardSheet {...cardSheet} busy={cardSheet.mode === 'confirm' && (busy === 'close' || busy === 'predict-sell')} onClose={() => setCardSheet(null)}
       result={cardSheet.mode === 'confirm' && cardSheet.closeHolding ? resultOfClose(scaleHolding(cardSheet.closeHolding, closeShare), null, trader()) : cardSheet.result}
       confirmLabel={closeShare < 1 && cardSheet.closeHolding ? `${cardSheet.closeHolding.venue === 'nadfun' ? 'Sell' : 'Close'} ${Math.round(closeShare * 100)}%` : cardSheet.confirmLabel}
       onConfirm={cardSheet.onConfirm ? () => cardSheet.onConfirm!(cardSheet.closeHolding ? closeShare : 1) : undefined}

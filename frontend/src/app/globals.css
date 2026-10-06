@@ -19,7 +19,7 @@ h1,h2,h3,h4,p{margin:0}
 .room-avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .token-logo{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;overflow:hidden;background:#1f1b2d;color:#c084fc;font-weight:700;font-size:13px}
 .token-logo img{width:100%;height:100%;object-fit:cover}
-.side-chip{font-size:10.5px;font-weight:700;letter-spacing:.4px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.07);color:#cdd6dc;white-space:nowrap}
+.side-chip{font-size:11px;font-weight:700;letter-spacing:.4px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.07);color:#cdd6dc;white-space:nowrap}
 .side-chip.long,.side-chip.buy{background:rgba(52,211,153,.12);color:var(--green)}
 .side-chip.short,.side-chip.sell{background:rgba(255,107,107,.12);color:var(--red)}
 

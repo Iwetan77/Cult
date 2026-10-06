@@ -24,6 +24,13 @@ type Drag = { markerId: string; kind: GuideKind; price: number; startY: number; 
 const markerColor = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? '#e9d5ff' : origin === 'manual_stack' ? '#fde68a' : '#c084fc';
 const guideColor = (kind: GuideKind) => kind === 'takeProfit' ? '#34d399' : '#ff6b6b';
 const guideLabel = (kind: GuideKind) => kind === 'takeProfit' ? 'TP' : 'SL';
+// Enough decimals for the market: meme coins trade at fractions of a cent,
+// which two decimals would show as 0.00 with no price scale at all.
+const priceFormat = (candles: Candle[]) => {
+  const p = Math.abs(candles.at(-1)?.close ?? 0);
+  const precision = p >= 100 ? 2 : p >= 1 ? 3 : p >= 0.01 ? 4 : p >= 0.0001 ? 6 : 8;
+  return { type: 'price' as const, precision, minMove: 1 / 10 ** precision };
+};
 const seriesData = (candles: Candle[], style: ChartStyle) => style === 'line'
   ? candles.map(c => ({ time: c.time as UTCTimestamp, value: c.close }))
   : candles.map(c => ({ ...c, time: c.time as UTCTimestamp }));
@@ -67,7 +74,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
     const monoFont = getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif';
     const chart = createChart(host, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: 'rgba(0,0,0,0)' }, textColor: '#7d8792', fontFamily: monoFont, fontSize: 11, attributionLogo: false },
+      layout: { background: { type: ColorType.Solid, color: 'rgba(0,0,0,0)' }, textColor: '#857e98', fontFamily: monoFont, fontSize: 11, attributionLogo: false },
       grid: { vertLines: { color: 'rgba(255,255,255,0.035)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
       crosshair: { vertLine: { color: 'rgba(168,85,247,0.35)', labelBackgroundColor: '#2a2340' }, horzLine: { color: 'rgba(168,85,247,0.35)', labelBackgroundColor: '#2a2340' } },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', scaleMargins: { top: 0.12, bottom: 0.12 } },
@@ -105,7 +112,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       if (!base || !base.priceRange || !levels.length) return base;
       return { ...base, priceRange: { minValue: Math.min(base.priceRange.minValue, ...levels), maxValue: Math.max(base.priceRange.maxValue, ...levels) } };
     };
-    const price = { priceLineVisible: true, priceLineColor: 'rgba(168,85,247,0.5)', priceLineStyle: 2, autoscaleInfoProvider };
+    const price = { priceLineVisible: true, priceLineColor: 'rgba(168,85,247,0.5)', priceLineStyle: 2, autoscaleInfoProvider, priceFormat: priceFormat(candlesRef.current) };
     const series: ISeriesApi<SeriesType> = chartStyle === 'line'
       ? chart.addSeries(LineSeries, { ...price, color: '#a855f7', lineWidth: 2, crosshairMarkerRadius: 4, crosshairMarkerBorderColor: '#13111c', crosshairMarkerBackgroundColor: '#a855f7' })
       : chart.addSeries(CandlestickSeries, { ...price, upColor: '#34d399', downColor: '#ff6b6b', borderVisible: false, wickUpColor: 'rgba(52,211,153,0.7)', wickDownColor: 'rgba(255,107,107,0.7)' });
@@ -117,6 +124,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
+    series.applyOptions({ priceFormat: priceFormat(candles) });
     series.setData(seriesData(candles, styleRef.current));
     if (candles.length) {
       if (lastMarketRef.current !== market.id) chartRef.current?.timeScale().fitContent();
@@ -251,7 +259,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         }
         ctx.restore();
         ctx.font = `500 11.5px ${font}`;
-        ctx.fillStyle = value == null ? '#7d8792' : !perp ? '#eceef1' : value >= 0 ? '#34d399' : '#ff6b6b';
+        ctx.fillStyle = value == null ? '#857e98' : !perp ? '#eceef1' : value >= 0 ? '#34d399' : '#ff6b6b';
         ctx.fillText(amount, faceX + 17, markerY + 1);
         if (marker.pendingAdd) { ctx.fillStyle = '#fde68a'; ctx.font = `500 10px ${font}`; ctx.fillText('ADD', faceX + 23 + textWidth, markerY + 1); }
         ctx.font = `12px ${font}`;

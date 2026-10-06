@@ -139,8 +139,10 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
 
   const eyebrow = mode === 'confirm' ? 'Before you close' : mode === 'live' ? 'Open position' : 'Trade closed';
   const title = result.prediction ? result.prediction.title : result.symbol;
+  // A prediction is sold, not closed.
+  const verb = result.prediction ? 'Sell' : 'Close';
   const line = mode === 'confirm'
-    ? (amount ? <>Closing now locks in {up ? 'a profit of' : 'a loss of'} {amount}{roi ? <> ({roi})</> : null} at the current mark. The final fill can differ slightly.</> : 'Close this position at the current market price?')
+    ? (amount ? <>{result.prediction ? 'Selling' : 'Closing'} now locks in {up ? 'a profit of' : 'a loss of'} {amount}{roi ? <> ({roi})</> : null} at the {result.prediction ? 'current price' : 'current mark'}. The final fill can differ slightly.</> : `${verb} this position at the current market price?`)
     : mode === 'live'
       ? (amount ? <>You&rsquo;re {up ? 'up' : 'down'} {amount}{roi ? <> ({roi})</> : null} right now. Share your card.</> : 'Share your position as it stands.')
       : (amount ? <>You {up ? 'made' : 'lost'} {amount}{roi ? <> ({roi})</> : null}. Here&rsquo;s your card.</> : 'Your position is closed.');
@@ -148,10 +150,10 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
   const kind = animated ? 'GIF' : 'image';
 
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <section className={`dialog pnl-sheet is-${mode}`} role="dialog" aria-modal="true" aria-label={mode === 'confirm' ? `Close ${title}?` : eyebrow}>
+    <section className={`dialog pnl-sheet is-${mode}`} role="dialog" aria-modal="true" aria-label={mode === 'confirm' ? `${verb} ${title}?` : eyebrow}>
       <button className="icon-btn dialog-close" title="Close" disabled={busy} onClick={onClose}><X size={16} /></button>
       <div className="pnl-sheet-head">
-        <h2 className={result.prediction ? 'is-long' : undefined}>{mode === 'confirm' ? `Close ${title}?` : title}</h2>
+        <h2 className={result.prediction ? 'is-long' : undefined}>{mode === 'confirm' ? `${verb} ${title}?` : title}</h2>
         <p className="field-note">{line}</p>
       </div>
       <div className={`pnl-sheet-card${renderer ? '' : ' is-loading'}`}>
@@ -167,7 +169,7 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
       </div>}
       {mode === 'confirm' ? <div className="pnl-sheet-actions" key="confirm">
         <button className="btn btn-ghost" disabled={busy} onClick={onClose}>Keep open</button>
-        <button className="btn btn-danger" disabled={busy} onClick={onConfirm}>{busy ? 'Closing…' : confirmLabel}</button>
+        <button className="btn btn-danger" disabled={busy} onClick={onConfirm}>{busy ? (result.prediction ? 'Selling…' : 'Closing…') : confirmLabel}</button>
       </div> : <div className="pnl-sheet-actions" key="share">
         {!blob ? <button className="btn btn-primary" disabled>{making ?? 'Preparing…'}</button>
           : canShare ? <button className="btn btn-primary" onClick={() => void share()}><Share2 size={16} /> Share {kind}</button>
