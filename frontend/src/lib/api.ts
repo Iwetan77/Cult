@@ -109,6 +109,8 @@ export const setUsername = (token: string, username: string) => api<{ username: 
 // The member's 4-digit PIN: set it (a change needs the current one), or reset
 // a forgotten one right after signing in again.
 export const setPin = (token: string, pin: string, currentPin?: string) => api<{ pinSet: true }>('/v1/me/pin', token, { method: 'POST', body: json({ pin, ...(currentPin ? { currentPin } : {}) }) });
+// MON for network fees, topped up by Cult's gas wallet when the member has none.
+export const ensureGas = (token: string) => api<{ mon: number; topped: boolean; reason?: string }>('/v1/wallet/gas', token, { method: 'POST' });
 export const resetPin = (token: string, pin: string) => api<{ pinSet: true }>('/v1/me/pin/reset', token, { method: 'POST', body: json({ pin }) });
 export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: string }>('/v1/me/avatar', token, { method: 'POST', body: json({ image }) });
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
