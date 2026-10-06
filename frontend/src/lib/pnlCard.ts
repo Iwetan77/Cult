@@ -1,20 +1,22 @@
-import type { ChartMarker, Fill, Holding, PredictionSale, TradeSide, Venue } from './contracts';
+import type { ChartMarker, Fill, Holding, PredictionPosition, PredictionSale, TradeSide, Venue } from './contracts';
 import { cents } from './polymarket';
 import { dollars, signedDollars } from './format';
 import { logoFor } from './logos';
 import { yieldToPage } from './gifFrames';
 
-// The PnL card: a trading card for one trade, drawn on a canvas so it can be
-// saved or shared. Laid out like a collectible: a strip with the logo, the
-// trade status and leverage, a big window (a reaction GIF from GIPHY when
-// there is one), then the market, the return, and entry / exit / size beside
-// the trader. Built in the app from the position just before closing and the
-// closing fill (the public share links only cover open positions).
+// The PnL card: one trade, drawn on a canvas so it can be saved or shared.
+// From the Figma design ("Cult — PnL card"): the logo over a teal-to-black
+// card, a big window (a reaction GIF from GIPHY when there is one), then the
+// market and side, the return, entry / exit, invested and gain, and the
+// trader on a cyan card. Built in the app from the position just before
+// closing and the closing fill (the public share links only cover open
+// positions).
 
 export type TradeResult = {
   symbol: string; venue: Venue; side: TradeSide; leverage: number | null;
   entryPrice: number | null; exitPrice: number | null; sizeUsd: number | null;
   pnlUsd: number | null; roiPct: number | null; closedAt: number;
+  investedUsd?: number | null; // what went in: the margin, or a bet's cost
   traderName: string; traderAvatarUrl: string | null;
   // Set for a prediction-market sale: prices are 0..1 and shown in cents.
   prediction?: { title: string; sideLabel: string; yes: boolean; shares: number };
@@ -28,9 +30,23 @@ export function resultOfSale(sale: PredictionSale, trader: { name: string; avata
   return {
     symbol: title, venue: 'nadfun', side: 'buy', leverage: null,
     entryPrice: p.avgPrice, exitPrice: sale.price, sizeUsd: sale.proceedsUsd,
-    pnlUsd: sale.pnlUsd, roiPct: p.costUsd > 0 ? (sale.pnlUsd / p.costUsd) * 100 : null, closedAt: Date.now(),
+    pnlUsd: sale.pnlUsd, roiPct: p.costUsd > 0 ? (sale.pnlUsd / p.costUsd) * 100 : null, closedAt: Date.now(), investedUsd: p.costUsd,
     traderName: trader.name, traderAvatarUrl: trader.avatarUrl,
     prediction: { title, sideLabel: p.sideLabel, yes: p.side === 'yes', shares: p.shares },
+  };
+}
+
+// A prediction position priced at today's chance (0..1): the preview before
+// selling, or (live) a card for a bet you keep.
+export function resultOfPrediction(p: PredictionPosition, price: number, trader: { name: string; avatarUrl: string | null }, live = false): TradeResult {
+  const title = p.outcomeLabel === p.question ? p.question : `${p.outcomeLabel} · ${p.eventTitle}`;
+  const value = p.shares * price, pnl = value - p.costUsd;
+  return {
+    symbol: title, venue: 'nadfun', side: 'buy', leverage: null,
+    entryPrice: p.avgPrice, exitPrice: price, sizeUsd: value,
+    pnlUsd: pnl, roiPct: p.costUsd > 0 ? (pnl / p.costUsd) * 100 : null, closedAt: Date.now(), investedUsd: p.costUsd,
+    traderName: trader.name, traderAvatarUrl: trader.avatarUrl,
+    prediction: { title, sideLabel: p.sideLabel, yes: p.side === 'yes', shares: p.shares }, live,
   };
 }
 
@@ -49,7 +65,7 @@ export function resultOfClose(holding: Holding, fill: Fill | null, trader: { nam
   return {
     symbol: holding.symbol, venue: holding.venue, side: holding.side, leverage: perp ? leverage : null,
     entryPrice: entry, exitPrice: exit, sizeUsd: holding.valueAusd,
-    pnlUsd: pnl, roiPct: pnl != null && cost ? (pnl / cost) * 100 : null, closedAt: Date.now(),
+    pnlUsd: pnl, roiPct: pnl != null && cost ? (pnl / cost) * 100 : null, closedAt: Date.now(), investedUsd: cost,
     traderName: trader.name, traderAvatarUrl: trader.avatarUrl,
   };
 }
@@ -63,7 +79,7 @@ export function resultOfMarker(m: ChartMarker, symbol: string, trader: { name: s
   return {
     symbol, venue: m.venue, side: m.side, leverage: perp ? leverage : null,
     entryPrice: m.entryPrice, exitPrice: m.markPrice, sizeUsd: m.valueUsd ?? (m.size != null ? m.size * m.markPrice : null),
-    pnlUsd: pnl, roiPct: pnl != null && cost ? (pnl / cost) * 100 : null, closedAt: Date.now(),
+    pnlUsd: pnl, roiPct: pnl != null && cost ? (pnl / cost) * 100 : null, closedAt: Date.now(), investedUsd: cost,
     traderName: trader.name, traderAvatarUrl: trader.avatarUrl, live: true,
   };
 }
@@ -72,10 +88,15 @@ export function resultOfMarker(m: ChartMarker, symbol: string, trader: { name: s
 export const roiText = (r: TradeResult) => r.roiPct == null ? null : `${r.roiPct > 0 ? '+' : ''}${r.roiPct.toFixed(1)}%`;
 const priceText = (v: number | null) => v == null ? '—' : dollars(v, v < 1 ? 6 : 2);
 
-// Designed at 1080×1350 (4:5); drawn at any scale.
-const W = 1080, H = 1350, PAD = 64;
-const WIN = { x: PAD, y: 196, w: W - PAD * 2, h: 660, r: 34 };
-const MINT = '#34d399', RED = '#ff6b6b', INK = '#03251a', TEXT = '#f4f6f8', DIM = 'rgba(244, 246, 248, 0.55)', BG = '#070808';
+// Designed in Figma at 1052×1476 ("Cult — PnL card", frame 14:5); drawn at any scale.
+const W = 1052, H = 1476, X = 56, RADIUS = 46;
+// card-frame.png is the card's teal-to-black background with the window cut
+// out of it (the notch makes room for the logo). It sits over the window art.
+const FRAME = { x: -99, y: -83, w: 1182, h: 1647 };
+const WIN = { x: 53, y: 53, w: 946, h: 741 };
+const GREEN = '#34d399', RED = '#ff6b6b', LABEL = '#797979', TEXT = '#ffffff';
+const CHIP = { long: { bg: 'rgba(52, 211, 153, 0.19)', fg: GREEN }, short: { bg: 'rgba(255, 5, 5, 0.19)', fg: '#dd0000' } };
+const TRADER = '#00d7e7';
 
 // What fills the window: a GIF frame (or any image).
 export type CardArt = { source: CanvasImageSource; width: number; height: number } | null;
@@ -102,7 +123,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.roundRect(x, y, w, h, r);
 }
 
-// Letter-spaced caps where the browser supports it.
+// Tracking, as Figma sets it, where the browser supports it.
 function spaced(ctx: CanvasRenderingContext2D, px: number, draw: () => void) {
   const c = ctx as CanvasRenderingContext2D & { letterSpacing?: string };
   const before = c.letterSpacing;
@@ -118,44 +139,46 @@ function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number) {
   return `${t.trimEnd()}…`;
 }
 
-function pill(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, opts: { bg: string; color: string; stroke?: string; font: string; h?: number; align?: 'left' | 'right' }) {
-  ctx.font = opts.font;
-  const h = opts.h ?? 52, w = ctx.measureText(text).width + h * 0.9;
-  const left = opts.align === 'right' ? x - w : x;
-  roundRect(ctx, left, y, w, h, h / 2);
-  ctx.fillStyle = opts.bg; ctx.fill();
-  if (opts.stroke) { ctx.strokeStyle = opts.stroke; ctx.lineWidth = 2; ctx.stroke(); }
-  ctx.fillStyle = opts.color; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-  ctx.fillText(text, left + h * 0.45, y + h / 2 + 2);
-  return w;
+// A font size that fits the width, down to a floor; past that, an ellipsis.
+function sized(ctx: CanvasRenderingContext2D, text: string, font: (px: number) => string, px: number, min: number, maxW: number) {
+  let size = px;
+  ctx.font = font(size);
+  while (ctx.measureText(text).width > maxW && size > min) { size -= 2; ctx.font = font(size); }
+  return fit(ctx, text, maxW);
 }
+
+const initialsOf = (name: string) => name.trim().split(/[\s._-]+/).slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('') || '?';
 
 function circleImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement | null, initials: string, x: number, y: number, size: number, body: string) {
   ctx.save();
   ctx.beginPath(); ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2); ctx.closePath();
   if (img) { ctx.clip(); ctx.drawImage(img, x, y, size, size); }
   else {
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'; ctx.fill();
-    ctx.fillStyle = TEXT; ctx.font = `500 ${Math.round(size * 0.36)}px ${body}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fill();
+    ctx.fillStyle = TEXT; ctx.font = `700 ${Math.round(size * 0.4)}px ${body}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(initials, x + size / 2, y + size / 2 + 2);
   }
   ctx.restore();
 }
 
+// An image filling a box edge to edge, cropped to it (object-fit: cover).
+function cover(ctx: CanvasRenderingContext2D, source: CanvasImageSource, sw: number, sh: number, x: number, y: number, w: number, h: number, zoom = 1) {
+  const s = Math.max(w / sw, h / sh) * zoom;
+  ctx.drawImage(source, x + (w - sw * s) / 2, y + (h - sh * s) / 2, sw * s, sh * s);
+}
+
 // Fill the window edge to edge, then zoom in a little more so channel
 // logos and watermarks burnt into a GIF's corners fall outside it.
 const ZOOM = 1.16;
-function drawCover(ctx: CanvasRenderingContext2D, art: NonNullable<CardArt>) {
-  const s = Math.max(WIN.w / art.width, WIN.h / art.height) * ZOOM;
-  const w = art.width * s, h = art.height * s;
-  ctx.drawImage(art.source, WIN.x + (WIN.w - w) / 2, WIN.y + (WIN.h - h) / 2, w, h);
-}
 
 export async function prepareCard(r: TradeResult, scale = 1): Promise<CardRenderer> {
   const display = family('--font-insidia', 'Impact, sans-serif');
   const body = family('--font-aeonik', 'system-ui, sans-serif');
-  await Promise.all([document.fonts.load(`400 200px ${display}`), document.fonts.load(`500 40px ${body}`), document.fonts.load(`700 40px ${body}`)]).catch(() => undefined);
-  const [rays, logo, token, avatar] = await Promise.all([loadImage('/landing/rays-bg.png'), loadImage('/landing/cult-logo.svg'), loadImage(logoFor(r.symbol)), loadImage(r.traderAvatarUrl)]);
+  await Promise.all([document.fonts.load(`400 170px ${display}`), document.fonts.load(`500 32px ${body}`), document.fonts.load(`700 48px ${body}`)]).catch(() => undefined);
+  const [frame, logo, token, avatar] = await Promise.all([
+    loadImage('/pnl/card-frame.png'), loadImage('/pnl/cult-logo.svg'),
+    loadImage(r.prediction ? null : logoFor(r.symbol)), loadImage(r.traderAvatarUrl),
+  ]);
 
   const width = Math.round(W * scale), height = Math.round(H * scale);
   const base = document.createElement('canvas');
@@ -163,140 +186,117 @@ export async function prepareCard(r: TradeResult, scale = 1): Promise<CardRender
   const ctx = base.getContext('2d')!;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const up = (r.pnlUsd ?? 0) >= 0;
-  const accent = up ? MINT : RED;
-  const accentRgb = up ? '52, 211, 153' : '255, 107, 107';
+  const accent = up ? GREEN : RED;
   const pred = r.prediction;
   const roi = roiText(r);
 
-  // Card: black, an accent glow from the top right, a thin accent rim.
-  ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
-  const glow = ctx.createRadialGradient(W * 0.85, 120, 0, W * 0.85, 120, 760);
-  glow.addColorStop(0, `rgba(${accentRgb}, 0.16)`); glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
-  const low = ctx.createRadialGradient(W * 0.1, H - 120, 0, W * 0.1, H - 120, 640);
-  low.addColorStop(0, `rgba(${accentRgb}, 0.08)`); low.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = low; ctx.fillRect(0, 0, W, H);
-  roundRect(ctx, 14, 14, W - 28, H - 28, 46);
-  ctx.strokeStyle = `rgba(${accentRgb}, 0.28)`; ctx.lineWidth = 3; ctx.stroke();
+  // The card: rounded, the frame image over everything but the window.
+  roundRect(ctx, 0, 0, W, H, RADIUS); ctx.clip();
+  if (frame) ctx.drawImage(frame, FRAME.x, FRAME.y, FRAME.w, FRAME.h);
+  else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.clearRect(WIN.x, WIN.y, WIN.w, WIN.h); }
+  if (logo) ctx.drawImage(logo, X, 68, 150, 78.763);
 
-  // Top strip: the logo on the left; on the right, whether the trade is
-  // live or closed, and the leverage (or the bet side / spot buy).
-  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-  if (logo) { const lw = 150, lh = lw * (logo.height / logo.width || 30 / 58); ctx.drawImage(logo, PAD, 60, lw, lh); }
-  else { ctx.fillStyle = TEXT; ctx.font = `400 64px ${display}`; ctx.fillText('CULT', PAD, 128); }
-  const [levLabel, levValue] = pred ? ['BET', pred.sideLabel.toUpperCase()] : r.venue === 'perpl' ? ['LEV', `${r.leverage ?? 1}X`] : ['SPOT', 'BUY'];
-  ctx.textAlign = 'right';
-  spaced(ctx, 4, () => {
-    ctx.font = `700 22px ${body}`; ctx.fillStyle = r.live ? accent : DIM; ctx.fillText(r.live ? '● LIVE POSITION' : 'CLOSED TRADE', W - PAD, 96);
-    ctx.font = `700 30px ${body}`; ctx.fillStyle = TEXT;
-    const value = fit(ctx, levValue, 420);
-    ctx.fillText(value, W - PAD, 146);
-    const vw = ctx.measureText(`${value} `).width;
-    ctx.fillStyle = DIM; ctx.fillText(levLabel, W - PAD - vw - 6, 146);
+  // Market: token, name and the side chip ("10X SHORT").
+  // A prediction has no token, so its question starts at the edge.
+  const rowY = 847;
+  if (!pred) circleImage(ctx, token, r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), X, rowY, 89, body);
+  const nameX = pred ? X : X + 105;
+  const short = pred ? !pred.yes : r.side === 'short';
+  const chip = pred ? pred.sideLabel.toUpperCase() : r.side === 'buy' ? 'BUY' : `${r.leverage ?? 1}X ${r.side.toUpperCase()}`;
+  ctx.font = `500 32px ${body}`;
+  let chipW = 0;
+  spaced(ctx, -0.32, () => { chipW = ctx.measureText(chip).width + 40; });
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  let nameW = 0;
+  spaced(ctx, -0.48, () => {
+    const name = sized(ctx, pred ? pred.title : r.symbol, px => `700 ${px}px ${body}`, 48, 30, W - X - nameX - 32 - chipW);
+    ctx.fillStyle = TEXT; ctx.fillText(name, nameX, rowY + 44.5);
+    nameW = ctx.measureText(name).width;
+  });
+  const chipX = nameX + nameW + 32, chipY = rowY + 16.5;
+  roundRect(ctx, chipX, chipY, chipW, 56, 100);
+  ctx.fillStyle = (short ? CHIP.short : CHIP.long).bg; ctx.fill();
+  ctx.font = `500 32px ${body}`; ctx.fillStyle = (short ? CHIP.short : CHIP.long).fg;
+  spaced(ctx, -0.32, () => ctx.fillText(chip, chipX + 20, chipY + 29));
+
+  // The return, big. It stays clear of the trader card (x 753 on).
+  const headline = roi ?? (r.pnlUsd != null ? signedDollars(r.pnlUsd) : `SOLD ${dollars(r.sizeUsd)}`);
+  ctx.textBaseline = 'alphabetic';
+  let k = 1;
+  ctx.font = `400 170px ${display}`;
+  while (ctx.measureText(headline).width > 753 - X - 24 && k > 0.5) { k -= 0.04; ctx.font = `400 ${170 * k}px ${display}`; }
+  const centre = rowY + 129 + 58;
+  ctx.fillStyle = roi || r.pnlUsd != null ? accent : TEXT;
+  ctx.fillText(headline, X, centre + 58 * k);
+
+  // Entry and exit, what went in and what came of it.
+  const invested = r.investedUsd ?? (r.pnlUsd != null && r.roiPct ? r.pnlUsd / (r.roiPct / 100) : null);
+  const stats: [string, string, string?][][] = [
+    pred
+      ? [['AVG PRICE', r.entryPrice == null ? '—' : cents(r.entryPrice)], [r.live ? 'PRICE NOW' : 'SOLD AT', r.exitPrice == null ? '—' : cents(r.exitPrice)]]
+      : [['ENTRY PRICE', priceText(r.entryPrice)], [r.live ? 'MARK PRICE' : 'EXIT PRICE', priceText(r.exitPrice)]],
+    [['INVESTED', invested == null ? '—' : dollars(invested)], ['GAIN/LOSS', r.pnlUsd == null ? '—' : signedDollars(r.pnlUsd), r.pnlUsd == null ? TEXT : accent]],
+  ];
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  stats.forEach((row, i) => {
+    const y = rowY + (i ? 424 : 285);
+    row.forEach(([label, value, color], j) => {
+      const x = X + j * 261;
+      ctx.font = `500 32px ${body}`; ctx.fillStyle = LABEL;
+      spaced(ctx, -0.96, () => ctx.fillText(label, x, y + 18));
+      spaced(ctx, -0.48, () => {
+        const v = sized(ctx, value, px => `700 ${px}px ${body}`, 48, 32, j ? 697 - 261 - 24 : 261 - 24);
+        ctx.fillStyle = color ?? TEXT; ctx.fillText(v, x, y + 44 + 27.5);
+      });
+    });
   });
 
-  // Window background, and the still art used when there is no GIF.
+  // The trader: a square photo and their name, centred, on a cyan card.
+  const tx = X + 697, ty = rowY + 208.034;
+  roundRect(ctx, tx, ty, 245.985, 314.966, 34.985);
+  ctx.fillStyle = TRADER; ctx.fill();
+  const px = tx + 17.492, py = ty + 17.492, pw = 211, ph = 211;
   ctx.save();
-  roundRect(ctx, WIN.x, WIN.y, WIN.w, WIN.h, WIN.r); ctx.clip();
-  ctx.fillStyle = '#0c0d0e'; ctx.fillRect(WIN.x, WIN.y, WIN.w, WIN.h);
+  roundRect(ctx, px, py, pw, ph, 17.492); ctx.clip();
+  if (avatar) cover(ctx, avatar, avatar.width, avatar.height, px, py, pw, ph);
+  else {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)'; ctx.fillRect(px, py, pw, ph);
+    ctx.fillStyle = TEXT; ctx.font = `400 80px ${display}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(initialsOf(r.traderName), px + pw / 2, py + ph / 2 + 4);
+  }
   ctx.restore();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = TEXT;
+  ctx.fillText(sized(ctx, r.traderName.toUpperCase(), size => `400 ${size}px ${display}`, 40, 22, pw), px + pw / 2, ty + 256.48 + 27);
+  ctx.textAlign = 'left';
+
+  // The window when there is no GIF: the token (or the bet's side), large.
   const still = document.createElement('canvas');
   still.width = WIN.w; still.height = WIN.h;
   const sctx = still.getContext('2d')!;
-  sctx.fillStyle = '#0c0d0e'; sctx.fillRect(0, 0, WIN.w, WIN.h);
-  if (rays) { sctx.globalAlpha = up ? 0.6 : 0.3; sctx.drawImage(rays, -80, -140, WIN.w + 160, (WIN.w + 160) * rays.height / rays.width); sctx.globalAlpha = 1; }
-  const fade = sctx.createLinearGradient(0, 0, 0, WIN.h);
-  fade.addColorStop(0, 'rgba(12, 13, 14, 0)'); fade.addColorStop(1, 'rgba(12, 13, 14, 0.9)');
-  sctx.fillStyle = fade; sctx.fillRect(0, 0, WIN.w, WIN.h);
+  const wash = sctx.createLinearGradient(0, 0, 0, WIN.h);
+  wash.addColorStop(0, '#16141f'); wash.addColorStop(1, '#0a090e');
+  sctx.fillStyle = wash; sctx.fillRect(0, 0, WIN.w, WIN.h);
   if (pred) {
-    sctx.fillStyle = accent; sctx.font = `400 260px ${display}`; sctx.textAlign = 'center'; sctx.textBaseline = 'middle';
-    sctx.fillText(pred.sideLabel.toUpperCase().slice(0, 6), WIN.w / 2, WIN.h / 2 + 10);
+    sctx.fillStyle = accent; sctx.font = `400 240px ${display}`; sctx.textAlign = 'center'; sctx.textBaseline = 'middle';
+    sctx.fillText(fit(sctx, pred.sideLabel.toUpperCase(), WIN.w - 120), WIN.w / 2, WIN.h / 2 + 50);
   } else {
-    circleImage(sctx, token, r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), WIN.w / 2 - 110, WIN.h / 2 - 110, 220, body);
+    circleImage(sctx, token, r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), WIN.w / 2 - 130, WIN.h / 2 - 60, 260, body);
   }
-
-  // Market line, like a card's set and number.
-  const marketY = 930;
-  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  const kind = pred ? 'POLYMARKET' : r.venue === 'perpl' ? 'PERPETUAL' : 'MEME';
-  const when = new Date(r.closedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
-  spaced(ctx, 3, () => {
-    ctx.font = `700 26px ${body}`;
-    const dateW = ctx.measureText(when).width;
-    ctx.fillStyle = DIM; ctx.textAlign = 'right'; ctx.fillText(when, W - PAD, marketY);
-    ctx.textAlign = 'left'; ctx.fillStyle = TEXT;
-    const name = pred ? pred.title.toUpperCase() : r.symbol.toUpperCase();
-    ctx.fillText(fit(ctx, `${name} · ${kind}`, W - PAD * 2 - dateW - 40), PAD, marketY);
-  });
-
-  // The return, big, with the dollar figure beside it.
-  const headline = roi ?? (r.pnlUsd != null ? signedDollars(r.pnlUsd) : `SOLD ${dollars(r.sizeUsd)}`);
-  const side = roi && r.pnlUsd != null ? { label: up ? 'PROFIT' : 'LOSS', value: signedDollars(r.pnlUsd) } : null;
-  ctx.font = `500 54px ${body}`;
-  const sideW = side ? Math.max(ctx.measureText(side.value).width, 120) + 32 : 0;
-  let size = 200;
-  ctx.font = `400 ${size}px ${display}`;
-  while (ctx.measureText(headline).width > W - PAD * 2 - sideW && size > 96) { size -= 8; ctx.font = `400 ${size}px ${display}`; }
-  const headY = 1098;
-  ctx.fillStyle = roi || r.pnlUsd != null ? accent : TEXT;
-  // A light glow: a strong one bands into blotches in a 256-colour GIF.
-  ctx.shadowColor = `rgba(${accentRgb}, 0.22)`; ctx.shadowBlur = 34;
-  ctx.fillText(headline, PAD - 4, headY);
-  ctx.shadowBlur = 0;
-  if (side) {
-    ctx.textAlign = 'right';
-    spaced(ctx, 4, () => { ctx.font = `700 22px ${body}`; ctx.fillStyle = DIM; ctx.fillText(side.label, W - PAD, headY - 64); });
-    ctx.font = `500 54px ${body}`; ctx.fillStyle = TEXT; ctx.fillText(side.value, W - PAD, headY - 6);
-    ctx.textAlign = 'left';
-  }
-
-  // Bottom row: three stat boxes and the trader, like the card's icon row.
-  const rowY = 1150, rowH = 140, who = rowH;
-  const cols: [string, string][] = pred
-    ? [['AVG PRICE', r.entryPrice == null ? '—' : cents(r.entryPrice)], [r.live ? 'NOW' : 'SOLD AT', r.exitPrice == null ? '—' : cents(r.exitPrice)], ['SHARES', pred.shares.toFixed(0)]]
-    : [['ENTRY', priceText(r.entryPrice)], [r.live ? 'MARK' : 'EXIT', priceText(r.exitPrice)], [r.venue === 'perpl' ? 'SIZE' : 'VALUE', dollars(r.sizeUsd)]];
-  const boxGap = 16, boxW = (W - PAD * 2 - who - 20 - boxGap * 2) / 3;
-  cols.forEach(([label, value], i) => {
-    const x = PAD + i * (boxW + boxGap);
-    roundRect(ctx, x, rowY, boxW, rowH, 22);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.04)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.textAlign = 'left';
-    spaced(ctx, 3, () => { ctx.font = `700 20px ${body}`; ctx.fillStyle = DIM; ctx.fillText(label, x + 24, rowY + 50); });
-    ctx.font = `500 36px ${body}`; ctx.fillStyle = TEXT; ctx.fillText(fit(ctx, value, boxW - 44), x + 24, rowY + 106);
-  });
-  const whoX = W - PAD - who;
-  roundRect(ctx, whoX, rowY, who, rowH, 22);
-  ctx.strokeStyle = `rgba(${accentRgb}, 0.5)`; ctx.lineWidth = 3; ctx.stroke();
-  const initials = r.traderName.trim().split(/[\s._-]+/).slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('') || '?';
-  circleImage(ctx, avatar, initials, whoX + (who - 68) / 2, rowY + 16, 68, body);
-  ctx.font = `500 22px ${body}`; ctx.fillStyle = TEXT; ctx.textAlign = 'center';
-  ctx.fillText(fit(ctx, r.traderName, who - 20), whoX + who / 2, rowY + 118);
-
-  const shortSide = pred ? !pred.yes : r.side === 'short';
-  const chip = pred ? pred.sideLabel.toUpperCase() : r.side === 'buy' ? 'BUY' : `${r.side.toUpperCase()}${r.leverage ? ` ${r.leverage}X` : ''}`;
 
   return {
     width, height,
     window: { x: Math.floor((WIN.x - 4) * scale), y: Math.floor((WIN.y - 4) * scale), w: Math.ceil((WIN.w + 8) * scale), h: Math.ceil((WIN.h + 8) * scale) },
     draw(out, art) {
       out.setTransform(1, 0, 0, 1, 0, 0);
-      out.drawImage(base, 0, 0);
+      out.clearRect(0, 0, width, height);
       out.setTransform(scale, 0, 0, scale, 0, 0);
       out.save();
-      roundRect(out, WIN.x, WIN.y, WIN.w, WIN.h, WIN.r); out.clip();
-      if (art) drawCover(out, art); else out.drawImage(still, WIN.x, WIN.y);
-      // A soft fade at the bottom so the window sits into the card.
-      const shade = out.createLinearGradient(0, WIN.y + WIN.h - 170, 0, WIN.y + WIN.h);
-      shade.addColorStop(0, 'rgba(7, 8, 8, 0)'); shade.addColorStop(1, 'rgba(7, 8, 8, 0.6)');
-      out.fillStyle = shade; out.fillRect(WIN.x, WIN.y + WIN.h - 170, WIN.w, 170);
+      out.beginPath(); out.rect(WIN.x, WIN.y, WIN.w, WIN.h); out.clip();
+      if (art) cover(out, art.source, art.width, art.height, WIN.x, WIN.y, WIN.w, WIN.h, ZOOM);
+      else out.drawImage(still, WIN.x, WIN.y);
       out.restore();
-      roundRect(out, WIN.x, WIN.y, WIN.w, WIN.h, WIN.r);
-      out.strokeStyle = 'rgba(255, 255, 255, 0.16)'; out.lineWidth = 3; out.stroke();
-      // Side chip and token over the window's top corners.
-      pill(out, chip, WIN.x + 24, WIN.y + 24, { bg: shortSide ? RED : MINT, color: shortSide ? '#2a0707' : INK, font: `700 24px ${body}` });
-      if (!pred && art) circleImage(out, token, r.symbol.replace(/^\$/, '').slice(0, 1).toUpperCase(), WIN.x + WIN.w - 24 - 64, WIN.y + 24, 64, body);
       out.setTransform(1, 0, 0, 1, 0, 0);
+      out.drawImage(base, 0, 0);
     },
   };
 }
@@ -337,7 +337,7 @@ function paletteMapper(palette: number[][]) {
   };
 }
 
-// The animated card as a GIF at half size (540×675). One shared palette so
+// The animated card as a GIF at half size (526×738). One shared palette so
 // the still parts don't shimmer; after the first full frame only the window
 // is written (the rest of the card never changes), which keeps the file
 // small and the encode quick.

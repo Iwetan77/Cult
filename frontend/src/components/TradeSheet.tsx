@@ -86,7 +86,7 @@ export function TradeSheet({ target, onClose, onProfile, onChart }: Props) {
 
   return <div className="modal-backdrop trade-sheet-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="trade-sheet" role="dialog" aria-modal="true" aria-label="Trade details">
-      <div className="trade-sheet-head"><span className="eyebrow">TRADE</span><button className="icon-btn" title="Close trade details" onClick={onClose}><X size={18} /></button></div>
+      <div className="trade-sheet-head"><span /><button className="icon-btn" title="Close trade details" onClick={onClose}><X size={18} /></button></div>
       {loading ? <p className="field-note">Loading trade...</p> : error ? <p className="notice-line">{error}</p> : summary && <>
         <button className="trade-sheet-member" onClick={() => { onClose(); onProfile(summary.member.id); }}><Avatar name={summary.member.name} url={summary.member.avatarUrl} /><span><strong>{summary.member.name}</strong>{summary.member.address && <small>{shortAddress(summary.member.address)}</small>}</span><ArrowRight size={15} /></button>
         <div className="trade-sheet-title"><h2>{summary.symbol}</h2><span className="venue-badge">{summary.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}</span></div>

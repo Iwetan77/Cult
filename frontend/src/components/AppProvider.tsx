@@ -9,7 +9,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   if (!appId || !privySupported()) return <>{children}</>;
   return <PrivyProvider appId={appId} config={{
     loginMethods: ['google', 'wallet'],
-    appearance: { theme: 'dark', accentColor: '#68e7be', showWalletLoginFirst: false },
+    appearance: { theme: 'dark', accentColor: '#9333ea', showWalletLoginFirst: false },
     embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
     supportedChains: [monadTestnet, monad], defaultChain,
   }}>{children}</PrivyProvider>;

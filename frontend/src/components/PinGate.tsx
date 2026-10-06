@@ -31,7 +31,6 @@ export function PinGate({ mode, onSave, onSignOut, onCancel }: Props) {
   return <main className="username-screen">
     <img className="login-brand" src="/landing/cult-logo.svg" alt="Cult" width={65} height={34} />
     <section className="username-form pin-form">
-      <span className="eyebrow">{mode === 'reset' ? 'NEW PIN' : 'KEEP YOUR MONEY SAFE'}</span>
       <h1>{first ? 'Confirm your PIN' : mode === 'reset' ? 'Set a new PIN' : 'Set your PIN'}</h1>
       <PinPad key={first ? 'confirm' : 'first'} title={first ? 'Enter it once more' : 'Choose 4 digits'}
         note={first ? undefined : 'You’ll enter it before money leaves Cult. Trades stay one tap.'}

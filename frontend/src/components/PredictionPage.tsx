@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft } from './icons';
+import { ArrowLeft, Share2 } from './icons';
 import { getAccessToken } from '@/lib/auth';
 import { getPredictionBets, getPredictionPositions, PREDICTIONS_SOON } from '@/lib/api';
 import type { Me, PredictionBet, PredictionOrder, PredictionPosition, PredictionSide } from '@/lib/contracts';
@@ -18,6 +18,7 @@ type Props = {
   slug: string; pick: PredictionPick | null; me: Me; canTrade: boolean; busy: string | null; revision: number;
   cults: { id: string; name: string }[];
   onBack: () => void; onBuy: (order: PredictionOrder) => void; onSell: (position: PredictionPosition, price: number) => void;
+  onShare: (position: PredictionPosition, price: number) => void;
   onDeposit: () => void; onProfile: (memberId: string) => void;
   // Live accounts bet from their Polymarket balance (null = not set up yet);
   // the demo leaves it undefined and bets from wallet dollars.
@@ -28,7 +29,7 @@ const RANGES: { id: HistoryRange; label: string }[] = [{ id: '1d', label: '1D' }
 const priceOf = (o: PredictionOutcome, side: PredictionSide) => side === 'yes' ? o.yesPrice : o.noPrice;
 const nameOf = (event: PredictionEvent, o: PredictionOutcome) => event.multi ? o.label : event.title;
 
-export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults, onBack, onBuy, onSell, onDeposit, onProfile, availableUsd, onFund, onAccountNeeded }: Props) {
+export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults, onBack, onBuy, onSell, onShare, onDeposit, onProfile, availableUsd, onFund, onAccountNeeded }: Props) {
   const [event, setEvent] = useState<PredictionEvent | null>(() => cachedEvent(slug));
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(pick?.outcomeId ?? null);
@@ -88,7 +89,7 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
     if (top != null && (top < 0 || top > window.innerHeight * 0.6)) ticketRef.current!.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  return <div className="view two-col market-view">
+  return <div className="view two-col market-view pm-view">
     <section className="view-main">
       <section className="card mkt-bar pm-head">
         <button className="icon-btn" title="All predictions" onClick={onBack}><ArrowLeft size={16} /></button>
@@ -98,7 +99,7 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
         </div>
         <div className="mkt-bar-price"><strong className="num">{chance(outcome.yesPrice)}</strong><small>{event.multi ? `${outcome.label} chance` : 'Chance'}</small></div>
         <dl className="mkt-stats">
-          <div><dt>24H change</dt><dd className={`num ${(outcome.change24h ?? 0) >= 0 ? 'up' : 'down'}`}>{outcome.change24h == null ? '—' : `${outcome.change24h >= 0 ? '+' : '-'}${Math.round(Math.abs(outcome.change24h) * 100)}%`}</dd></div>
+          <div><dt>24H change</dt><dd className={`num ${outcome.change24h == null ? '' : outcome.change24h >= 0 ? 'up' : 'down'}`}>{outcome.change24h == null ? '—' : `${outcome.change24h >= 0 ? '+' : '-'}${Math.round(Math.abs(outcome.change24h) * 100)}%`}</dd></div>
           <div><dt>24H volume</dt><dd className="num">{compactDollars(event.volume24h)}</dd></div>
           <div><dt>Total volume</dt><dd className="num">{compactDollars(event.volume)}</dd></div>
           <div><dt>Ends</dt><dd>{ends}</dd></div>
@@ -126,7 +127,7 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
         </div>)}</div>
       </section>}
 
-      <section className="card">
+      <section className="card pm-bets">
         <div className="tabs">
           <button className={tab === 'cult' ? 'on' : ''} onClick={() => setTab('cult')}>Cult bets</button>
           <button className={tab === 'mine' ? 'on' : ''} onClick={() => setTab('mine')}>My position</button>
@@ -156,7 +157,10 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
               <div><span>PnL</span><b className={`num ${(pnl ?? 0) >= 0 ? 'up' : 'down'}`}>{pnl == null ? '—' : signedDollars(pnl)}</b></div>
             </div>
             <p className="ticket-note">Pays {dollars(p.shares)} if it resolves {p.sideLabel}.</p>
-            <button className="btn btn-danger btn-sm" disabled={!!busy || now == null} onClick={() => now != null && onSell(p, now)}>Sell {now != null ? `for ${dollars(p.shares * now)}` : ''}</button>
+            <div className="my-pos-actions">
+              <button className="btn btn-ghost btn-sm" disabled={now == null} onClick={() => now != null && onShare(p, now)}><Share2 size={14} /> Share card</button>
+              <button className="btn btn-danger btn-sm" disabled={!!busy || now == null} onClick={() => now != null && onSell(p, now)}>Sell {now != null ? `for ${dollars(p.shares * now)}` : ''}</button>
+            </div>
           </div>;
         })}</div> : <div className="empty"><span>You have no position here. Use the ticket to place a bet.</span></div>)
         : <div className="pm-rules">

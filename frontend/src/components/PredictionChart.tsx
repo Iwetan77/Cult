@@ -7,7 +7,7 @@ import type { PricePoint } from '@/lib/polymarket';
 // Odds over time: one area for a yes/no question, a line per option (up to
 // four) for multi-outcome events. Values are 0..1, shown as percent.
 
-export const LINE_COLORS = ['#c084fc', '#8fb4ff', '#f6bf68', '#ff8fc7'];
+export const LINE_COLORS = ['#c084fc', '#fde68a', '#fb7185', '#e9d5ff'];
 export type ChartLine = { id: string; label: string; points: PricePoint[] };
 
 const percent = (p: number) => `${Math.round(p * 100)}%`;
@@ -23,7 +23,7 @@ export function PredictionChart({ lines }: { lines: ChartLine[] }) {
     const font = getComputedStyle(document.body).getPropertyValue('--font-aeonik').trim() || 'sans-serif';
     const chart = createChart(host, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: 'rgba(0,0,0,0)' }, textColor: '#7d8792', fontFamily: font, fontSize: 11, attributionLogo: false },
+      layout: { background: { type: ColorType.Solid, color: 'rgba(0,0,0,0)' }, textColor: '#857e98', fontFamily: font, fontSize: 11, attributionLogo: false },
       grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
       crosshair: { vertLine: { color: 'rgba(168,85,247,0.35)', labelBackgroundColor: '#2a2340' }, horzLine: { color: 'rgba(168,85,247,0.35)', labelBackgroundColor: '#2a2340' } },
       rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', scaleMargins: { top: 0.1, bottom: 0.08 } },

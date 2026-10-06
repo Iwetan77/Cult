@@ -46,8 +46,7 @@ export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPerm
 
   return <div className="modal-backdrop deposit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="deposit-sheet" role="dialog" aria-modal="true" aria-label="Deposit">
-      <div className="trade-sheet-head"><span className="eyebrow">YOUR WALLET</span><button className="icon-btn" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
-      <h2>Deposit</h2>
+      <div className="trade-sheet-head"><h2>Deposit</h2><button className="icon-btn" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
       {!signerReady && <div className="deposit-permission"><strong>Allow Cult to place your trades</strong><p className="field-note">Needed to convert USDC and fund trades automatically</p><button className="btn btn-ghost btn-block" disabled={permissionBusy} onClick={onGrantPermission}>Allow</button></div>}
       {crossChain && <div className="seg seg--sm" role="tablist">
         <button role="tab" aria-selected={network === 'monad'} className={network === 'monad' ? 'on' : ''} onClick={() => setNetwork('monad')}>Monad</button>

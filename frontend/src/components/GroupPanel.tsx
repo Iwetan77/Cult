@@ -73,7 +73,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
   if (room.kind !== 'cult' || !cult) return <aside className="group">
     <section className="card group-hero">
       <RoomBadge icon={room.icon} kind={room.kind} size="lg" />
-      <div><span className="eyebrow">{room.kind === 'global' ? 'Global room' : 'Country room'}</span><h2>{room.name}</h2><small>{room.memberCount.toLocaleString()} traders</small></div>
+      <div><h2>{room.name}</h2><small>{room.memberCount.toLocaleString()} traders</small></div>
     </section>
     <section className="card"><div className="card-head"><h2>Leaderboard</h2><span className="count">All time</span></div><RoomRanking room={room} onProfile={onProfile} /></section>
   </aside>;
@@ -92,7 +92,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
   return <aside className="group">
     <section className="card group-hero">
       <RoomBadge icon={room.icon} kind="cult" size="lg" />
-      <div><span className="eyebrow">{cult.visibility === 'public' ? <><Globe2 size={11} /> Public cult</> : <><Lock size={11} /> Private cult</>}</span><h2>{cult.name}</h2><small>{cult.memberCount} {cult.memberCount === 1 ? 'member' : 'members'} · {openPositions} open</small></div>
+      <div><h2>{cult.name}</h2><small className="group-hero-meta">{cult.visibility === 'public' ? <Globe2 size={12} /> : <Lock size={12} />}{cult.visibility === 'public' ? 'Public' : 'Private'} · {cult.memberCount} {cult.memberCount === 1 ? 'member' : 'members'} · {openPositions} open</small></div>
       <button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Invite</button>
     </section>
 
