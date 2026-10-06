@@ -59,7 +59,7 @@ export type BackendConfig = {
   chainId: number; venues: Venue[]; displayUnit: 'USD'; monPriceAusd: number | null;
   autoMirrorOptOutWindowSeconds: number; autoFollowDefaults: { balancePercentCap: number; maxUsdPerTrade: number }; mirrorPolicyBounds: unknown; markets: Market[];
   // What the backend has switched on (older backends omit it: treat as off).
-  features?: { predictions: boolean; crossChain: boolean };
+  features?: { predictions: boolean; crossChain: boolean; gasTopUp?: boolean };
 };
 export type Me = {
   id: string; address: `0x${string}`; name: string; username: string | null; needsUsername: boolean; pinSet?: boolean; avatarUrl: string | null; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];

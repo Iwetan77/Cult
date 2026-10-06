@@ -24,6 +24,7 @@ import { clans, MirrorPolicySchema, type MirrorPolicy, AUTO_FOLLOW_DEFAULTS } fr
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
 import { PinError, pins } from '../store/pins.js';
+import { ensureGas, gasToppingOn } from '../funding/gas.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
 import { UpstreamError } from '../http.js';
@@ -166,7 +167,7 @@ export function createApp(engine: MirrorEngine) {
       markets: ctx.markets.filter((m) => m.config.is_open).map(toApiMarket),
       // What's switched on. predictions: Polymarket bets (needs the builder key);
       // crossChain: deposits from / withdrawals to other chains (Aurora Intents, mainnet).
-      features: { predictions: predictionsEnabled(), crossChain: intentsEnabled() && env.chainId === 143 },
+      features: { predictions: predictionsEnabled(), crossChain: intentsEnabled() && env.chainId === 143, gasTopUp: gasToppingOn() },
     });
   });
 
@@ -351,7 +352,7 @@ export function createApp(engine: MirrorEngine) {
       rooms: roomsFor(userId),
       clans: clans.forUser(userId).map((cl) => clanView(cl.id, userId)),
       perpl: { accountId: m.perplAccountId, keyEnrolled: !!m.apiKey, forwarding: m.forwarding },
-      balances: await balancesFor(userId).catch(() => null),
+      balances: await gasCheckedBalances(userId, m.wallet),
       // prepared = grant issued; attached/policyCurrent = verified with Privy.
       signer: await backendSignerStatus(userId).catch(() => ({ prepared: !!m.privyPolicyId, attached: null, policyCurrent: null })),
       usdcConverted: recentConversion(userId), // last USDC -> AUSD conversion, if in the last 10 min
@@ -844,6 +845,10 @@ export function createApp(engine: MirrorEngine) {
   authed.route('/predictions', predictionRoutes());
   authed.route('/intents', intentRoutes());
 
+  // MON for network fees before the app sends a transaction from the member's
+  // wallet (perps setup, withdrawals, moving money to predictions).
+  authed.post('/wallet/gas', async (c) => c.json(await ensureGas(c.get('wallet'))));
+
   // A plain send on Monad: wallet actions for the member to sign (the backend
   // can't move funds). Other chains: POST /v1/intents/withdraw.
   authed.post('/wallet/withdraw', async (c) => {
@@ -855,6 +860,14 @@ export function createApp(engine: MirrorEngine) {
   authed.route('/clans', cultRoutes);
   app.route('/v1', authed);
   return app;
+}
+
+// Balances for /v1/me. A wallet with dollars but no MON for fees gets topped
+// up in the background (funding/gas.ts), so the first trade just works.
+async function gasCheckedBalances(userId: string, wallet: string) {
+  const b = await balancesFor(userId).catch(() => null);
+  if (b?.lowGas && b.walletUsd >= 1) void ensureGas(wallet).catch(() => undefined);
+  return b;
 }
 
 // A forgotten PIN can be reset this long after signing in again.

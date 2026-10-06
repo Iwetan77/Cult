@@ -15,7 +15,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -175,6 +175,14 @@ function migrate(d: DatabaseSync) {
       created_at INTEGER NOT NULL,
       PRIMARY KEY (account_id, rq)
     );
+    -- v10: MON the gas wallet sent members for network fees (funding/gas.ts).
+    CREATE TABLE IF NOT EXISTS gas_drips (
+      wallet     TEXT NOT NULL,       -- lowercase
+      amount_wei TEXT NOT NULL,
+      tx_hash    TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS gas_drips_wallet ON gas_drips(wallet, created_at);
     CREATE TABLE IF NOT EXISTS engine_txs (
       tx_hash    TEXT PRIMARY KEY,    -- lowercase
       wallet     TEXT NOT NULL,

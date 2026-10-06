@@ -942,8 +942,17 @@ shows the tx hash. MON keeps the gas reserve. Sending to your own Cult address i
 
 ### `GET /v1/config` → `features`
 
-`{ predictions: boolean, crossChain: boolean }`. Each is on when its keys are set
-(`POLYMARKET_BUILDER_*`, `AURORA_INTENTS_API_KEY` + mainnet).
+`{ predictions: boolean, crossChain: boolean, gasTopUp: boolean }`. Each is on when its keys are set
+(`POLYMARKET_BUILDER_*`, `AURORA_INTENTS_API_KEY` + mainnet, `GAS_FUNDER_PRIVATE_KEY`).
+
+### Gas — `POST /v1/wallet/gas`
+
+→ `{ mon, topped, reason? }`. Network fees are paid in MON and a new member only has dollars, so
+Cult's gas wallet (`GAS_FUNDER_PRIVATE_KEY`) sends `GAS_DRIP_MON` (0.5) when the wallet is below the
+gas reserve (0.25 MON): members holding ≥ $1 only, 3 a day each, `GAS_DRIPS_PER_DAY` (300) overall.
+`reason`: `off` (no key), `not_member`, `no_funds`, `limit`. The app calls it before sending a
+transaction; the backend also tops up before any transaction it signs for a member, and `/v1/me`
+does it in the background when it sees dollars and no MON.
 
 ## Indexer API (correlating chain events with clans)
 

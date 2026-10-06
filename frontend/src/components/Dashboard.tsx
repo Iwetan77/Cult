@@ -7,7 +7,7 @@ import { useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSignT
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
 import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, X } from './icons';
-import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry, setPin, resetPin, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
+import { createClan, createShare, enrollPerpl, ensureGas, getChart, getMarkets, setCountry, setPin, resetPin, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
 import { privySupported } from '@/lib/privySupport';
@@ -586,7 +586,14 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (!config || action.chainId !== config.chainId) throw new Error('Wallet action chain does not match backend configuration.');
     if (!isAddress(action.to) || !isHex(action.data)) throw new Error('Backend returned an invalid wallet action.');
     await wallet.switchChain(action.chainId);
-    const result = await sendTransaction({ to: action.to, data: action.data, value: BigInt(action.value ?? '0x0') }, { address: wallet.address });
+    // Fees are paid in MON: Cult's gas wallet tops up a wallet that has none.
+    if (!demo) await ensureGas(await token()).catch(() => undefined);
+    let result;
+    try { result = await sendTransaction({ to: action.to, data: action.data, value: BigInt(action.value ?? '0x0') }, { address: wallet.address }); }
+    catch (reason) {
+      if (/insufficient (balance|funds)/i.test(errorText(reason))) throw new Error(config.chainId === monad.id ? 'Your wallet needs a little MON for network fees. Add some MON, then try again.' : 'Your wallet needs a little testnet MON for network fees. Get some free at faucet.monad.xyz, then try again.');
+      throw reason;
+    }
     const chain = config.chainId === monad.id ? monad : monadTestnet;
     const receipt = await createPublicClient({ chain, transport: http() }).waitForTransactionReceipt({ hash: result.hash });
     if (receipt.status !== 'success') throw new Error(`${action.label} failed on-chain.`);
