@@ -22,6 +22,8 @@ let lastTab: Tab = 'perpl';
 let lastMode: Mode = 'markets';
 // Open Markets on a given tab (e.g. Trade from a cult chat lands on Perps).
 export const showMarketsTab = (tab: Tab) => { lastTab = tab; lastMode = 'markets'; };
+// The section the Markets screen is on (for the top search to put first).
+export const currentMarketsTab = (): Tab => lastTab;
 const TABS: { id: Tab; label: string; title: string }[] = [
   { id: 'perpl', label: 'Perps', title: 'Trade perps' },
   { id: 'nadfun', label: 'Memes', title: 'Trade memes' },
@@ -29,7 +31,7 @@ const TABS: { id: Tab; label: string; title: string }[] = [
 ];
 type Sort = 'volume' | 'gainers' | 'losers';
 
-type Props = { owner: string; search: string; onOpen: (id: string) => void; onPredict: (slug: string, pick?: PredictionPick) => void; predictionRevision: number };
+type Props = { owner: string; search: string; onOpen: (id: string) => void; onPredict: (slug: string, pick?: PredictionPick) => void; predictionRevision: number; onSection?: (tab: Tab) => void };
 
 export function Change({ pct }: { pct: number | null }) {
   if (pct == null) return <small className="change">—</small>;
@@ -70,9 +72,10 @@ function Watchlist({ owner, search, onOpen, onBrowse }: { owner: string; search:
   </section>;
 }
 
-export function MarketsView({ owner, search, onOpen, onPredict, predictionRevision }: Props) {
+export function MarketsView({ owner, search, onOpen, onPredict, predictionRevision, onSection }: Props) {
   const [tab, setTabState] = useState<Tab>(lastTab);
   const setTab = (next: Tab) => { lastTab = next; setTabState(next); };
+  useEffect(() => { onSection?.(tab); }, [tab, onSection]);
   const [mode, setModeState] = useState<Mode>(lastMode);
   const setMode = (next: Mode) => { lastMode = next; setModeState(next); };
   const [sort, setSort] = useState<Sort>('volume');

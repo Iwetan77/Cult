@@ -93,7 +93,7 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
         </div>
         <div className="mkt-bar-price"><strong className="num">{chance(outcome.yesPrice)}</strong><small>{event.multi ? `${outcome.label} chance` : 'Chance'}</small></div>
         <dl className="mkt-stats">
-          <div><dt>24H change</dt><dd className={`num ${(outcome.change24h ?? 0) >= 0 ? 'up' : 'down'}`}>{outcome.change24h == null ? '—' : `${outcome.change24h >= 0 ? '+' : '-'}${Math.round(Math.abs(outcome.change24h) * 100)}%`}</dd></div>
+          <div><dt>24H change</dt><dd className={`num ${outcome.change24h == null ? '' : outcome.change24h >= 0 ? 'up' : 'down'}`}>{outcome.change24h == null ? '—' : `${outcome.change24h >= 0 ? '+' : '-'}${Math.round(Math.abs(outcome.change24h) * 100)}%`}</dd></div>
           <div><dt>24H volume</dt><dd className="num">{compactDollars(event.volume24h)}</dd></div>
           <div><dt>Total volume</dt><dd className="num">{compactDollars(event.volume)}</dd></div>
           <div><dt>Ends</dt><dd>{ends}</dd></div>
