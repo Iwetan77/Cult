@@ -1,12 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSignTypedData, useSigners, useWallets } from '@privy-io/react-auth';
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
-import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, Wallet, X } from './icons';
+import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, X } from './icons';
 import { createClan, createShare, enrollPerpl, getChart, getMarkets, setCountry, setPin, resetPin, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
@@ -27,7 +27,7 @@ import { HomeView, RoomRow, UnreadBubble, latestFirst } from './HomeView';
 import { AccountView } from './AccountView';
 import { TradeSheet, type TradeSheetTarget } from './TradeSheet';
 import { GroupPanel } from './GroupPanel';
-import { MarketsView, showMarketsTab } from './MarketsView';
+import { MarketsView, currentMarketsTab, showMarketsTab } from './MarketsView';
 import { MarketPage, type MarketSocial } from './MarketPage';
 import { type TicketMarket } from './TradeTicket';
 import { RoomBadge } from './RoomBadge';
@@ -35,8 +35,9 @@ import { DepositSheet } from './DepositSheet';
 import { WithdrawSheet } from './WithdrawSheet';
 import { PnlCardSheet, type PnlSheetMode } from './PnlCardSheet';
 import { PredictionPage } from './PredictionPage';
-import type { PredictionPick } from './PredictionsBrowse';
-import { resultOfClose, resultOfMarker, resultOfSale, type TradeResult } from '@/lib/pnlCard';
+import { EventArt, type PredictionPick } from './PredictionsBrowse';
+import { CATEGORIES, chance, listEvents, type PredictionEvent } from '@/lib/polymarket';
+import { resultOfClose, resultOfMarker, resultOfPrediction, resultOfSale, type TradeResult } from '@/lib/pnlCard';
 import { buyPrediction, sellPrediction, getPredictionAccount, setupPredictions, signFlowStep, pollFlow, isFlowStep, redeemPrediction, fundPredictions, withdrawPredictions } from '@/lib/api';
 import type { FlowStep, PredictionAccount, PredictionOrder, PredictionPosition, SignatureRequest } from '@/lib/contracts';
 import { Landing } from './Landing';
@@ -188,16 +189,30 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   // The top search: markets (any perp or meme) and your groups, as you type.
   const searchRef = useRef<HTMLInputElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [marketsTab, setMarketsTab] = useState(currentMarketsTab); // the Markets screen's section
   const [searchMarkets, setSearchMarkets] = useState<MarketListing[]>([]);
   useEffect(() => {
     const q = search.trim();
     if (!q) { setSearchMarkets([]); return; }
     let active = true;
     const cached = cachedList(q);
-    if (cached) setSearchMarkets(cached.slice(0, 8));
+    if (cached) setSearchMarkets(cached.slice(0, 24));
     const timer = window.setTimeout(() => {
-      getMarkets(q).then(r => { if (active) setSearchMarkets(r.markets.slice(0, 8)); }).catch(() => {});
+      getMarkets(q).then(r => { if (active) setSearchMarkets(r.markets.slice(0, 24)); }).catch(() => {});
     }, cached ? 0 : 180);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [search]);
+  // Prediction markets for the search too: the busiest live events, matched by title or outcome.
+  const [searchPredictions, setSearchPredictions] = useState<PredictionEvent[]>([]);
+  useEffect(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) { setSearchPredictions([]); return; }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      listEvents(CATEGORIES[0]!).then(events => {
+        if (active) setSearchPredictions(events.filter(e => e.title.toLowerCase().includes(q) || e.outcomes.some(o => o.label.toLowerCase().includes(q))).slice(0, 5));
+      }).catch(() => {});
+    }, 180);
     return () => { active = false; window.clearTimeout(timer); };
   }, [search]);
   useEffect(() => {
@@ -882,7 +897,8 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     const posted = order.cultIds?.length === 0 ? 'Only you see it.' : 'Posted to your cults.';
     setNotice(`Bet placed: ${order.sideLabel} at ${Math.round(order.price * 100)}¢. ${posted}`);
   });
-  const sellPredictionPosition = (position: PredictionPosition, price: number) => perform('predict-sell', async () => {
+  // Selling a prediction asks first, with the card as it would close.
+  const runSellPrediction = (position: PredictionPosition, price: number) => perform('predict-sell', async () => {
     const sale = await runFlow(await sellPrediction(await token(), position.id, price));
     if (!demo) void loadPredictionAccount().catch(() => undefined);
     await loadMe();
@@ -895,6 +911,11 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     setPredictionRev(value => value + 1);
     setNotice(done.payoutUsd > 0 ? `Collected ${dollars(done.payoutUsd)} into predictions.` : 'Settled. This one didn’t pay out.');
   });
+  const sellPredictionPosition = (position: PredictionPosition, price: number) =>
+    setCardSheet({ mode: 'confirm', result: resultOfPrediction(position, price, trader()), confirmLabel: `Sell for ${dollars(position.shares * price)}`, onConfirm: () => void runSellPrediction(position, price) });
+  // A bet you keep, as a card to share.
+  const sharePrediction = (position: PredictionPosition, price: number) =>
+    setCardSheet({ mode: 'live', result: resultOfPrediction(position, price, trader(), true) });
   const closeTrade = (holding: Holding) => askClose(holding, holding.market, marketId ?? undefined);
   const stack = () => perform('stack', async () => {
     if (!clanId || !selected) throw new Error('Select a cult position first.');
@@ -1051,7 +1072,20 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     onClosePosition: closeMarket,
     onShare: shareMarker,
   };
-  const searchRooms = useMemo(() => me?.rooms.filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 5) ?? [], [me, search]);
+  // Where the top search looks: on a market screen, that market's kind comes
+  // first (perps, memes or predictions), then the others; on the cult screens
+  // it finds only your cults; on Discover it filters the page's list of every
+  // public cult (no dropdown); anywhere else, everything.
+  const marketSection = marketPage?.startsWith('pm:') ? 'predictions' as const
+    : marketPage ? (cachedList('')?.find(m => m.id === marketPage)?.venue ?? marketsTab)
+    : marketsTab;
+  const searchScope = view === 'groups' || view === 'chat' ? 'cults' : view === 'discover' ? 'discover' : view === 'markets' ? marketSection : 'all';
+  const searchRooms = useMemo(() => me?.rooms.filter(room => (searchScope !== 'cults' || room.kind === 'cult') && room.name.toLowerCase().includes(search.trim().toLowerCase())).slice(0, 5) ?? [], [me, search, searchScope]);
+  type SearchKind = 'perpl' | 'nadfun' | 'predictions' | 'rooms';
+  const searchOrder: SearchKind[] = searchScope === 'discover' ? [] : searchScope === 'cults' ? ['rooms']
+    : searchScope === 'all' ? ['perpl', 'nadfun', 'predictions', 'rooms']
+    : [searchScope, ...(['perpl', 'nadfun', 'predictions'] as const).filter(kind => kind !== searchScope)];
+  const searchPlaceholder = searchScope === 'discover' ? 'Search all cults' : searchScope === 'cults' ? 'Search your cults' : searchScope === 'perpl' ? 'Search perps' : searchScope === 'nadfun' ? 'Search memes' : searchScope === 'predictions' ? 'Search predictions' : 'Search markets, memes, cults';
 
   // While sign-in loads, the splash, never a flash of the landing page: on
   // app pages (anything but /), for the demo, and for a signed-in browser.
@@ -1070,6 +1104,14 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   }} />;
 
   const pickSearch = (action: () => void) => { action(); setSearch(''); setSearchOpen(false); searchRef.current?.blur(); };
+  // The search results, grouped and in the order above.
+  const marketRow = (item: MarketListing) => <><TokenLogo symbol={item.symbol} imageUri={item.imageUri} /><span className="search-name"><strong>{item.symbol}</strong><small>{item.venue === 'perpl' ? `Perp · up to ${Math.floor(item.maxLeverage)}x` : item.name}</small></span>
+    <span className="search-price"><strong className="num">{price(item.priceUsd)}</strong><Change pct={item.change24hPct} /></span></>;
+  const searchResults = searchOrder.map(kind => kind === 'rooms'
+    ? { kind, label: searchScope === 'cults' ? 'Your cults' : 'Cults & rooms', items: searchRooms.map(room => ({ key: room.id, open: () => openRoom(room.id), row: <><RoomBadge icon={room.icon} kind={room.kind} size="sm" /><span className="search-name"><strong>{room.name}</strong><small>{room.memberCount} members</small></span></> })) }
+    : kind === 'predictions'
+      ? { kind, label: 'Predictions', items: searchPredictions.map(event => ({ key: event.slug, open: () => openPrediction(event.slug), row: <><EventArt event={event} /><span className="search-name"><strong className="search-title">{event.title}</strong><small>{event.multi ? `${event.outcomes[0]?.label ?? ''} ${chance(event.outcomes[0]?.yesPrice ?? 0)}` : `${chance(event.outcomes[0]?.yesPrice ?? 0)} chance`}</small></span></> })) }
+      : { kind, label: kind === 'perpl' ? 'Perps' : 'Memes', items: searchMarkets.filter(item => item.venue === kind).slice(0, 5).map(item => ({ key: `${item.venue}:${item.id}`, open: () => openMarket(item.id), row: marketRow(item) })) });
   const balance = me?.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) + (me.balances.predictionsUsd ?? 0) : null;
 // Main menu, most used first.
   const nav: NavItem[] = [
@@ -1084,23 +1126,20 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       <button className="topbar-logo" onClick={() => go('home')} aria-label="Cult home"><img src="/landing/cult-logo.svg" alt="Cult" width={58} height={30} /></button>
       <div className="search">
         <label className="search-box"><Search size={16} /><input ref={searchRef} value={search} onChange={event => { setSearch(event.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)} onBlur={() => window.setTimeout(() => setSearchOpen(false), 160)}
-          onKeyDown={event => { if (event.key === 'Escape') { setSearchOpen(false); event.currentTarget.blur(); } if (event.key === 'Enter' && searchMarkets[0] && view !== 'markets') pickSearch(() => openMarket(searchMarkets[0]!.id)); }}
-          placeholder="Search markets, memes, cults" aria-label="Search markets, memes or cults" /><kbd>/</kbd>
+          onKeyDown={event => { if (event.key === 'Escape') { setSearchOpen(false); event.currentTarget.blur(); } if (event.key === 'Enter') { const first = searchResults.find(group => group.items.length)?.items[0]; if (first) pickSearch(first.open); } }}
+          placeholder={searchPlaceholder} aria-label={searchPlaceholder} /><kbd>/</kbd>
           {search && <button type="button" className="search-clear" aria-label="Clear search" onMouseDown={event => event.preventDefault()} onClick={() => { setSearch(''); setSearchOpen(false); searchRef.current?.blur(); }}><X size={16} /></button>}</label>
-        {searchOpen && search.trim() && view !== 'markets' && <div className="search-drop" role="listbox">
-          {searchMarkets.length > 0 && <><span className="search-label">Markets</span>{searchMarkets.map(item => <button key={`${item.venue}:${item.id}`} role="option" aria-selected={false} onMouseDown={event => event.preventDefault()} onClick={() => pickSearch(() => openMarket(item.id))}>
-            <TokenLogo symbol={item.symbol} imageUri={item.imageUri} /><span className="search-name"><strong>{item.symbol}</strong><small>{item.venue === 'perpl' ? `Perp · up to ${Math.floor(item.maxLeverage)}x` : item.name}</small></span>
-            <span className="search-price"><strong className="num">{price(item.priceUsd)}</strong><Change pct={item.change24hPct} /></span></button>)}</>}
-          {searchRooms.length > 0 && <><span className="search-label">Cults &amp; rooms</span>{searchRooms.map(room => <button key={room.id} role="option" aria-selected={false} onMouseDown={event => event.preventDefault()} onClick={() => pickSearch(() => openRoom(room.id))}><RoomBadge icon={room.icon} kind={room.kind} size="sm" /><span className="search-name"><strong>{room.name}</strong><small>{room.memberCount} members</small></span></button>)}</>}
-          {!searchMarkets.length && !searchRooms.length && <p className="search-empty">Nothing matches &ldquo;{search.trim()}&rdquo; yet.</p>}
+        {searchOpen && search.trim() && searchScope !== 'discover' && <div className="search-drop" role="listbox">
+          {searchResults.map(group => group.items.length > 0 && <Fragment key={group.kind}><span className="search-label">{group.label}</span>{group.items.map(item => <button key={item.key} role="option" aria-selected={false} onMouseDown={event => event.preventDefault()} onClick={() => pickSearch(item.open)}>{item.row}</button>)}</Fragment>)}
+          {!searchResults.some(group => group.items.length) && <p className="search-empty">{searchScope === 'cults' ? 'None of your cults match' : 'Nothing matches'} &ldquo;{search.trim()}&rdquo;{searchScope === 'cults' ? '.' : ' yet.'}</p>}
         </div>}
       </div>
       <div className="topbar-right">
         {me && <AlertsMenu owner={me.id} onMarket={openMarket} onRoom={openRoom} />}
         {demo && <span className="demo-pill" title="Sample data. Nothing here touches real funds.">Demo</span>}
-        <div className="wallet-pill">
-        <span className="balance" title="Wallet and trading account"><Wallet size={15} />{balance == null ? '—' : <span className="num">{dollars(balance)}</span>}</span>
-        <button className="btn btn-primary btn-sm topbar-deposit" onClick={() => setDepositOpen(true)}><Plus size={15} /> Deposit</button>
+        <div className="wallet-pill" title="Wallet and trading account">
+          <span className="num">{balance == null ? '—' : dollars(balance)}</span>
+          <button className="wallet-add" onClick={() => setDepositOpen(true)} aria-label="Deposit" title="Deposit"><Plus size={16} strokeWidth={2.2} /></button>
         </div>
         <button className="topbar-me" onClick={() => openAccount()} title="Account"><Avatar name={me?.name ?? 'You'} url={me?.avatarUrl} /><span className="topbar-me-lines"><strong>{me?.name ?? 'You'}</strong><small className="num">{me ? shortAddress(me.address) : ''}</small></span></button>
       </div>
@@ -1114,9 +1153,9 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       {!me ? <div className="view two-col"><section className="view-main"><div className="skel skel-head" /><div className="skel skel-strip" /><div className="skel skel-chart" /></section><aside className="view-side"><div className="skel skel-card" /><div className="skel skel-card" /></aside></div>
         : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} mentioned={mentioned} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
         : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo || !!config?.features?.predictions} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))} onAccountNeeded={demo ? undefined : () => { void loadPredictionAccount().catch(() => undefined); }}
-            onBack={() => goUp({ view: 'markets' })} onBuy={placePrediction} onSell={sellPredictionPosition} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
-          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView owner={me.id} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
-        : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><span className="eyebrow">Your cults</span><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
+            onBack={() => goUp({ view: 'markets' })} onBuy={placePrediction} onSell={sellPredictionPosition} onShare={sharePrediction} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
+          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView owner={me.id} onSection={setMarketsTab} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
+        : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
         : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
@@ -1176,7 +1215,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         </>}
       </section>
     </div>}
-    {cardSheet && <PnlCardSheet {...cardSheet} busy={cardSheet.mode === 'confirm' && busy === 'close'} onClose={() => setCardSheet(null)}
+    {cardSheet && <PnlCardSheet {...cardSheet} busy={cardSheet.mode === 'confirm' && (busy === 'close' || busy === 'predict-sell')} onClose={() => setCardSheet(null)}
       result={cardSheet.mode === 'confirm' && cardSheet.closeHolding ? resultOfClose(scaleHolding(cardSheet.closeHolding, closeShare), null, trader()) : cardSheet.result}
       confirmLabel={closeShare < 1 && cardSheet.closeHolding ? `${cardSheet.closeHolding.venue === 'nadfun' ? 'Sell' : 'Close'} ${Math.round(closeShare * 100)}%` : cardSheet.confirmLabel}
       onConfirm={cardSheet.onConfirm ? () => cardSheet.onConfirm!(cardSheet.closeHolding ? closeShare : 1) : undefined}
@@ -1184,7 +1223,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     {withdrawOpen && <WithdrawSheet onClose={() => setWithdrawOpen(false)} onDone={() => { void loadMe(); }} predictionsUsd={demo ? null : me?.balances?.predictionsUsd ?? null} onBringBack={demo ? undefined : bringBackPredictions} gasReserveMon={me?.balances?.gasReserveMon ?? 0} onSend={transactAll} crossChain={!!demo || !!config?.features?.crossChain} />}
     {depositOpen && <DepositSheet crossChain={!!demo || !!config?.features?.crossChain} onClose={() => setDepositOpen(false)} signerReady={signerReady} permissionBusy={!!busy} onGrantPermission={() => { void perform('grant-signer', async () => { if (await grantSigner()) setNotice('Trading permission is active.'); }); }} />}
     {permissionOpen && <TradingPermissionDialog onDecision={decidePermission} />}
-    {perpsPrompt && <div className="modal-backdrop"><section className="dialog simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-btn dialog-close" title="Close" disabled={busy === 'enroll-perpl'} onClick={() => setPerpsPrompt(false)}><X size={16} /></button><span className="eyebrow">One-time setup</span><h2 className="display">Enable perps</h2><p className="dialog-sub">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p>{progressText && busy === 'enroll-perpl' && <p className="fine" role="status">{progressText}</p>}<button className="btn btn-primary btn-block btn-lg" disabled={!!busy} onClick={enroll}>Enable perps</button>{setup?.step === 'needs_collateral' && <><p className="fine">{collateralMessage(setup.minAccountOpen)}</p><button className="btn btn-ghost btn-block" onClick={() => { setPerpsPrompt(false); setDepositOpen(true); }}>Deposit first</button></>}</section></div>}
+    {perpsPrompt && <div className="modal-backdrop"><section className="dialog simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-btn dialog-close" title="Close" disabled={busy === 'enroll-perpl'} onClick={() => setPerpsPrompt(false)}><X size={16} /></button><h2 className="display">Enable perps</h2><p className="dialog-sub">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p>{progressText && busy === 'enroll-perpl' && <p className="fine" role="status">{progressText}</p>}<button className="btn btn-primary btn-block btn-lg" disabled={!!busy} onClick={enroll}>Enable perps</button>{setup?.step === 'needs_collateral' && <><p className="fine">{collateralMessage(setup.minAccountOpen)}</p><button className="btn btn-ghost btn-block" onClick={() => { setPerpsPrompt(false); setDepositOpen(true); }}>Deposit first</button></>}</section></div>}
     {tradeSheetTarget && <TradeSheet target={tradeSheetTarget} onClose={() => setTradeSheetTarget(null)} onProfile={openAccount} onChart={openTradeChart} />}
     {busy && !permissionOpen && <div className="busy" role="status"><i /><span>{progressText ?? (busy === 'stack' ? 'Authorizing your trade…' : busy === 'open' ? 'Placing your trade…' : 'Working…')}</span></div>}
   </div>;

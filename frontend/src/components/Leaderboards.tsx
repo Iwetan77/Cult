@@ -82,7 +82,7 @@ export function Leaderboards({ country, cultId, embedded = false, onProfile }: P
 
   if (embedded) return <div className="lb">{body}</div>;
   return <div className="view one-col"><section className="view-main lb">
-    <header className="page-head"><div><span className="eyebrow">Verified own trades</span><h1 className="display">Leaderboard</h1></div></header>
+    <header className="page-head"><div><h1 className="display">Leaderboard</h1></div></header>
     {body}
   </section></div>;
 }

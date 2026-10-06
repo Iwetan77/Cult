@@ -116,7 +116,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
           <dl className="mkt-stats">
             <div><dt>24H change</dt><dd className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(m.change24hPct)}</dd></div>
             <div><dt>24H volume</dt><dd className="num">{compactDollars(m.volume24hUsd)}</dd></div>
-            <div><dt>Range high / low</dt><dd className="num">{price(high)} / {price(low)}</dd></div>
+            <div className="is-range"><dt>Range high / low</dt><dd className="num">{price(high)} / {price(low)}</dd></div>
             <div><dt>{isPerp ? 'Max leverage' : 'Venue'}</dt><dd>{isPerp ? `${Math.floor(m.maxLeverage)}x` : 'Spot'}</dd></div>
             {cult && <div className="sentiment"><dt>{cult.name} sentiment</dt>{longPct == null ? <dd>No positions</dd> : <dd className="num"><em className="up">{longPct}% long</em> · <em className="down">{100 - longPct}% short</em><i className="sentiment-bar"><i style={{ width: `${longPct}%` }} /></i></dd>}</div>}
           </dl>
