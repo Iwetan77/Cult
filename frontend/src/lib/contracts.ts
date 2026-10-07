@@ -1,7 +1,11 @@
 export type Venue = 'perpl' | 'nadfun';
 export type MarkerOrigin = 'leader' | 'auto_mirror' | 'manual_stack';
 export type TradeSide = 'long' | 'short' | 'buy';
-export type MirrorPolicy = { enabled: boolean; balancePercentCap: number; maxUsdPerTrade: number };
+export type MirrorPolicy = {
+  enabled: boolean;
+  balancePercentCap: number; // (0, 100] of free venue balance: perp margin or meme spend.
+  maxUsdPerTrade: number; // [1, 1e6] dollar notional per copy/add, including perp leverage; not fixed spend.
+};
 export type Market = {
   venue: Venue; id: string; symbol: string; baseSymbol: string; quoteSymbol: 'USD';
   maxLeverage: number; makerFeeBps: number | null; takerFeeBps: number | null;

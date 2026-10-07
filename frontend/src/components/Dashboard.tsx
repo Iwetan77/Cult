@@ -16,6 +16,7 @@ import { signsQuietly } from '@/lib/quietSign';
 import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
 import { dollars, price, shortAddress } from '@/lib/format';
+import { validateMirrorPolicy } from '@/lib/mirrorPolicy';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
 import { ClanChat } from './ClanChat';
@@ -58,9 +59,6 @@ const errorText = (error: unknown) => {
 };
 const PREDICTIONS_UNAVAILABLE = 'Predictions are being switched on. Check back soon.';
 const collateralMessage = (minimumRaw: string) => `Add MON, USDC or AUSD to your wallet to open your perps account (about ${dollars(Number(minimumRaw) / 1e6)}).`;
-const validatePolicy = (value: MirrorPolicy) => {
-  if (!Number.isFinite(value.balancePercentCap) || value.balancePercentCap <= 0 || value.balancePercentCap > 100 || !Number.isFinite(value.maxUsdPerTrade) || value.maxUsdPerTrade < 1 || value.maxUsdPerTrade > 1_000_000) throw new Error('Enter mirror limits within the allowed range.');
-};
 const inviteFromInput = (input: string) => {
   try { return new URL(input).searchParams.get('invite') ?? input.trim(); }
   catch { return input.trim(); }
@@ -717,7 +715,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   // Turning Auto-follow on and changing its limits are the same signed policy.
   const enableAutoFollow = async (policy: MirrorPolicy) => {
     if (!clanId) throw new Error('Choose a cult first.');
-    validatePolicy(policy);
+    validateMirrorPolicy(policy);
     setBusy('auto-follow'); setError(null);
     try {
       const auth = await token();
@@ -725,10 +723,11 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       const signature = await sign(challenge.message);
       await updateClanPolicy(auth, clanId, challenge.challengeId, signature);
       const current = await loadMe();
+      const limitsNotice = `Auto-follow is on: up to ${dollars(policy.maxUsdPerTrade)} in copy value, capped at ${policy.balancePercentCap}% of free balance.`;
       if (current.signer.attached !== true || current.signer.policyCurrent !== true) {
         const confirmed = await grantSigner();
-        setNotice(confirmed ? 'Auto-follow is on and your wallet signer is ready.' : 'Auto-follow is on. Signer approval is awaiting Privy verification.');
-      } else setNotice(`Auto-follow is on: up to ${dollars(policy.maxUsdPerTrade)} per trade.`);
+        setNotice(`${limitsNotice} ${confirmed ? 'Your wallet signer is ready.' : 'Signer approval is awaiting Privy verification.'}`);
+      } else setNotice(limitsNotice);
     } catch (reason) { setError(errorText(reason)); throw reason; }
     finally { setBusy(null); }
   };
@@ -1217,7 +1216,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
           </section>
           {activeRoom && <div className={`view-side room-side ${groupPanelOpen ? 'open' : ''}`}>
             <button className="sheet-close" onClick={() => setGroupPanelOpen(false)}><X size={16} /> Close</button>
-            <GroupPanel room={activeRoom} cult={activeRoom.kind === 'cult' ? clan ?? null : null} config={config} snapshot={activeRoom.kind === 'cult' ? snapshot : null} selected={activeRoom.kind === 'cult' ? selected : null} busy={!!busy} signerPrompt={signerPrompt}
+            <GroupPanel key={activeRoom.id} room={activeRoom} cult={activeRoom.kind === 'cult' ? clan ?? null : null} config={config} snapshot={activeRoom.kind === 'cult' ? snapshot : null} selected={activeRoom.kind === 'cult' ? selected : null} busy={!!busy} signerPrompt={signerPrompt}
               onGrantSigner={() => { void perform('grant-signer', async () => { const confirmed = await grantSigner(); setNotice(confirmed ? 'Trading signer is active.' : 'Signer approval is awaiting Privy verification.'); }); }}
               onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker}
               onOpenTrade={() => { if (market) { setMarketSolo(false); navigate({ view: 'markets', market: market.id }); } }} onGuideDrop={(marker, kind, level) => { void submitGuide(marker, kind, level); }}
