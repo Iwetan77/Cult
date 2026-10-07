@@ -63,9 +63,11 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
     if (!balances) return null;
     const px = monPriceUsd ?? 0;
     const spareMon = Math.max(0, balances.mon - balances.gasReserveMon - (isPerp ? TOPUP_GAS_MON : 0));
-    if (isPerp) return (balances.perplMarginUsd ?? 0) + balances.walletUsd + spareMon * px * 0.97;
+    // Deposited USDC counts as dollars: a trade turns it into AUSD when it needs it.
+    const dollars = balances.walletUsd + (balances.usdcUsd ?? 0);
+    if (isPerp) return (balances.perplMarginUsd ?? 0) + dollars + spareMon * px * 0.97;
     const monUsd = spareMon * px;
-    return balances.memesPayWith === 'ausd' ? Math.max(balances.walletUsd, monUsd) : monUsd;
+    return balances.memesPayWith === 'ausd' ? Math.max(dollars, monUsd) : monUsd;
   }, [balances, monPriceUsd, isPerp]);
 
   const lev = isPerp ? leverage : 1;

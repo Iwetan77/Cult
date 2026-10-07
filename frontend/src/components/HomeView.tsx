@@ -68,7 +68,8 @@ function RealizedLine({ closed }: { closed: ClosedTrade[] }) {
 // The money side: one total, what it's made of, how closed trades have gone,
 // and a way to add more.
 export function PortfolioCard({ me, holdings, closed, onDeposit }: { me: Me; holdings: Holding[]; closed: ClosedTrade[] | null; onDeposit: () => void }) {
-  const cash = me.balances?.walletUsd ?? null;
+  // Dollars: AUSD plus deposited USDC (turned into AUSD by itself).
+  const cash = me.balances ? me.balances.walletUsd + (me.balances.usdcUsd ?? 0) : null;
   const margin = me.balances?.perplMarginUsd ?? 0;
   const predictions = me.balances?.predictionsUsd ?? 0;
   const mon = me.balances?.monUsd ?? 0;
@@ -159,7 +160,7 @@ export function HomeView({ me, holdings, unread, mentioned, search, onMarket, on
   const cults = latestFirst(me.rooms.filter(room => room.kind === 'cult' && room.name.toLowerCase().includes(query)));
   const trending = useMemo(() => pickTrending(markets), [markets]);
 
-  const wallet = me.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) : null;
+  const wallet = me.balances ? me.balances.walletUsd + (me.balances.usdcUsd ?? 0) + (me.balances.perplMarginUsd ?? 0) : null;
   const funded = (wallet ?? 0) + (me.balances?.monUsd ?? 0) > 0 || holdings.length > 0;
   const inCult = me.clans.length > 0;
   const traded = holdings.length > 0 || (closed?.length ?? 0) > 0;

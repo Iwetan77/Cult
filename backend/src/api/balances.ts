@@ -15,6 +15,7 @@ export interface Balances {
   perplMarginUsd: number | null; // free margin in their Perpl account
   walletUsd: number; // AUSD sitting in the wallet
   predictionsUsd: number | null; // pUSD in their Polymarket account
+  usdcUsd: number | null; // USDC in the wallet (mainnet), turned into AUSD by itself
   mon: number; // native MON in the wallet
   monUsd: number | null;
   gasReserveMon: number; // never spent by the backend
@@ -39,10 +40,14 @@ export async function balancesFor(userId: string): Promise<Balances> {
   }
   const mon = Number(ethers.formatEther(monWei));
   const predictionsUsd = await predictionsBalance(userId);
+  const { usdcAddress } = await import('../chain/tokens.js');
+  const { usdcUsd } = await import('../funding/usdc.js');
+  const usdc = usdcAddress() ? await usdcUsd(m.wallet) : null;
   return {
     perplMarginUsd,
     walletUsd: Number(ethers.formatUnits(walletRaw, collateralDecimals)),
     predictionsUsd,
+    usdcUsd: usdc,
     mon,
     monUsd: monPx != null ? mon * monPx : null,
     gasReserveMon: Number(ethers.formatEther(GAS_RESERVE_WEI)),

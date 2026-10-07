@@ -67,6 +67,7 @@ export type Me = {
   balances: {
     perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;
     predictionsUsd?: number | null; // in the member's Polymarket account (counted in the one balance)
+    usdcUsd?: number | null; // USDC in the wallet (mainnet): dollars too, turned into AUSD by itself
     gasReserveMon: number; lowGas: boolean; memesPayWith: 'ausd' | 'mon';
   } | null;
   signer: { prepared: boolean; attached: boolean | null; policyCurrent: boolean | null };
