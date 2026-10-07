@@ -5,6 +5,7 @@ import { CandlestickSeries, ColorType, createChart, LineSeries, type AutoscaleIn
 import type { Candle, ChartMarker, Market } from '@/lib/contracts';
 import { dollars, signedDollars } from '@/lib/format';
 import { liquidationPrice } from '@/lib/risk';
+import { candleResolution, chartVisibleRange, mergeChartCandles } from '@/lib/chartHistory';
 import { avatarSrc, initialsOf } from './Avatar';
 
 export type ChartStyle = 'candles' | 'line';
@@ -16,6 +17,7 @@ type Props = {
   guidesDisabled?: boolean;
   avatars?: Record<string, string | null>; // memberId -> photo, drawn in each badge
   chartStyle?: ChartStyle;
+  resolution?: number;
 };
 type Hit = { id: string; x: number; y: number; width: number; height: number };
 type GuideHit = { markerId: string; kind: GuideKind; x: number; y: number };
@@ -49,14 +51,14 @@ const photo = (src: string) => {
   return img;
 };
 
-export function SharedChart({ candles, markers, market, selectedId, onSelect, onGuideDrop, guidesDisabled = false, avatars, chartStyle = 'candles' }: Props) {
+export function SharedChart({ candles, markers, market, selectedId, onSelect, onGuideDrop, guidesDisabled = false, avatars, chartStyle = 'candles', resolution }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const lastMarketRef = useRef<string | null>(null);
+  const lastContextRef = useRef<string | null>(null);
   const seriesRef = useRef<ISeriesApi<SeriesType> | null>(null);
-  const candlesRef = useRef(candles);
-  candlesRef.current = candles;
+  const candlesRef = useRef<Candle[]>([]);
+  const inferredResolution = resolution ?? (candles.length > 1 ? candleResolution(candles) : undefined);
   const styleRef = useRef(chartStyle);
   styleRef.current = chartStyle;
   const drawRef = useRef<() => void>(() => {});
@@ -67,6 +69,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hitRegions, setHitRegions] = useState<Hit[]>([]);
   const [guideHits, setGuideHits] = useState<GuideHit[]>([]);
+  const [hasCandles, setHasCandles] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -96,6 +99,8 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      lastContextRef.current = null;
+      candlesRef.current = [];
     };
   }, []);
 
@@ -105,6 +110,7 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    const range = chart.timeScale().getVisibleLogicalRange();
     if (seriesRef.current) chart.removeSeries(seriesRef.current);
     const autoscaleInfoProvider = (original: () => AutoscaleInfo | null) => {
       const base = original();
@@ -118,20 +124,29 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       : chart.addSeries(CandlestickSeries, { ...price, upColor: '#34d399', downColor: '#ff6b6b', borderVisible: false, wickUpColor: 'rgba(52,211,153,0.7)', wickDownColor: 'rgba(255,107,107,0.7)' });
     series.setData(seriesData(candlesRef.current, chartStyle));
     seriesRef.current = series;
+    if (range && candlesRef.current.length) chart.timeScale().setVisibleLogicalRange(range);
     drawRef.current();
   }, [chartStyle]);
 
   useEffect(() => {
     const series = seriesRef.current;
-    if (!series) return;
-    series.applyOptions({ priceFormat: priceFormat(candles) });
-    series.setData(seriesData(candles, styleRef.current));
-    if (candles.length) {
-      if (lastMarketRef.current !== market.id) chartRef.current?.timeScale().fitContent();
-      lastMarketRef.current = market.id;
-    }
+    const chart = chartRef.current;
+    if (!series || !chart) return;
+    const prefix = `${market.venue}:${market.id.toLowerCase()}:`;
+    const context = inferredResolution == null && lastContextRef.current?.startsWith(prefix)
+      ? lastContextRef.current : `${prefix}${inferredResolution ?? 300}`;
+    const reset = lastContextRef.current !== context;
+    const previous = candlesRef.current;
+    const next = mergeChartCandles(reset ? [] : previous, candles);
+    const range = chartVisibleRange(previous, next, chart.timeScale().getVisibleLogicalRange(), reset);
+    candlesRef.current = next;
+    lastContextRef.current = context;
+    setHasCandles(next.length > 0);
+    series.applyOptions({ priceFormat: priceFormat(next) });
+    series.setData(seriesData(next, styleRef.current));
+    if (range) chart.timeScale().setVisibleLogicalRange(range);
     drawRef.current();
-  }, [candles, market.id]);
+  }, [candles, market.id, market.venue, inferredResolution]);
 
   useEffect(() => {
     const onChart = markers.filter(marker => marker.marketId === market.id && marker.venue === market.venue);
@@ -317,6 +332,6 @@ const actual = kind === 'takeProfit' ? marker.takeProfitPrice : marker.stopLossP
         return marker && <button key={`${hit.markerId}:${hit.kind}`} className={`chart-guide ${hit.kind}`} type="button" style={{ left: hit.x, top: hit.y - 12 }} title={`Drag ${guideLabel(hit.kind)} to ${marker.isMine ? 'set' : 'suggest'} a price`} aria-label={`Drag ${guideLabel(hit.kind)} to ${marker.isMine ? 'set' : 'suggest'} a price`} onPointerDown={event => startGuideDrag(event, marker, hit.kind)} onPointerMove={moveGuideDrag} onPointerUp={finishGuideDrag} onPointerCancel={() => { dragRef.current = null; setDrag(null); }} disabled={guidesDisabled}>{guideLabel(hit.kind)}</button>;
       })}
     </div>
-    {!candles.length && <div className="chart-empty">Waiting for live market data</div>}
+    {!hasCandles && <div className="chart-empty">Waiting for live market data</div>}
   </div>;
 }

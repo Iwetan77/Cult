@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Star } from './icons';
 import { getMarket } from '@/lib/api';
 import { cachedMarket } from '@/lib/marketCache';
+import { CHART_RESOLUTIONS } from '@/lib/chartHistory';
 import type { BackendConfig, ChartMarker, ChartSnapshot, Clan, Holding, Market, MarketDetail, Me, TpslSuggestion, TpslValues } from '@/lib/contracts';
 import { setChartStylePref, toggleStar, useChartStylePref, useStarred } from '@/lib/prefs';
 import { PriceAlertControl } from './AlertsMenu';
@@ -52,7 +53,7 @@ type Props = {
   onProfile: (memberId: string) => void;
 };
 
-const RESOLUTIONS = [{ label: '5m', seconds: 300 }, { label: '1H', seconds: 3600 }, { label: '1D', seconds: 86400 }];
+const RESOLUTIONS = CHART_RESOLUTIONS;
 const originName = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? 'Auto copy' : origin === 'manual_stack' ? 'Stacked' : 'Own trade';
 
 export function MarketPage({ id, me, config, busy, social, holdings, onBack, onTrade, onDeposit, onProfile }: Props) {
@@ -76,12 +77,12 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
     return () => { active = false; window.clearInterval(timer); };
   }, [id, resolution]);
 
-  const m = detail?.market;
+  const m = detail?.market.id.toLowerCase() === id.toLowerCase() ? detail.market : undefined;
   const isPerp = m?.venue === 'perpl';
   const cult = social.cults.find(c => c.id === social.cultId) ?? null;
   const snap = cult && social.snapshot?.clan.id === cult.id && social.snapshot.selectedMarket.id.toLowerCase() === id.toLowerCase() ? social.snapshot : null;
   const markers = useMemo(() => snap?.markers.filter(x => x.marketId.toLowerCase() === id.toLowerCase()) ?? [], [snap, id]);
-  const candles = snap?.candles.length ? snap.candles : detail?.candles ?? [];
+  const candles = m && detail?.resolution === resolution ? detail.candles : [];
   const chartMarket: Market | null = m ? { venue: m.venue, id: m.id, symbol: m.symbol, baseSymbol: m.symbol.replace('-PERP', '').replace('$', ''), quoteSymbol: 'USD', maxLeverage: m.maxLeverage, makerFeeBps: null, takerFeeBps: null } : null;
   const selected = social.selected && markers.some(x => x.id === social.selected!.id) ? social.selected : null;
   const avatarOf = (memberId: string) => snap?.members.find(x => x.id === memberId)?.avatarUrl ?? null;
@@ -129,7 +130,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
             {cult && <span className={`live ${social.live ? 'on' : ''}`}><i />{social.live ? 'Live' : 'Synced'} · {markers.length}</span>}
           </div>
           <div className="chart-wrap">
-            <SharedChart candles={candles} markers={markers} market={chartMarket} selectedId={selected?.id ?? null} onSelect={marker => social.onSelect(marker)} onGuideDrop={social.onGuideDrop} guidesDisabled={!!busy} avatars={avatars} chartStyle={chartStyle} />
+            <SharedChart candles={candles} markers={markers} market={chartMarket} selectedId={selected?.id ?? null} onSelect={marker => social.onSelect(marker)} onGuideDrop={social.onGuideDrop} guidesDisabled={!!busy} avatars={avatars} chartStyle={chartStyle} resolution={resolution} />
             {selected && <MarkerCard marker={selected} symbol={m.symbol} busy={!!busy} now={social.now} avatarUrl={avatarOf(selected.memberId)}
               stackUsd={social.stackUsd} onStackUsd={social.onStackUsd} onStack={social.onStack}
               tpDraft={social.tpDraft} slDraft={social.slDraft} onTpDraft={social.onTpDraft} onSlDraft={social.onSlDraft} onSaveLevels={social.onSaveLevels}
