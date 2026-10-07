@@ -50,3 +50,18 @@ test('an incomplete order is not reported as unsubmitted or automatically retrie
   assert.doesNotMatch(body.message, /No order was sent|not filled|retry shortly/i);
   assert.equal(calls, 1);
 });
+
+test('unsupported Perpl leverage returns the actual ceiling instead of an internal error', async () => {
+  const { createApp } = await import('../src/api/server.js');
+  const { LeverageError } = await import('../src/trading/positions.js');
+  const engine = new EventEmitter() as import('../src/mirror/engine.js').MirrorEngine;
+  const app = createApp(engine);
+  app.get('/test/leverage', () => {
+    throw new LeverageError('MON supports up to 3x leverage. Choose a leverage between 1x and 3x.');
+  });
+  const response = await app.request('/test/leverage');
+  assert.equal(response.status, 400);
+  const body = await response.json();
+  assert.equal(body.code, 'unsupported_leverage');
+  assert.match(body.message, /MON supports up to 3x/);
+});
