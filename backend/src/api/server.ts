@@ -40,7 +40,7 @@ import { listMarkets, marketDetail, MarketError } from './markets.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
-import { OrderFailed } from '../trading/positions.js';
+import { LeverageError, OrderFailed } from '../trading/positions.js';
 import { indexerStatus } from '../indexer/stats.js';
 import { recentConversion } from '../funding/usdc.js';
 import { FundsError } from '../funding/margin.js';
@@ -118,6 +118,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof FundsError) return c.json({ message: err.message }, 409);
+    if (err instanceof LeverageError) return c.json({ message: err.message, code: 'unsupported_leverage' }, 400);
     if (err instanceof OrderFailed) {
       console.warn('[api] Perpl order not completed:', err.message);
       return c.json({ message: `Perpl could not complete this order (status ${err.order.st}, reason ${err.order.sr}, fill reason ${err.order.fr ?? '-'}). Refresh your positions before placing another trade.`, code: 'order_failed' }, 502);
