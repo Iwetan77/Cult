@@ -40,6 +40,7 @@ import { listMarkets, marketDetail, MarketError } from './markets.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
+import { OrderFailed } from '../trading/positions.js';
 import { indexerStatus } from '../indexer/stats.js';
 import { recentConversion } from '../funding/usdc.js';
 import { FundsError } from '../funding/margin.js';
@@ -108,7 +109,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof AuthError) return c.json({ message: err.message }, 401);
     if (err instanceof PinError) return c.json({ message: err.message, code: err.code }, err.status);
     // A transaction the member's wallet couldn't pay the fee for (no MON).
-    if (/insufficient (balance|funds)/i.test(String((err as Error)?.message ?? ''))) return c.json({ message: NO_GAS, code: 'needs_gas' }, 409);
+    if (ethers.isError(err, 'INSUFFICIENT_FUNDS') || /insufficient (balance|funds)/i.test(String((err as Error)?.message ?? ''))) return c.json({ message: NO_GAS, code: 'needs_gas' }, 409);
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
@@ -117,6 +118,10 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof FundsError) return c.json({ message: err.message }, 409);
+    if (err instanceof OrderFailed) {
+      console.warn('[api] Perpl order not completed:', err.message);
+      return c.json({ message: `Perpl could not complete this order (status ${err.order.st}, reason ${err.order.sr}, fill reason ${err.order.fr ?? '-'}). Refresh your positions before placing another trade.`, code: 'order_failed' }, 502);
+    }
     if (err instanceof WithdrawError) return c.json({ message: err.message }, err.status);
     if (err instanceof SwapUnavailable) return c.json({ message: `Couldn't swap for this trade right now (${err.message}). Try again shortly.` }, 503);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
