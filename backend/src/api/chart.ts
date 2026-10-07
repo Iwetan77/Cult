@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 import { getJson } from '../http.js';
 import { NADFUN } from '../nadfun/constants.js';
-import { getContext, getMarket, scale } from '../perpl/context.js';
+import { getContext, getMarket, maxLeverageHundredths, scale } from '../perpl/context.js';
 import type { Market as PerplMarket } from '../perpl/types.js';
 import { adjustments, mirrors, trades, type LeaderTrade } from '../mirror/repo.js';
 import { getDb } from '../store/db.js';
@@ -91,7 +91,7 @@ export function toApiMarket(m: PerplMarket): ApiMarket {
     symbol: `${m.symbol}-PERP`,
     baseSymbol: m.symbol,
     quoteSymbol: 'USD',
-    maxLeverage: Math.floor((10_000 / m.config.initial_margin) * 100) / 100,
+    maxLeverage: maxLeverageHundredths(m) / 100,
     makerFeeBps: m.config.maker_fee / 100,
     takerFeeBps: m.config.taker_fee / 100,
   };

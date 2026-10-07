@@ -20,10 +20,14 @@ export class OrderFailed extends Error {
   }
 }
 
-function checkLeverage(m: Market, leverage: number): number {
+export class LeverageError extends Error {}
+
+export function checkLeverage(m: Market, leverage: number): number {
   const lv = Math.round(leverage * 100);
   const max = maxLeverageHundredths(m);
-  if (lv < 100 || lv > max) throw new Error(`leverage ${leverage}x outside 1x..${max / 100}x for ${m.symbol}`);
+  if (!Number.isFinite(lv) || !Number.isFinite(max) || max < 100 || lv < 100 || lv > max) {
+    throw new LeverageError(`${m.symbol} supports up to ${max / 100}x leverage. Choose a leverage between 1x and ${max / 100}x.`);
+  }
   return lv;
 }
 

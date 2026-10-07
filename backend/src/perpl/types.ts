@@ -15,8 +15,8 @@ export interface MarketConfig {
   is_open: boolean;
   price_decimals: number;
   size_decimals: number;
-  initial_margin: number; // hundredths of a percent: 1500 = 15% = 6.67x max
-  maintenance_margin: number;
+  initial_margin: number; // leverage hundredths: 1500 = 15x max, collateral = notional / 15
+  maintenance_margin: number; // denominator hundredths: 2000 = 20, maintenance = notional / 20
   maker_fee: number; // micros
   taker_fee: number; // micros
   maker_fees?: number[];
