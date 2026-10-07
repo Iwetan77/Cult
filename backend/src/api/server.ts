@@ -107,6 +107,8 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof HTTPException) return c.json({ message: err.message }, err.status);
     if (err instanceof AuthError) return c.json({ message: err.message }, 401);
     if (err instanceof PinError) return c.json({ message: err.message, code: err.code }, err.status);
+    // A transaction the member's wallet couldn't pay the fee for (no MON).
+    if (/insufficient (balance|funds)/i.test(String((err as Error)?.message ?? ''))) return c.json({ message: NO_GAS, code: 'needs_gas' }, 409);
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
@@ -456,6 +458,13 @@ export function createApp(engine: MirrorEngine) {
     const body = z
       .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
       .parse(await c.req.json());
+    // A shared cult ("cult:<id>") must be a public cult the sender is in. Trade
+    // links only go in cult rooms: Global and country rooms are for finding
+    // cults, not for following strangers' trades.
+    if (body.markerId?.startsWith('cult:')) {
+      const shared = clans.get(body.markerId.slice(5));
+      if (!shared || shared.visibility !== 'public' || !clans.membership(shared.id, c.get('userId'))) throw bad(400, 'only a public cult you are in can be shared');
+    } else if (body.markerId && !room.startsWith('cult:')) throw bad(400, 'trades are shared in cults');
     return c.json(postMessage(room, c.get('userId'), body), 201);
   });
   // The cult owner pins a message ({ messageId }) or clears it ({ messageId: null }).
@@ -869,6 +878,9 @@ async function gasCheckedBalances(userId: string, wallet: string) {
   if (b?.lowGas && b.walletUsd >= 1) void ensureGas(wallet).catch(() => undefined);
   return b;
 }
+
+// What a member sees when their wallet can't pay a network fee.
+const NO_GAS = 'Top up MON for gas.';
 
 // A forgotten PIN can be reset this long after signing in again.
 const PIN_RESET_WINDOW_MS = 10 * 60_000;

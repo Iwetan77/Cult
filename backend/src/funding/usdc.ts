@@ -44,6 +44,23 @@ export function recentConversion(userId: string): Conversion | null {
   return c && Date.now() - c.at < 10 * 60_000 ? c : null;
 }
 
+// USDC sitting in a member's wallet, in $ (mainnet; 0 where there's none).
+export async function usdcUsd(wallet: string): Promise<number> {
+  const usdc = usdcAddress();
+  if (!usdc) return 0;
+  const bal: bigint = await new ethers.Contract(usdc, erc20Abi, rpc()).getFunction('balanceOf')(wallet).catch(() => 0n);
+  return Number(ethers.formatUnits(bal, 6));
+}
+
+// A trade that's short on AUSD: turn the member's USDC into AUSD now instead
+// of waiting for the next sweep (needs their trading permission, like the
+// sweep). Best effort: the trade then reads balances again.
+export async function convertUsdcNow(userId: string): Promise<Conversion | null> {
+  const m = members.get(userId);
+  if (!m || (await usdcUsd(m.wallet)) < numEnv('USDC_MIN_CONVERT', 1)) return null;
+  return convertUsdc(userId).catch((e) => { console.warn(`[usdc] on-demand conversion for ${m.wallet} failed: ${(e as Error).message}`); return null; });
+}
+
 export async function convertUsdc(userId: string): Promise<Conversion | null> {
   const usdc = usdcAddress();
   const m = members.get(userId);

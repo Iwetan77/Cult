@@ -51,7 +51,11 @@ import { Ticker } from './Ticker';
 import { parseRoute, routePath, type AccountTab, type Route, type View } from '@/lib/routes';
 import './dashboard.css';
 
-const errorText = (error: unknown) => error instanceof Error ? error.message : 'Something went wrong.';
+const errorText = (error: unknown) => {
+  const text = error instanceof Error ? error.message : 'Something went wrong.';
+  // A wallet that can't pay a network fee: one plain line, not the raw wallet error.
+  return /insufficient (balance|funds)/i.test(text) ? 'Top up MON for gas.' : text;
+};
 const PREDICTIONS_UNAVAILABLE = 'Predictions are being switched on. Check back soon.';
 const collateralMessage = (minimumRaw: string) => `Add MON, USDC or AUSD to your wallet to open your perps account (about ${dollars(Number(minimumRaw) / 1e6)}).`;
 const validatePolicy = (value: MirrorPolicy) => {
@@ -591,7 +595,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     let result;
     try { result = await sendTransaction({ to: action.to, data: action.data, value: BigInt(action.value ?? '0x0') }, { address: wallet.address }); }
     catch (reason) {
-      if (/insufficient (balance|funds)/i.test(errorText(reason))) throw new Error(config.chainId === monad.id ? 'Your wallet needs a little MON for network fees. Add some MON, then try again.' : 'Your wallet needs a little testnet MON for network fees. Get some free at faucet.monad.xyz, then try again.');
+      if (/insufficient (balance|funds)/i.test(errorText(reason))) throw new Error('Top up MON for gas.');
       throw reason;
     }
     const chain = config.chainId === monad.id ? monad : monadTestnet;
@@ -735,13 +739,13 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     catch (reason) { setError(errorText(reason)); }
     finally { setBusy(null); }
   };
-  const enroll = () => perform('enroll-perpl', async () => {
+  const enroll = () => { let ready = false; return perform('enroll-perpl', async () => {
     if (!wallet || !config) throw new Error('Connect your trading wallet first.');
     const auth = await token();
     for (let attempt = 0; attempt < 8; attempt++) {
       const current = await getPerplSetup(auth);
       setSetup(current);
-      if (current.step === 'ready') { setPerpsPrompt(false); setNotice('Perps are enabled.'); return; }
+      if (current.step === 'ready') { ready = true; setPerpsPrompt(false); setNotice(afterPerps.current ? 'Perps are enabled. Placing your trade…' : 'Perps are enabled.'); return; }
       if (current.step === 'needs_collateral') throw new Error(collateralMessage(current.minAccountOpen));
       if (current.step === 'needs_key') {
         setProgressText('Authorize your perps trading key');
@@ -764,14 +768,24 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       if (next.step === current.step) { setNotice('Wallet action confirmed. Continue setup after the backend updates.'); return; }
     }
     throw new Error('Setup is still in progress. Continue after refreshing its status.');
-  });
-  const ensurePerps = async () => {
+  }).then(() => {
+    // Setup done: place the trade that was waiting for it.
+    const next = afterPerps.current;
+    afterPerps.current = null;
+    if (ready && next) next();
+  }); };
+  // A trade that found perps not set up yet: it's placed as soon as setup
+  // finishes, so a first-time member doesn't have to tap it again.
+  const afterPerps = useRef<(() => void) | null>(null);
+  const ensurePerps = async (then?: () => void) => {
     const current = await getPerplSetup(await token());
     setSetup(current);
     if (current.step === 'ready') return true;
+    afterPerps.current = then ?? null;
     setPerpsPrompt(true);
     return false;
   };
+  const closePerpsPrompt = () => { afterPerps.current = null; setPerpsPrompt(false); };
   const skip = () => perform('skip', async () => {
     if (!clanId || !selected || selected.origin !== 'auto_mirror' || selected.mirrorStatus !== 'pending' || !selected.skipUntil || Date.parse(selected.skipUntil) <= Date.now()) throw new Error('The skip window has closed.');
     await skipAutoMirror(await token(), clanId, selected.id);
@@ -787,7 +801,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     const monPrice = config?.monPriceAusd;
     const mon = balances?.mon ?? monBalance;
     if (mon == null || !monPrice || monPrice <= 0) throw new Error('MON balance or price is unavailable. Wait for it before buying.');
-    const dollarsUsable = config?.chainId === 143 || demo ? balances?.walletUsd ?? 0 : 0;
+    const dollarsUsable = config?.chainId === 143 || demo ? (balances?.walletUsd ?? 0) + (balances?.usdcUsd ?? 0) : 0;
     const monUsable = Math.max(0, mon - gasReserveMon) * monPrice;
     if (Math.max(dollarsUsable, monUsable) < amountUsd) throw new Error(`Not enough funds for this buy (about ${dollars(Math.max(dollarsUsable, monUsable))} available, keeping ${gasReserveMon} MON for fees).`);
   };
@@ -797,7 +811,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   const placeMarketTrade = (target: TicketMarket, side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => perform('open', async () => {
     if (!signerReady && !await grantSigner()) return;
     if (target.venue === 'nadfun') requireNadFunds(marginUsd);
-    if (target.venue === 'perpl' && !await ensurePerps()) return;
+    if (target.venue === 'perpl' && !await ensurePerps(() => placeMarketTrade(target, side, marginUsd, leverage, cultIds, tpsl))) return;
     setProgressText(target.venue === 'perpl' ? 'Moving funds into your trading account…' : 'Placing your trade…');
     await openPosition(await token(), target.id, target.venue === 'nadfun' ? 'buy' : side, marginUsd, leverage, cultIds);
     let levelsFailed: string | null = null;
@@ -815,6 +829,8 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   });
   const trader = () => ({ name: me?.name ?? 'You', avatarUrl: me?.avatarUrl ?? null });
   const holdingFor = (market: string) => holdings.find(item => item.market.toLowerCase() === market.toLowerCase());
+  // An open position's PnL card, from Account (no chart marker needed).
+  const shareHolding = (holding: Holding) => setCardSheet({ mode: 'live', result: { ...resultOfClose(holding, null, trader()), live: true } });
   // Share one of your open positions: its PnL card as an image, made right
   // here (no sign-in needed, works in the demo). Real accounts can also share
   // a public link to it.
@@ -931,7 +947,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter a valid amount.');
     if (!signerReady && !await grantSigner()) return;
     if (selected.venue === 'nadfun') requireNadFunds(amount);
-    if (selected.venue === 'perpl' && !await ensurePerps()) return;
+    if (selected.venue === 'perpl' && !await ensurePerps(() => stack())) return;
     const result = await stackPosition(await token(), clanId, selected.id, amount);
     if (result.status !== 'open') throw new Error(result.error ?? 'The stack could not be opened.');
     await loadChart(clanId, marketId ?? undefined);
@@ -1119,7 +1135,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     : kind === 'predictions'
       ? { kind, label: 'Predictions', items: searchPredictions.map(event => ({ key: event.slug, open: () => openPrediction(event.slug), row: <><EventArt event={event} /><span className="search-name"><strong className="search-title">{event.title}</strong><small>{event.multi ? `${event.outcomes[0]?.label ?? ''} ${chance(event.outcomes[0]?.yesPrice ?? 0)}` : `${chance(event.outcomes[0]?.yesPrice ?? 0)} chance`}</small></span></> })) }
       : { kind, label: kind === 'perpl' ? 'Perps' : 'Memes', items: searchMarkets.filter(item => item.venue === kind).slice(0, 5).map(item => ({ key: `${item.venue}:${item.id}`, open: () => openMarket(item.id), row: marketRow(item) })) });
-  const balance = me?.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) + (me.balances.predictionsUsd ?? 0) : null;
+  const balance = me?.balances ? me.balances.walletUsd + (me.balances.usdcUsd ?? 0) + (me.balances.perplMarginUsd ?? 0) + (me.balances.predictionsUsd ?? 0) : null;
 // Main menu, most used first.
   const nav: NavItem[] = [
     { id: 'home', label: 'Home', icon: <Home size={18} />, active: view === 'home', onClick: () => go('home') },
@@ -1165,12 +1181,14 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
-        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
+        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onShareHolding={shareHolding} onMarket={openMarket} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
         : <div className="view two-col room-view">
           <section className="view-main room-main">
             <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => goUp({ view: 'groups' })}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm" onClick={() => setGroupPanelOpen(true)}><PanelRightOpen size={14} /> {activeRoom?.kind === 'cult' ? 'Positions' : 'Rankings'}</button></div>
             {activeRoom ? <ClanChat key={activeRoom.id} room={activeRoom} liveMessage={activeRoom.kind === 'cult' ? liveMessage : null} selectedMarker={activeRoom.kind === 'cult' ? selected : null} onOpenMarker={openLinkedMarker} onMember={openAccount} onActivity={loadMeSoon} onInvite={activeRoom.kind === 'cult' ? copyInvite : undefined} canPin={!!clan?.isOwner && activeRoom.kind === 'cult'} meId={me.id} meName={me.name} markers={activeRoom.kind === 'cult' ? snapshot?.markers : undefined}
-              onTrade={() => { if (activeRoom.kind === 'cult') setMarketSolo(false); showMarketsTab('perpl'); openMarket(null); }} />
+              onTrade={activeRoom.kind === 'cult' ? () => { setMarketSolo(false); showMarketsTab('perpl'); openMarket(null); } : undefined}
+              shareCults={activeRoom.kind === 'cult' ? undefined : me.clans.filter(c => c.visibility === 'public').map(c => ({ id: c.id, name: c.name }))}
+              myCultIds={me.clans.map(c => c.id)} onJoinCult={joinPublic} onOpenRoom={openRoom} />
               : <div className="empty"><strong>This room is unavailable.</strong><span>Refresh your account or choose a country in Account.</span></div>}
           </section>
           {activeRoom && <div className={`view-side room-side ${groupPanelOpen ? 'open' : ''}`}>
@@ -1230,7 +1248,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     {withdrawOpen && <WithdrawSheet onClose={() => setWithdrawOpen(false)} onDone={() => { void loadMe(); }} predictionsUsd={demo ? null : me?.balances?.predictionsUsd ?? null} onBringBack={demo ? undefined : bringBackPredictions} gasReserveMon={me?.balances?.gasReserveMon ?? 0} onSend={transactAll} crossChain={!!demo || !!config?.features?.crossChain} />}
     {depositOpen && <DepositSheet crossChain={!!demo || !!config?.features?.crossChain} onClose={() => setDepositOpen(false)} signerReady={signerReady} permissionBusy={!!busy} onGrantPermission={() => { void perform('grant-signer', async () => { if (await grantSigner()) setNotice('Trading permission is active.'); }); }} />}
     {permissionOpen && <TradingPermissionDialog onDecision={decidePermission} />}
-    {perpsPrompt && <div className="modal-backdrop"><section className="dialog simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-btn dialog-close" title="Close" disabled={busy === 'enroll-perpl'} onClick={() => setPerpsPrompt(false)}><X size={16} /></button><h2 className="display">Enable perps</h2><p className="dialog-sub">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p>{progressText && busy === 'enroll-perpl' && <p className="fine" role="status">{progressText}</p>}<button className="btn btn-primary btn-block btn-lg" disabled={!!busy} onClick={enroll}>Enable perps</button>{setup?.step === 'needs_collateral' && <><p className="fine">{collateralMessage(setup.minAccountOpen)}</p><button className="btn btn-ghost btn-block" onClick={() => { setPerpsPrompt(false); setDepositOpen(true); }}>Deposit first</button></>}</section></div>}
+    {perpsPrompt && <div className="modal-backdrop"><section className="dialog simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-btn dialog-close" title="Close" disabled={busy === 'enroll-perpl'} onClick={closePerpsPrompt}><X size={16} /></button><h2 className="display">Enable perps</h2><p className="dialog-sub">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p>{progressText && busy === 'enroll-perpl' && <p className="fine" role="status">{progressText}</p>}<button className="btn btn-primary btn-block btn-lg" disabled={!!busy} onClick={enroll}>Enable perps</button>{setup?.step === 'needs_collateral' && <><p className="fine">{collateralMessage(setup.minAccountOpen)}</p><button className="btn btn-ghost btn-block" onClick={() => { closePerpsPrompt(); setDepositOpen(true); }}>Deposit first</button></>}</section></div>}
     {tradeSheetTarget && <TradeSheet target={tradeSheetTarget} onClose={() => setTradeSheetTarget(null)} onProfile={openAccount} onChart={openTradeChart} />}
     {busy && !permissionOpen && <div className="busy" role="status"><i /><span>{progressText ?? (busy === 'stack' ? 'Authorizing your trade…' : busy === 'open' ? 'Placing your trade…' : 'Working…')}</span></div>}
   </div>;

@@ -53,10 +53,12 @@ export async function walletSpendableAusd(userId: string): Promise<number> {
   const m = members.get(userId);
   if (!m) return 0;
   const { collateralDecimals } = await getExchangeInfo();
-  const [ausd, mon, px] = await Promise.all([collateralBalance(m.wallet), rpc().getBalance(m.wallet), monPriceAusd().catch(() => 0)]);
+  const { usdcUsd } = await import('./usdc.js');
+  const [ausd, mon, px, usdc] = await Promise.all([collateralBalance(m.wallet), rpc().getBalance(m.wallet), monPriceAusd().catch(() => 0), usdcUsd(m.wallet)]);
   const spareMon = mon - GAS_RESERVE_WEI - TOPUP_GAS_WEI;
   const monUsd = spareMon > 0n ? Number(ethers.formatEther(spareMon)) * px * MON_HAIRCUT : 0;
-  return Number(ausd) / 10 ** collateralDecimals + monUsd;
+  // USDC is converted to AUSD when a trade needs it (ensurePerplMargin).
+  return Number(ausd) / 10 ** collateralDecimals + usdc + monUsd;
 }
 
 // Make sure the Perpl account has at least `needAusd` free. Returns what was
@@ -79,6 +81,11 @@ export async function ensurePerplMargin(userId: string, needAusd: number): Promi
   const signer = signerFor(userId);
   let wallet = await collateralBalance(m.wallet);
   let monSwapped = 0;
+  // Deposited USDC counts as dollars: convert it before reaching for MON.
+  if (wallet < deposit) {
+    const { convertUsdcNow } = await import('./usdc.js');
+    if (await convertUsdcNow(userId)) wallet = await collateralBalance(m.wallet);
+  }
   if (wallet < deposit) {
     // Swap just enough MON for the rest, never touching the gas reserve.
     const px = await monPriceAusd();
