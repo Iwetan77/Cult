@@ -66,7 +66,9 @@ export const scale = {
   unsize: (scaled: number, m: Market) => scaled / 10 ** m.config.size_decimals,
 };
 
-// Max leverage in Perpl's `lv` units (hundredths): 10000 / initial_margin * 100.
+// Perpl's margin fractions are leverage denominators in hundredths, not bps:
+// initial_margin=300 means 3x (not 3% / 33.33x). The SDK uses the same scaler
+// for initial_margin and order.lv.
 export function maxLeverageHundredths(m: Market): number {
-  return Math.floor((10_000 / m.config.initial_margin) * 100);
+  return Math.floor(m.config.initial_margin);
 }
