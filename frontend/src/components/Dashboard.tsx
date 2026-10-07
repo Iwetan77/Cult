@@ -7,7 +7,7 @@ import { useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSignT
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
 import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, X } from './icons';
-import { createClan, createShare, enrollPerpl, ensureGas, getChart, getMarkets, setCountry, setPin, resetPin, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
+import { createClan, createShare, enrollPerpl, ensureGas, setCultAdmin, getChart, getMarkets, setCountry, setPin, resetPin, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
 import { privySupported } from '@/lib/privySupport';
@@ -955,6 +955,28 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     await loadMe();
     setNotice('Stacked: the same position is open in your own account.');
   });
+  // Copy a cult admin's trade from the chat (Auto-follow off): the same
+  // position in your own account, with your amount.
+  const copyTrade = (cultId: string, markerId: string, symbol: string, usd: number) => perform('stack', async () => {
+    if (!signerReady && !await grantSigner()) return;
+    const venue = symbol.startsWith('$') ? 'nadfun' : 'perpl';
+    if (venue === 'nadfun') requireNadFunds(usd);
+    if (venue === 'perpl' && !await ensurePerps(() => copyTrade(cultId, markerId, symbol, usd))) return;
+    const result = await stackPosition(await token(), cultId, markerId, usd);
+    if (result.status !== 'open') throw new Error(result.error ?? 'The copy could not be opened.');
+    if (clanId === cultId) await loadChart(cultId, marketId ?? undefined).catch(() => undefined);
+    setHoldings((await getHoldings(await token())).positions);
+    await loadMe();
+    setNotice(`Copied ${symbol} with ${dollars(usd)}, in your own account.`);
+  });
+  // An admin makes a member an admin, or takes it back.
+  const setAdmin = async (cultId: string, memberId: string, admin: boolean) => {
+    try {
+      await setCultAdmin(await token(), cultId, memberId, admin);
+      await loadChart(cultId, marketId ?? undefined).catch(() => undefined);
+      setNotice(admin ? 'They’re an admin now: their trades are shared here.' : 'Admin removed.');
+    } catch (reason) { setError(errorText(reason)); }
+  };
   const selectMarker = (marker: ChartMarker) => {
     setSelectedId(marker.id);
     setTpDraft(levelDraft(marker.takeProfitPrice));
@@ -1188,7 +1210,9 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
             {activeRoom ? <ClanChat key={activeRoom.id} room={activeRoom} liveMessage={activeRoom.kind === 'cult' ? liveMessage : null} selectedMarker={activeRoom.kind === 'cult' ? selected : null} onOpenMarker={openLinkedMarker} onMember={openAccount} onActivity={loadMeSoon} onInvite={activeRoom.kind === 'cult' ? copyInvite : undefined} canPin={!!clan?.isOwner && activeRoom.kind === 'cult'} meId={me.id} meName={me.name} markers={activeRoom.kind === 'cult' ? snapshot?.markers : undefined}
               onTrade={activeRoom.kind === 'cult' ? () => { setMarketSolo(false); showMarketsTab('perpl'); openMarket(null); } : undefined}
               shareCults={activeRoom.kind === 'cult' ? undefined : me.clans.filter(c => c.visibility === 'public').map(c => ({ id: c.id, name: c.name }))}
-              myCultIds={me.clans.map(c => c.id)} onJoinCult={joinPublic} onOpenRoom={openRoom} />
+              myCultIds={me.clans.map(c => c.id)} onJoinCult={joinPublic} onOpenRoom={openRoom}
+              copyable={activeRoom.kind === 'cult' && !(clan?.autoFollow ?? false)} copyUsd={Number(stackUsd) || 50}
+              onCopyTrade={activeRoom.kind === 'cult' ? (markerId, symbol, usd) => copyTrade(activeRoom.id.slice(5), markerId, symbol, usd) : undefined} />
               : <div className="empty"><strong>This room is unavailable.</strong><span>Refresh your account or choose a country in Account.</span></div>}
           </section>
           {activeRoom && <div className={`view-side room-side ${groupPanelOpen ? 'open' : ''}`}>
@@ -1197,7 +1221,8 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
               onGrantSigner={() => { void perform('grant-signer', async () => { const confirmed = await grantSigner(); setNotice(confirmed ? 'Trading signer is active.' : 'Signer approval is awaiting Privy verification.'); }); }}
               onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker}
               onOpenTrade={() => { if (market) { setMarketSolo(false); navigate({ view: 'markets', market: market.id }); } }} onGuideDrop={(marker, kind, level) => { void submitGuide(marker, kind, level); }}
-              onInvite={copyInvite} onVisibility={changeVisibility} onLeave={leave} onProfile={openAccount} />
+              onInvite={copyInvite} onVisibility={changeVisibility} onLeave={leave} onProfile={openAccount}
+              meId={me.id} onSetAdmin={activeRoom.kind === 'cult' ? (memberId, admin) => setAdmin(activeRoom.id.slice(5), memberId, admin) : undefined} />
           </div>}
           {groupPanelOpen && <button className="sheet-scrim" aria-label="Close details" onClick={() => setGroupPanelOpen(false)} />}
         </div>}

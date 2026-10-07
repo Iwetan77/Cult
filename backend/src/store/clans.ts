@@ -44,11 +44,14 @@ export function normalizeInviteCode(input: string): string {
   return letters.length === 6 ? `${letters.slice(0, 3)}-${letters.slice(3)}` : input.trim();
 }
 
+export type CultRole = 'admin' | 'member';
+
 export interface ClanMembership {
   clanId: string;
   userId: string;
   policy: MirrorPolicy;
   joinedAt: number;
+  role: CultRole; // admins share trades with the cult; the creator is always one
 }
 
 interface ClanRow {
@@ -66,6 +69,7 @@ interface MemberRow {
   balance_percent_cap: number;
   max_usd_per_trade: number;
   joined_at: number;
+  role: string | null;
 }
 
 const toClan = (r: ClanRow): Clan => ({
@@ -81,6 +85,7 @@ const toMembership = (r: MemberRow): ClanMembership => ({
   userId: r.user_id,
   policy: { enabled: r.mirror_enabled === 1, balancePercentCap: r.balance_percent_cap, maxUsdPerTrade: r.max_usd_per_trade },
   joinedAt: r.joined_at,
+  role: r.role === 'admin' ? 'admin' : 'member',
 });
 
 export const clans = {
@@ -104,7 +109,25 @@ export const clans = {
       }
     }
     this.join(id, createdBy, creatorPolicy);
+    this.setRole(id, createdBy, 'admin');
     return this.get(id)!;
+  },
+
+  // Admins share their trades with the cult (chart, chat, copies) and can make
+  // other members admins. The creator always is one.
+  isAdmin(clanId: string, userId: string): boolean {
+    const c = this.get(clanId);
+    if (!c) return false;
+    return c.createdBy === userId || this.membership(clanId, userId)?.role === 'admin';
+  },
+
+  setRole(clanId: string, userId: string, role: CultRole) {
+    getDb().prepare('UPDATE clan_members SET role = ? WHERE clan_id = ? AND user_id = ?').run(role, clanId, userId);
+  },
+
+  // The cults this member shares trades with (the ones they're an admin of).
+  adminCultIds(userId: string): string[] {
+    return this.forUser(userId).filter((c) => this.isAdmin(c.id, userId)).map((c) => c.id);
   },
 
   setVisibility(id: string, visibility: Visibility) {

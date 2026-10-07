@@ -80,7 +80,7 @@ export interface ChartSnapshot {
   markers: ChartMarker[];
   // Track record from the indexer (verified on-chain history). Unverified =
   // the indexer hasn't seen this wallet or isn't reachable: nulls, not zeros.
-  members: ({ id: string; name: string; avatarUrl: string | null; address: string; winRate: number | null; realizedPnlUsd: number | null; tradeCount: number; verified: boolean } & {
+  members: ({ id: string; name: string; avatarUrl: string | null; address: string; winRate: number | null; realizedPnlUsd: number | null; tradeCount: number; verified: boolean; admin: boolean } & {
     stats: MemberStats;
   })[];
   asOf: string;
@@ -317,6 +317,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
         name: name(r.userId),
         avatarUrl: avatarOf(r.userId),
         address,
+        admin: clans.isAdmin(clan.id, r.userId), // shares trades with the cult
         winRate: st.winRate,
         realizedPnlUsd: st.realizedPnlUsd,
         tradeCount: st.tradeCount,

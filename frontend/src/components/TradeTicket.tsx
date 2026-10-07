@@ -21,7 +21,8 @@ type Props = {
   market: TicketMarket;
   balances: Me['balances'];
   monPriceUsd: number | null;
-  cults: Clan[];
+  cults: Clan[]; // the cults this trade can be shared with (where you're an admin)
+  inCults?: boolean; // a member of any cult at all
   defaultPostTo: PostTo;
   busy: boolean;
   onSubmit: (side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => void;
@@ -40,7 +41,7 @@ function leverageTicks(max: number): number[] {
 const assetOf = (symbol: string) => symbol.replace(/-PERP$/i, '').replace(/^\$/, '');
 const trim = (value: number, digits: number) => String(Number(value.toFixed(digits)));
 
-export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostTo, busy, onSubmit, onDeposit }: Props) {
+export function TradeTicket({ market, balances, monPriceUsd, cults, inCults = false, defaultPostTo, busy, onSubmit, onDeposit }: Props) {
   const isPerp = market.venue === 'perpl';
   const maxLev = Math.max(1, Math.floor(market.maxLeverage));
   const asset = assetOf(market.symbol);
@@ -164,7 +165,7 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
         {cults.map(cult => <option key={cult.id} value={cult.id}>{cult.name}</option>)}
         <option value="none">Only me (private)</option>
       </select>
-    </label> : <p className="ticket-note">You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</p>}
+    </label> : <p className="ticket-note">{inCults ? 'Only cult admins share trades, so this one is yours alone.' : <>You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</>}</p>}
 
     {isPerp && confirming ? <div className="ticket-confirm" role="alertdialog" aria-label={`Confirm ${lev}x leverage`}>
       <strong>{lev}x is high leverage</strong>

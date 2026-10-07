@@ -89,6 +89,9 @@
 .down { color: var(--red); }
 .muted { color: var(--muted); }
 .strong { font-weight: 500; color: var(--text); }
+/* A strong figure that's a gain or a loss keeps its colour. */
+.strong.up { color: var(--up); }
+.strong.down { color: var(--red); }
 .display { font-family: var(--display); font-weight: 400; text-transform: uppercase; line-height: 1; letter-spacing: 0.01em; }
 .eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
 .count { font-size: 13px; color: var(--dim); white-space: nowrap; }
@@ -491,8 +494,10 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .my-pos-grid b, .about dd { margin: 0; font-size: 14px; font-weight: 500; }
 .ticket-card .card-head { margin-bottom: 19px; }
 .mini-members { display: flex; flex-direction: column; gap: 2px; margin: 0 -10px; }
-.mini-members button { display: flex; align-items: center; gap: 14px; padding: 11px 10px; border: 0; border-radius: var(--r-ctl); background: none; text-align: left; }
-.mini-members button:hover { background: var(--hover); }
+.mini-member { display: flex; align-items: center; gap: 8px; padding-right: 10px; border-radius: var(--r-ctl); }
+.mini-member:hover { background: var(--hover); }
+.mini-members .mini-member-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 11px 10px; border: 0; border-radius: var(--r-ctl); background: none; text-align: left; }
+.admin-tag { margin-left: 8px; padding: 2px 7px; border-radius: 99px; background: var(--accent-soft); color: var(--accent-text); font-size: 10.5px; font-style: normal; font-weight: 500; letter-spacing: 0.02em; vertical-align: 1px; }
 .mini-members .room-avatar { width: 32px; height: 32px; font-size: 12px; }
 .mini-members span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .mini-members strong { font-size: 14px; font-weight: 500; }
@@ -1655,3 +1660,13 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .chat-share-pick button:hover { background: var(--s3); }
 .chat-share-pick .field-note { margin: 0; }
 .chat-tool.on { background: var(--accent-soft); color: var(--accent-text); }
+
+/* Copy an admin's trade from the chat (Auto-follow off). */
+.chat-trade-copy { flex: none; }
+.chat-copy { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.chat-copy-input { display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 10px; border-radius: 99px; background: var(--s2); font-size: 14px; color: var(--muted); }
+.chat-copy-input input { width: 56px; border: 0; outline: 0; background: none; color: var(--text); font: inherit; font-variant-numeric: tabular-nums; }
+.chat-copy-input:focus-within { box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.55); }
+
+/* Account > Open: Share is labelled; phones show just the icon. */
+@media (max-width: 760px) { .ttable-share span { display: none; } .ttable-share { padding: 0 10px; } }
