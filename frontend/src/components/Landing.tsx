@@ -273,7 +273,7 @@ const BOARD = [
 ] as const;
 
 function RaysVideo() {
-  return <video className="lp-rays__video" src={`${A}/light-rail.mp4`} poster={`${A}/rays-bg.png`} autoPlay muted loop playsInline aria-hidden="true" />;
+  return <video className="lp-rays__video" src={`${A}/light-rails.mp4`} poster={`${A}/rays-poster.jpg`} autoPlay muted loop playsInline aria-hidden="true" />;
 }
 
 // Sign-in sheet: Google or wallet. Opened by the phone nav's Login and the hero's Join / Create a cult
@@ -306,7 +306,7 @@ function LoginSheet({ open, intent, onClose, onLogin, onDemo }: { open: boolean;
       <p className="lp-login__text">{SHEET_COPY[intent].text}</p>
       <div className="lp-login__options">
         <button ref={firstOption} type="button" className="lp-btn lp-btn--primary" onClick={() => choose('google')}>Continue with google</button>
-        <button type="button" className="lp-btn lp-btn--ghost" onClick={() => choose('wallet')}>Connect wallet</button>
+        <button type="button" className="lp-btn lp-btn--glass" onClick={() => choose('wallet')}>Connect wallet</button>
         {onDemo && <button type="button" className="lp-login__demo" onClick={() => { ref.current?.close(); onDemo(); }}>Explore the demo, no sign-in</button>}
       </div>
     </div>
@@ -331,7 +331,7 @@ export function Landing({ onLogin, pendingLogin, onDemo }: Props) {
         <div className="lp-nav__actions">
           {/* Wide screens: both ways in. Phones: one Login button that opens the sign-in sheet. */}
           <button type="button" className="lp-btn lp-btn--primary lp-btn--fixed lp-nav__wide" onClick={() => onLogin('google')}>Login {spinner('google')}</button>
-          <button type="button" className="lp-btn lp-btn--ghost lp-btn--fixed lp-nav__wide" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
+          <button type="button" className="lp-btn lp-btn--glass lp-btn--fixed lp-nav__wide" onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
           <button type="button" className="lp-btn lp-btn--primary lp-nav__narrow" aria-haspopup="dialog" onClick={() => openSheet('login')}>
             Login {pendingLogin && <span className="button-spinner" aria-hidden="true" />}
           </button>
@@ -443,7 +443,7 @@ export function Landing({ onLogin, pendingLogin, onDemo }: Props) {
         </div>
         <div className="lp-join__ctas">
           <button type="button" className="lp-btn lp-btn--primary lp-a lp-a--pop" style={d(0.55)} onClick={() => onLogin('google')}>Continue with google {spinner('google')}</button>
-          <button type="button" className="lp-btn lp-btn--ghost lp-a lp-a--pop" style={d(0.65)} onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
+          <button type="button" className="lp-btn lp-btn--glass lp-a lp-a--pop" style={d(0.65)} onClick={() => onLogin('wallet')}>Connect wallet {spinner('wallet')}</button>
         </div>
       </div>
       <footer className="lp-footer">
