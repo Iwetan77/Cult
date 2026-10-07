@@ -1,3 +1,4 @@
+import { avatarSrc } from '@/components/Avatar';
 import type { ChartMarker, Fill, Holding, PredictionPosition, PredictionSale, TradeSide, Venue } from './contracts';
 import { cents } from './polymarket';
 import { dollars, signedDollars } from './format';
@@ -110,9 +111,12 @@ const family = (variable: string, fallback: string) => {
 };
 
 // Only same-origin images: anything else would taint the canvas and block export.
+// Bundled images and data: URLs, or another site's image fetched with CORS
+// (the API's profile photos) so the canvas can still be exported.
 const loadImage = (src: string | null) => new Promise<HTMLImageElement | null>(resolve => {
-  if (!src || !(src.startsWith('/') || src.startsWith('data:'))) return resolve(null);
+  if (!src || !(src.startsWith('/') || src.startsWith('data:') || src.startsWith('https://') || src.startsWith('http://'))) return resolve(null);
   const img = new Image();
+  if (/^https?:/.test(src)) img.crossOrigin = 'anonymous';
   img.onload = () => resolve(img);
   img.onerror = () => resolve(null);
   img.src = src;
@@ -177,7 +181,7 @@ export async function prepareCard(r: TradeResult, scale = 1): Promise<CardRender
   await Promise.all([document.fonts.load(`400 170px ${display}`), document.fonts.load(`500 32px ${body}`), document.fonts.load(`700 48px ${body}`)]).catch(() => undefined);
   const [frame, logo, token, avatar] = await Promise.all([
     loadImage('/pnl/card-frame.png'), loadImage('/pnl/cult-logo.svg'),
-    loadImage(r.prediction ? null : logoFor(r.symbol)), loadImage(r.traderAvatarUrl),
+    loadImage(r.prediction ? null : logoFor(r.symbol)), loadImage(avatarSrc(r.traderAvatarUrl)), // the API's photo path, made absolute
   ]);
 
   const width = Math.round(W * scale), height = Math.round(H * scale);

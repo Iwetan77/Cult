@@ -201,7 +201,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
     ...(profile.isMe ? predictions.open.map(p => ({ kind: 'prediction' as const, at: p.openedAt, p })) : []),
     ...(profile.isMe ? holdings.filter(h => !tracked(h)).map(h => ({ kind: 'position' as const, at: Number.MAX_SAFE_INTEGER, h })) : []),
   ].sort((a, b) => b.at - a.at);
-  const share = (h: Holding) => onShareHolding && <button className="icon-btn icon-btn--sm" title="Share PnL card" aria-label={`Share ${h.symbol} PnL card`} onClick={event => { event.stopPropagation(); onShareHolding(h); }}><Share2 size={15} /></button>;
+  const share = (h: Holding) => onShareHolding && <button className="btn btn-ghost btn-sm ttable-share" title="Share PnL card" aria-label={`Share ${h.symbol} PnL card`} onClick={event => { event.stopPropagation(); onShareHolding(h); }}><Share2 size={14} /><span>Share</span></button>;
   const closedItems: ({ kind: 'trade'; at: number; trade: ClosedTrade } | { kind: 'prediction'; at: number; c: PredictionClosed })[] = [
     ...profile.closedTrades.map(trade => ({ kind: 'trade' as const, at: trade.closedAt, trade })),
     ...(profile.isMe ? predictions.closed.map(c => ({ kind: 'prediction' as const, at: c.closedAt, c })) : []),

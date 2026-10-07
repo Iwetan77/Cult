@@ -9,9 +9,10 @@ export type Market = {
 };
 export type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number };
 export type Candle = { time: number; open: number; high: number; low: number; close: number };
-export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; memberCount: number; myPolicy: MirrorPolicy | null; autoFollow: boolean };
+// isAdmin: admins share their trades with the cult (the creator always is one).
+export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; isAdmin?: boolean; memberCount: number; myPolicy: MirrorPolicy | null; autoFollow: boolean };
 export type Member = {
-  id: string; name: string; avatarUrl: string | null; address: string; winRate: number | null;
+  id: string; name: string; avatarUrl: string | null; address: string; admin?: boolean; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
   stats: {
     verified: boolean; tradeCount: number; winRate: number | null;

@@ -75,6 +75,8 @@ export const getPerplSetup = (token: string) => api<SetupStatus>('/v1/perpl/setu
 export const getEnrollmentChallenge = (token: string) => api<EnrollmentChallenge>('/v1/enrollment/perpl/challenge', token, { method: 'POST' });
 export const enrollPerpl = (token: string, challengeId: string, signature: string) => api<void>('/v1/enrollment/perpl', token, { method: 'POST', body: json({ challengeId, signature }) });
 export const skipAutoMirror = (token: string, clanId: string, markerId: string) => api<void>(`/v1/cults/${encodeURIComponent(clanId)}/mirrors/${encodeURIComponent(markerId)}/skip`, token, { method: 'POST' });
+// An admin makes another member an admin (they share trades too) or takes it back.
+export const setCultAdmin = (token: string, clanId: string, memberId: string, admin: boolean) => api<{ memberId: string; admin: boolean }>(`/v1/cults/${encodeURIComponent(clanId)}/admins`, token, { method: 'POST', body: json({ memberId, admin }) });
 export const stackPosition = (token: string, clanId: string, markerId: string, notionalUsd: number) => api<StackResult>(`/v1/cults/${encodeURIComponent(clanId)}/stack`, token, { method: 'POST', body: json({ markerId, notionalUsd }) });
 export const prepareUsdcFunding = (token: string, amountUsdc: string, depositToPerpl: boolean) => api<FundingPlan>('/v1/funding/usdc/prepare', token, { method: 'POST', body: json({ amountUsdc, depositToPerpl }) });
 export const confirmUsdcFunding = (token: string, planId: string, hashes: string[]) => api<FundingResult>('/v1/funding/usdc/confirm', token, { method: 'POST', body: json({ planId, hashes }) });

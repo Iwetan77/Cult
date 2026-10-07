@@ -164,7 +164,9 @@ export async function buy(userId: string, order: PredictionOrder, country: strin
       costUsd: making,
       cultIds,
     });
-    for (const id of cultIds ?? clans.forUser(userId).map((c) => c.id)) postSystem(cultRoom(id), userId, `bet ${sideLabel.toUpperCase()} on ${what(row)} at ${cents(making / taking)}`);
+    // Like trades: only shared with cults the bettor is an admin of.
+    const admin = clans.adminCultIds(userId);
+    for (const id of (cultIds ?? admin).filter((id) => admin.includes(id))) postSystem(cultRoom(id), userId, `bet ${sideLabel.toUpperCase()} on ${what(row)} at ${cents(making / taking)}`);
     return toApi(row);
   });
 }
@@ -188,8 +190,8 @@ export async function sell(userId: string, positionId: string, price: number, co
     forgetBalance(acct.depositWallet);
     const { costOfSold } = predictionPositions.sell(pos.id, sold, proceeds);
     const avg = proceeds / sold;
-    for (const id of pos.cultIds ?? clans.forUser(userId).map((c) => c.id)) {
-      if (clans.membership(id, userId)) postSystem(cultRoom(id), userId, `sold ${pos.sideLabel.toUpperCase()} on ${what(pos)} at ${cents(avg)}`);
+    for (const id of pos.cultIds ?? clans.adminCultIds(userId)) {
+      if (clans.isAdmin(id, userId)) postSystem(cultRoom(id), userId, `sold ${pos.sideLabel.toUpperCase()} on ${what(pos)} at ${cents(avg)}`);
     }
     return { position: toApi({ ...pos, shares: sold, costUsd: costOfSold }), price: avg, proceedsUsd: proceeds, pnlUsd: proceeds - costOfSold };
   });

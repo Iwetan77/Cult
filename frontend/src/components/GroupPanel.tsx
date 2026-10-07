@@ -18,6 +18,8 @@ type Props = {
   onGuideDrop: (marker: ChartMarker, kind: 'takeProfit' | 'stopLoss', price: number) => void;
   onInvite: () => void; onVisibility: (visibility: 'private' | 'public') => void;
   onLeave: () => Promise<void>; onProfile: (memberId: string) => void;
+  // Admins share trades with the cult and make other members admins.
+  meId?: string; onSetAdmin?: (memberId: string, admin: boolean) => Promise<void>;
 };
 
 function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: string; onProfile: (id: string) => void }) {
@@ -43,12 +45,13 @@ function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: str
   </div>;
 }
 
-export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile }: Props) {
+export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile, meId, onSetAdmin }: Props) {
   const [tab, setTab] = useState<'positions' | 'stats' | 'members' | 'settings'>('positions');
   const [followSheet, setFollowSheet] = useState(false);
   const [maxUsd, setMaxUsd] = useState('');
   const [balancePct, setBalancePct] = useState('');
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [adminBusy, setAdminBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const market = snapshot?.selectedMarket;
   const markers = snapshot?.markers.filter(item => item.marketId === market?.id) ?? [];
@@ -138,8 +141,14 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         </div>
         <div className="card-head sub"><h3>Ranking</h3></div>
         <RoomRanking room={room} cultId={cult.id} onProfile={onProfile} />
-      </div> : tab === 'members' ? <div className="mini-members">{members.length ? members.map(member => <button key={member.id} onClick={() => onProfile(member.id)}><Avatar name={member.name} url={member.avatarUrl} /><span><strong>{member.name}</strong><small>{member.verified ? `${member.tradeCount} trades · ${member.winRate == null ? '—' : percent(member.winRate * 100)} win` : 'Unverified'}</small></span><b className={`num ${(member.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{member.realizedPnlUsd == null ? '—' : signedDollars(member.realizedPnlUsd)}</b></button>) : <div className="empty compact"><span>Member records appear after the indexer syncs.</span></div>}</div>
+      </div> : tab === 'members' ? <div className="mini-members">{members.length ? members.map(member => <div key={member.id} className="mini-member">
+        <button className="mini-member-main" onClick={() => onProfile(member.id)}><Avatar name={member.name} url={member.avatarUrl} /><span><strong>{member.name}{member.admin && <i className="admin-tag">Admin</i>}</strong><small>{member.verified ? `${member.tradeCount} trades · ${member.winRate == null ? '—' : percent(member.winRate * 100)} win` : 'Unverified'}</small></span><b className={`num ${(member.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{member.realizedPnlUsd == null ? '—' : signedDollars(member.realizedPnlUsd)}</b></button>
+        {cult.isAdmin && onSetAdmin && member.id !== meId && <button className="btn btn-ghost btn-sm" disabled={busy || adminBusy === member.id} onClick={() => { setAdminBusy(member.id); void onSetAdmin(member.id, !member.admin).finally(() => setAdminBusy(null)); }}>{member.admin ? 'Remove admin' : 'Make admin'}</button>}
+      </div>) : <div className="empty compact"><span>Member records appear after the indexer syncs.</span></div>}</div>
       : <div className="group-settings">
+        <div className="setting"><div><strong>{cult.isAdmin ? 'You’re an admin' : 'You’re a member'}</strong><small>{cult.isAdmin
+          ? 'Your trades are shared here and copied by members on Auto-follow. Make others admins from Members.'
+          : 'Only admins share trades here; yours stay yours. Turn on Auto-follow to copy them, or tap Copy on one in the chat.'}</small></div></div>
         <div className="setting"><div><strong>Invite link</strong><small>Code <b className="code">{cult.inviteCode}</b></small></div><button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Copy</button></div>
         {cult.isOwner && <div className="setting"><div><strong>Visibility</strong><small>{cult.visibility === 'public' ? 'Listed in Discover and public rankings.' : 'Invite only.'}</small></div><div className="seg seg--sm"><button className={cult.visibility === 'private' ? 'on' : ''} disabled={busy} onClick={() => onVisibility('private')}>Private</button><button className={cult.visibility === 'public' ? 'on' : ''} disabled={busy} onClick={() => onVisibility('public')}>Public</button></div></div>}
         <div className="setting danger"><div><strong>Leave cult</strong><small>Pending copies are cancelled. Open ones unwind when their leader exits.</small></div>{!confirmLeave ? <button className="btn btn-danger btn-sm" onClick={() => setConfirmLeave(true)}>Leave</button> : <div className="row-gap"><button className="btn btn-ghost btn-sm" onClick={() => setConfirmLeave(false)}>Cancel</button><button className="btn btn-danger btn-sm" disabled={busy} onClick={() => void onLeave()}>Confirm</button></div>}</div>

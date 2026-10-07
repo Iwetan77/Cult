@@ -33,6 +33,10 @@ type Props = {
   myCultIds?: string[];
   onJoinCult?: (cultId: string) => void;
   onOpenRoom?: (roomId: string) => void;
+  // Auto-follow off: a cult-mate admin's new trade gets a Copy button (your own
+  // amount, opened in your own account).
+  copyable?: boolean; copyUsd?: number;
+  onCopyTrade?: (markerId: string, symbol: string, usd: number) => void;
 };
 
 const CULT_SHARE = 'Join my cult ';
@@ -78,8 +82,9 @@ function readTrade(body: string): { symbol: string; tone: 'long' | 'short' | 'bu
   return { symbol, tone: 'buy' };
 }
 
-export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false, meId, meName, markers = [], onTrade, headerExtra, shareCults, myCultIds = [], onJoinCult, onOpenRoom }: Props) {
+export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false, meId, meName, markers = [], onTrade, headerExtra, shareCults, myCultIds = [], onJoinCult, onOpenRoom, copyable = false, copyUsd = 50, onCopyTrade }: Props) {
   const [sharePick, setSharePick] = useState(false);
+  const [copying, setCopying] = useState<{ id: string; usd: string } | null>(null);
   const [messages, setMessages] = useState<Shown[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [pinned, setPinned] = useState<ChatPage['pinned']>(null);
@@ -365,6 +370,15 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     if (pendingCaret.current != null) { input.focus(); input.setSelectionRange(pendingCaret.current, pendingCaret.current); pendingCaret.current = null; }
   }, [draft]);
 
+  // A new trade by someone else, in a cult, while your Auto-follow is off.
+  const canCopy = (message: Shown) => room.kind === 'cult' && copyable && !!onCopyTrade && !!message.markerId
+    && !message.markerId.startsWith('cult:') && message.memberId !== meId && /^(opened|bought)\b/.test(message.body);
+  const copyNow = (message: Shown, symbol: string) => {
+    const usd = Number(copying?.usd);
+    if (!(usd > 0) || !message.markerId) return;
+    onCopyTrade?.(message.markerId, symbol, usd);
+    setCopying(null);
+  };
   const tradeCard = (message: Shown) => {
     const trade = readTrade(message.body);
     const live = message.markerId ? markers.find(item => item.id === message.markerId) : undefined;
@@ -378,6 +392,15 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
         {reactionRow(message)}
       </div>
       {tools}
+      {canCopy(message) && (copying?.id === message.id
+        ? <span className="chat-copy">
+          <label className="chat-copy-input"><span>$</span><input inputMode="decimal" autoFocus value={copying.usd} aria-label={`Amount to copy ${trade.symbol} with`}
+            onChange={event => setCopying({ id: message.id, usd: event.target.value.replace(/[^0-9.]/g, '') })}
+            onKeyDown={event => { if (event.key === 'Enter') copyNow(message, trade.symbol); if (event.key === 'Escape') setCopying(null); }} /></label>
+          <button type="button" className="btn btn-primary btn-sm" disabled={!(Number(copying.usd) > 0)} onClick={() => copyNow(message, trade.symbol)}>Copy</button>
+          <button type="button" className="icon-btn icon-btn--sm" title="Cancel" onClick={() => setCopying(null)}><X size={13} /></button>
+        </span>
+        : <button type="button" className="btn btn-primary btn-sm chat-trade-copy" onClick={() => setCopying({ id: message.id, usd: String(copyUsd) })}>Copy</button>)}
       {message.markerId && <button className="chat-trade-open" onClick={() => onOpenMarker(message.markerId!)}>View on chart <ArrowRight size={13} /></button>}
     </div>;
   };

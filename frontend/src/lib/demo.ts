@@ -194,8 +194,8 @@ const policy = (enabled: boolean, cap = 10, usd = 50): MirrorPolicy => ({ enable
 
 function seedState(): State {
   const clans: Clan[] = [
-    { id: 'night-shift', name: 'Night Shift', inviteCode: 'NGT-SHF', visibility: 'private', isOwner: true, memberCount: 7, myPolicy: policy(true, 10, 50), autoFollow: true },
-    { id: 'lagos-degens', name: 'Lagos Degens', inviteCode: 'LAG-DGN', visibility: 'public', isOwner: false, memberCount: 24, myPolicy: policy(false), autoFollow: false },
+    { id: 'night-shift', name: 'Night Shift', inviteCode: 'NGT-SHF', visibility: 'private', isOwner: true, isAdmin: true, memberCount: 7, myPolicy: policy(true, 10, 50), autoFollow: true },
+    { id: 'lagos-degens', name: 'Lagos Degens', inviteCode: 'LAG-DGN', visibility: 'public', isOwner: false, isAdmin: false, memberCount: 24, myPolicy: policy(false), autoFollow: false },
   ];
   const members: Record<string, string[]> = {
     'night-shift': [ME_ID, 'm-krdnl', 'm-tandid', 'm-daddy', 'm-solstice', 'm-conscott', 'm-ada'],
@@ -472,7 +472,8 @@ async function snapshot(s: State, cultId: string, marketId: string | null, resol
   const candles = fromReal ? await realCandles(selected.id, resolution) ?? [] : f ? makeCandles(f, resolution) : [];
   return {
     clan, markets, selectedMarket: selected, candles, markers: seeds.map(seed => materialize(s, seed)),
-    members: (s.members[clan.id] ?? [ME_ID]).map(memberOf), asOf: new Date().toISOString(), autoMirrorOptOutWindowSeconds: 30,
+    // Demo cult-mates post trades, so they're admins; you are where you own the cult.
+    members: (s.members[clan.id] ?? [ME_ID]).map(id => ({ ...memberOf(id), admin: id === ME_ID ? !!clan.isAdmin : true })), asOf: new Date().toISOString(), autoMirrorOptOutWindowSeconds: 30,
   };
 }
 
@@ -859,7 +860,7 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cult'}-${++s.next}`;
     const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
     const code = Array.from({ length: 6 }, (_, i) => letters[(hash(id) >> (i * 4)) % letters.length]).join('');
-    const clan: Clan = { id, name, inviteCode: `${code.slice(0, 3)}-${code.slice(3)}`, visibility: body.visibility === 'public' ? 'public' : 'private', isOwner: true, memberCount: 1, myPolicy: policy(false), autoFollow: false };
+    const clan: Clan = { id, name, inviteCode: `${code.slice(0, 3)}-${code.slice(3)}`, visibility: body.visibility === 'public' ? 'public' : 'private', isOwner: true, isAdmin: true, memberCount: 1, myPolicy: policy(false), autoFollow: false };
     s.me.clans.push(clan);
     s.members[id] = [ME_ID];
     s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: name.trim()[0]?.toUpperCase() ?? 'C', memberCount: 1, lastMessage: null });
@@ -875,7 +876,7 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     if (existing) return done(existing);
     const id = target?.id ?? `invited-${code.toLowerCase()}`;
     const name = target?.name ?? `Cult ${code}`;
-    const clan: Clan = { id, name, inviteCode: code || 'INV-ITE', visibility: target ? 'public' : 'private', isOwner: false, memberCount: (target?.memberCount ?? 5) + 1, myPolicy: policy(false), autoFollow: false };
+    const clan: Clan = { id, name, inviteCode: code || 'INV-ITE', visibility: target ? 'public' : 'private', isOwner: false, isAdmin: false, memberCount: (target?.memberCount ?? 5) + 1, myPolicy: policy(false), autoFollow: false };
     s.me.clans.push(clan);
     s.members[id] = [ME_ID, ...previewMembers(id)];
     s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: name[0]!.toUpperCase(), memberCount: clan.memberCount, lastMessage: null });

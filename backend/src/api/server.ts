@@ -333,6 +333,7 @@ export function createApp(engine: MirrorEngine) {
       inviteCode: clan.inviteCode,
       visibility: clan.visibility,
       isOwner: clan.createdBy === userId,
+      isAdmin: clans.isAdmin(clan.id, userId), // admins share trades here
       memberCount: clans.members(clan.id).length,
       myPolicy: clans.membership(clan.id, userId)?.policy ?? null,
       autoFollow: clans.membership(clan.id, userId)?.policy.enabled ?? false,
@@ -732,6 +733,22 @@ export function createApp(engine: MirrorEngine) {
     const clan = clans.get(c.req.param('clanId'));
     if (!clan || (clan.visibility !== 'public' && !clans.membership(clan.id, c.get('userId')))) throw bad(404, 'cult not found');
     return c.json(await cultBoard(clan, c.get('userId'), boardLimit(c), parsePeriod(c.req.query('period'))));
+  });
+
+  // Admins make another member an admin (they then share trades with the cult
+  // too) or take it back. The creator always stays one.
+  cultRoutes.post('/:clanId/admins', async (c) => {
+    const clan = clanFor(c);
+    const { memberId, admin } = z.object({ memberId: z.string().min(1).max(200), admin: z.boolean() }).parse(await c.req.json());
+    if (!clans.isAdmin(clan.id, c.get('userId'))) throw bad(403, 'only admins can change admins');
+    if (!clans.membership(clan.id, memberId)) throw bad(404, 'not a member of this cult');
+    if (memberId === clan.createdBy && !admin) throw bad(400, 'the creator is always an admin');
+    if (clans.isAdmin(clan.id, memberId) !== admin) {
+      clans.setRole(clan.id, memberId, admin ? 'admin' : 'member');
+      const who = members.get(memberId);
+      postSystem(cultRoom(clan.id), c.get('userId'), `${admin ? 'made' : 'removed'} ${who ? displayName(who) : 'a member'} ${admin ? 'an admin' : 'as admin'}`);
+    }
+    return c.json({ memberId, admin });
   });
 
   // The owner makes their cult public (listed, joinable without the code) or private again.

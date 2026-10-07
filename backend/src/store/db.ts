@@ -15,7 +15,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -348,6 +348,12 @@ function migrate(d: DatabaseSync) {
   // ...and which of the member's cults a trade was posted to (JSON array of ids;
   // NULL = every cult they're in).
   if (!hasCol('leader_trades', 'cult_ids')) d.exec('ALTER TABLE leader_trades ADD COLUMN cult_ids TEXT');
+  // v10 -> v11: cult admins. Only admins' trades are shared with the cult;
+  // the creator is always one and can make others admins.
+  if (!hasCol('clan_members', 'role')) {
+    d.exec("ALTER TABLE clan_members ADD COLUMN role TEXT NOT NULL DEFAULT 'member'");
+    d.exec("UPDATE clan_members SET role = 'admin' WHERE user_id = (SELECT created_by FROM clans WHERE clans.id = clan_members.clan_id)");
+  }
   // v8 -> v9: a 4-digit PIN per member (hashed, see store/pins.ts), with a
   // wrong-try count and a lock.
   if (!hasCol('members', 'pin_hash')) d.exec('ALTER TABLE members ADD COLUMN pin_hash TEXT');

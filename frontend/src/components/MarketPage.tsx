@@ -86,7 +86,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
   const selected = social.selected && markers.some(x => x.id === social.selected!.id) ? social.selected : null;
   const avatarOf = (memberId: string) => snap?.members.find(x => x.id === memberId)?.avatarUrl ?? null;
   const avatars = useMemo(() => Object.fromEntries(snap?.members.map(x => [x.id, x.avatarUrl]) ?? []), [snap]);
-  const postTo: PostTo = cult ? cult.id : 'all';
+  const postTo: PostTo = cult && (cult.isAdmin ?? true) ? cult.id : 'all'; // only a cult you share trades with
   const mine = holdings.find(h => h.market.toLowerCase() === id.toLowerCase());
   const longs = markers.filter(x => x.side !== 'short').length;
   const longPct = markers.length ? Math.round((longs / markers.length) * 100) : null;
@@ -185,7 +185,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
         <section className="card ticket-card">
           <div className="card-head"><h2>{isPerp ? 'Trade' : 'Buy'} {m.symbol.replace(/-PERP$/, '')}</h2><span className="count num">{price(ticket.priceUsd)}</span></div>
           <TradeTicket market={ticket} balances={me.balances} monPriceUsd={config?.monPriceAusd ?? null}
-            cults={social.cults} defaultPostTo={postTo} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds, tpsl) => onTrade(ticket, side, margin, lev, cultIds, tpsl)} onDeposit={onDeposit} />
+            cults={social.cults.filter(c => c.isAdmin ?? true)} inCults={social.cults.length > 0} defaultPostTo={postTo} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds, tpsl) => onTrade(ticket, side, margin, lev, cultIds, tpsl)} onDeposit={onDeposit} />
         </section>
         {cult && snap && <section className="card">
           <div className="card-head"><h2>{cult.name}</h2></div>

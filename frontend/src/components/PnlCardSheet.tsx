@@ -61,13 +61,18 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
     return () => { active = false; };
   }, [mood, reroll]);
 
-  // The card itself (redrawn when the numbers change), for the preview.
+  // The card itself, for the preview: redrawn only when the numbers change
+  // (the parent hands over a fresh but identical result every second while a
+  // close waits for confirmation), and the old card stays up until the new one
+  // is ready, so it never blinks.
+  const resultKey = JSON.stringify(result);
+  const latestResult = useRef(result);
+  latestResult.current = result;
   useEffect(() => {
     let active = true;
-    setRenderer(null);
-    prepareCard(result, 0.8).then(card => { if (active) setRenderer(card); }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not draw the card.'); });
+    prepareCard(latestResult.current, 0.8).then(card => { if (active) setRenderer(card); }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not draw the card.'); });
     return () => { active = false; };
-  }, [result]);
+  }, [resultKey]);
 
   // Play the preview: each GIF frame in the window, at its own pace.
   useEffect(() => {
