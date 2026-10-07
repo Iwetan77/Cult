@@ -14,6 +14,9 @@ import { shortName } from './names.js';
 import { suggestionsFor, type TpSlSuggestion } from './suggestions.js';
 import { statsFor, type MemberStats } from '../indexer/stats.js';
 import { avatarOf, nameOf } from './names.js';
+import { chartResolution, nadHistory, perplHistory, type Candle } from './chart-history.js';
+
+export type { Candle } from './chart-history.js';
 
 // Shapes follow frontend/src/lib/contracts.ts (ChartSnapshot, ChartMarker, ...)
 // and are published in CONTRACTS.md. Every money figure is in dollars (settled
@@ -64,14 +67,6 @@ export interface ApiMarket {
   imageUri?: string;
 }
 
-export interface Candle {
-  time: number; // unix seconds
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
-
 export interface ChartSnapshot {
   clan: { id: string; name: string; inviteCode: string; memberCount: number; myPolicy: unknown };
   markets: ApiMarket[];
@@ -114,30 +109,13 @@ export async function nadMarket(token: string): Promise<ApiMarket> {
   return { venue: 'nadfun', id: t, symbol: meta.symbol, baseSymbol: meta.symbol, quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null, tokenAddress: t, imageUri: meta.imageUri };
 }
 
-export async function perplCandles(market: PerplMarket, resolutionSec = 300, count = 300): Promise<Candle[]> {
-  const to = Date.now();
-  const from = to - resolutionSec * 1000 * count;
-  const body = await getJson<{ d: { t: number; o: number; h: number; l: number; c: number }[] }>(
-    `${env.perplApiUrl}/v1/market-data/${market.id}/candles/${resolutionSec}/${from}-${to}`,
-  );
-  return body.d.map((c) => ({
-    time: Math.floor(c.t / 1000),
-    open: scale.unprice(c.o, market),
-    high: scale.unprice(c.h, market),
-    low: scale.unprice(c.l, market),
-    close: scale.unprice(c.c, market),
-  }));
+export function perplCandles(market: PerplMarket, resolutionSec = 300, count?: number): Promise<Candle[]> {
+  return perplHistory(env.perplApiUrl, market.id, value => scale.unprice(value, market), resolutionSec, count);
 }
 
-const NAD_RES: Record<number, string> = { 60: '1', 300: '5', 900: '15', 1800: '30', 3600: '60', 14400: '240', 86400: '1D' };
-
-// Nad.fun's chart API priced in USD directly (chart_type=price_usd), shown as AUSD.
-export async function nadCandles(token: string, resolutionSec = 300, count = 300): Promise<Candle[]> {
-  const to = Math.floor(Date.now() / 1000);
-  const res = NAD_RES[resolutionSec] ?? '5';
-  const url = `${NADFUN.apiUrl}/trade/chart/${token}?resolution=${res}&from=${to - resolutionSec * count}&to=${to}&countback=${count}&chart_type=price_usd`;
-  const b = await getJson<{ t: number[]; o: string[]; h: string[]; l: string[]; c: string[] }>(url);
-  return (b.t ?? []).map((t, i) => ({ time: t, open: Number(b.o[i]), high: Number(b.h[i]), low: Number(b.l[i]), close: Number(b.c[i]) }));
+// Nad.fun's chart API priced in dollars directly (chart_type=price_usd).
+export function nadCandles(token: string, resolutionSec = 300, count?: number): Promise<Candle[]> {
+  return nadHistory(NADFUN.apiUrl, token, resolutionSec, count);
 }
 
 // One marker's share of a member's live holding on a market. A member can hold
@@ -173,6 +151,7 @@ interface StackRow {
 }
 
 export async function buildChart(clan: Clan, viewerId: string, marketId?: string, resolutionSec = 300): Promise<ChartSnapshot> {
+  resolutionSec = chartResolution(resolutionSec);
   const ctx = await getContext();
   const roster = clans.members(clan.id);
   const userIds = roster.map((r) => r.userId);
