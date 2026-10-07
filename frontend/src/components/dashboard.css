@@ -654,6 +654,8 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .follow-sheet { display: flex; flex-direction: column; gap: 19px; padding: 17px; border-radius: var(--r-inner); background: transparent; animation: sheet-in 0.2s var(--ease); }
 .follow-sheet-head { display: flex; align-items: center; justify-content: space-between; }
 .follow-sheet-head strong { font-size: 14px; font-weight: 500; }
+.follow-field input { width: 100%; min-width: 0; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.follow-field small { font-size: 13px; line-height: 1.5; color: var(--dim); }
 .group-pos { display: flex; flex-direction: column; gap: 5px; }
 .group-pos > .btn { margin-top: 14px; }
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; border-radius: var(--r-inner); overflow: hidden; background: transparent; }
