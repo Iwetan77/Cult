@@ -16,6 +16,8 @@ import { RoomBadge } from './RoomBadge';
 type Props = {
   room: ChatRoom; cult: Clan | null; config: BackendConfig | null; snapshot: ChartSnapshot | null;
   selected: ChartMarker | null; busy: boolean; signerPrompt: string | null; onGrantSigner: () => void;
+  perpsReady: boolean; perpsFunded: boolean; onEnablePerps: () => void; onDeposit: () => void;
+  copyFailure: string | null; onDismissCopyFailure: () => void;
   onFollowOn: (policy: MirrorPolicy) => Promise<void>; onFollowOff: () => Promise<void>;
   onMarket: (marketId: string) => void; onMarker: (marker: ChartMarker) => void; onOpenTrade: () => void;
   onGuideDrop: (marker: ChartMarker, kind: 'takeProfit' | 'stopLoss', price: number) => void;
@@ -48,7 +50,7 @@ function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: str
   </div>;
 }
 
-export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile, meId, onSetAdmin }: Props) {
+export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, perpsReady, perpsFunded, onEnablePerps, onDeposit, copyFailure, onDismissCopyFailure, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile, meId, onSetAdmin }: Props) {
   const [tab, setTab] = useState<'positions' | 'stats' | 'members' | 'settings'>('positions');
   const [followSheet, setFollowSheet] = useState(false);
   const [maxUsd, setMaxUsd] = useState('');
@@ -106,7 +108,10 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         <input className="switch" type="checkbox" checked={cult.autoFollow} disabled={busy} onChange={event => { if (event.target.checked) openFollowSheet(); else void onFollowOff(); }} />
       </label>
       {cult.autoFollow && policy && !followSheet && <div className="follow-alloc"><span>Your copy limits</span><b className="num">Up to {dollars(policy.maxUsdPerTrade)} <small>/ copy</small></b><small>Up to {policy.balancePercentCap}% of free balance</small><button className="link" disabled={busy} onClick={openFollowSheet}>Edit</button></div>}
-      {cult.autoFollow && signerPrompt && <div className="follow-alert"><p>{signerPrompt}. Copies wait until your wallet confirms.</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onGrantSigner}><ShieldCheck size={14} /> Approve signer</button></div>}
+      {cult.autoFollow && signerPrompt && <div className="follow-alert"><p>{signerPrompt}. New meme copies are cancelled until your wallet permission is confirmed.</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onGrantSigner}><ShieldCheck size={14} /> Approve signer</button></div>}
+      {cult.autoFollow && !perpsReady && <div className="follow-alert"><p>Perp copying is not ready. Enable your perps account and trading key once to copy new perp trades.</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onEnablePerps}><ShieldCheck size={14} /> Enable perp copying</button></div>}
+      {cult.autoFollow && perpsReady && !perpsFunded && <div className="follow-alert"><p>Perp copies need dollars in your wallet or trading account.{config?.chainId === 10143 ? ' MON alone cannot fund testnet perps.' : ''}</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onDeposit}>Deposit</button></div>}
+      {copyFailure && <div className="follow-alert" role="status"><p>Last copy did not run: {copyFailure}</p><button className="link" onClick={onDismissCopyFailure}>Dismiss</button></div>}
       {followSheet && <form className="follow-sheet" noValidate onSubmit={event => { event.preventDefault(); void turnOn(); }}>
         <div className="follow-sheet-head"><strong>Your limits in this cult</strong><button type="button" className="icon-btn icon-btn--sm" title="Close limits" aria-label="Close limits" disabled={busy} onClick={() => setFollowSheet(false)}><X size={14} /></button></div>
         <label className="field follow-field"><span className="field-top">Maximum copy value ($)</span>
