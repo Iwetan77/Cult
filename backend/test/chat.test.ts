@@ -96,3 +96,45 @@ test('room icons, and notices read as a sentence with the username', async () =>
   const t = chat.postMessage('global', 'A', { body: 'gm' });
   assert.equal(t.text, 'gm', 'a typed message shows its body');
 });
+
+// A 1x1 PNG, as the browser would send a resized photo.
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+test('a photo can be sent alone or with a caption; fakes are refused', () => {
+  members.upsert('D', `0x${'d'.repeat(40)}`); // a fresh sender: B used up its burst above
+  const room = 'global';
+  const alone = chat.postMessage(room, 'D', { body: '', image: PNG });
+  assert.match(alone.imageUrl ?? '', /^\/v1\/chat-images\/[0-9a-f-]{36}$/);
+  assert.equal(alone.body, '');
+  const captioned = chat.postMessage(room, 'D', { body: 'look', image: PNG });
+  assert.equal(captioned.body, 'look');
+  assert.notEqual(captioned.imageUrl, alone.imageUrl, 'each photo gets its own id');
+  assert.throws(() => chat.postMessage(room, 'D', { body: 'x', image: 'data:image/png;base64,AAAA' }), /isn't the image type/);
+  assert.throws(() => chat.postMessage(room, 'D', { body: '', image: null }), /empty/);
+  const listed = chat.listMessages(room).messages.find((m) => m.id === alone.id)!;
+  assert.equal(listed.imageUrl, alone.imageUrl, 'the photo comes back with the message');
+});
+
+test('reactions toggle per member and show whose they are', async () => {
+  const { clans } = await import('../src/store/clans.js');
+  const room = chat.cultRoom(cultA);
+  clans.join(cultA, 'C', { enabled: false, balancePercentCap: 10, maxUsdPerTrade: 50 });
+  const msg = chat.postMessage(room, 'A', { body: 'react to me' });
+  assert.deepEqual(chat.react(room, 'A', msg.id, '🔥'), [{ emoji: '🔥', count: 1, mine: true }]);
+  assert.deepEqual(chat.react(room, 'C', msg.id, '🔥'), [{ emoji: '🔥', count: 2, mine: true }]);
+  chat.react(room, 'C', msg.id, '🚀');
+  const seenByA = chat.listMessages(room, { viewerId: 'A' }).messages.find((m) => m.id === msg.id)!;
+  assert.deepEqual(seenByA.reactions, [{ emoji: '🔥', count: 2, mine: true }, { emoji: '🚀', count: 1, mine: false }]);
+  assert.deepEqual(chat.react(room, 'A', msg.id, '🔥'), [{ emoji: '🔥', count: 1, mine: false }, { emoji: '🚀', count: 1, mine: false }], 'the same emoji again takes it back');
+  assert.throws(() => chat.react(room, 'A', msg.id, '💩'), /react with one of/);
+  assert.throws(() => chat.react('global', 'A', msg.id, '🔥'), /no such message in this room/);
+});
+
+test('a cult with a picture shows it as its room icon', async () => {
+  const { cultImages, decodeImage } = await import('../src/store/media.js');
+  cultImages.set(cultA, decodeImage(PNG, 1024));
+  const icon = chat.roomsFor('A').find((r) => r.id === chat.cultRoom(cultA))!.icon;
+  assert.ok(icon.startsWith(`/v1/cult-images/${cultA}?v=`), icon);
+  cultImages.clear(cultA);
+  assert.equal(chat.roomsFor('A').find((r) => r.id === chat.cultRoom(cultA))!.icon, 'C', 'back to the letter');
+});

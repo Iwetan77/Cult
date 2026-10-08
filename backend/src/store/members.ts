@@ -14,6 +14,7 @@ export interface Member {
   country: string | null; // ISO 3166 alpha-2
   username: string | null;
   avatarAt: number | null; // when their photo last changed; null = no photo
+  usernameChangedAt: number | null; // last change after the first pick (one per USERNAME_CHANGE_MONTHS)
   createdAt: number; // first sign-in
 }
 
@@ -29,6 +30,7 @@ interface Row {
   country: string | null;
   username: string | null;
   avatar_at: number | null;
+  username_changed_at?: number | null;
   created_at: number;
 }
 
@@ -44,6 +46,7 @@ const toMember = (r: Row): Member => ({
   country: r.country ?? null,
   username: r.username ?? null,
   avatarAt: r.avatar_at ?? null,
+  usernameChangedAt: r.username_changed_at ?? null,
   createdAt: r.created_at,
 });
 
@@ -83,8 +86,10 @@ export const members = {
     return r ? toMember(r) : null;
   },
 
-  setUsername(userId: string, username: string) {
-    getDb().prepare('UPDATE members SET username = ? WHERE user_id = ?').run(username, userId);
+  // `changed`: a change after the first pick, which starts the wait for the next one.
+  setUsername(userId: string, username: string, changed = false) {
+    if (changed) getDb().prepare('UPDATE members SET username = ?, username_changed_at = ? WHERE user_id = ?').run(username, Date.now(), userId);
+    else getDb().prepare('UPDATE members SET username = ? WHERE user_id = ?').run(username, userId);
   },
 
   setAvatar(userId: string, mime: string, bytes: Uint8Array) {

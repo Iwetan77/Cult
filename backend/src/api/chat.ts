@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { clans } from '../store/clans.js';
 import { getDb } from '../store/db.js';
+import { CHAT_IMAGE_MAX_BYTES, chatImages, cultImages, decodeImage, ImageError } from '../store/media.js';
 import { members } from '../store/members.js';
 import { countryName } from './countries.js';
 import { shortName } from './names.js';
@@ -11,7 +12,17 @@ import { nameOf, avatarOf } from './names.js';
 //   "global"        everyone on Cult
 //   "country:NG"    members who picked that country
 //   "cult:<id>"     that cult's members (its group chat)
-// Plain text. A message can point at a chart marker ("selling half of this").
+// Text, a photo, or both. A message can point at a chart marker ("selling half
+// of this"), a public cult ("cult:<id>") or a market's chart ("chart:<marketId>").
+// Members react with emoji.
+
+export const REACTIONS = ['🔥', '🚀', '💀', '👀', '😂'] as const;
+// An emoji on a message: how many, and whether the one reading reacted with it.
+export interface Reaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
 
 export interface ChatMessage {
   id: string;
@@ -26,6 +37,8 @@ export interface ChatMessage {
   replyTo: string | null;
   markerId: string | null;
   createdAt: string; // ISO
+  imageUrl: string | null; // a photo sent with it (the body is then its caption, maybe empty)
+  reactions: Reaction[];
 }
 
 export const MAX_MESSAGE_CHARS = 1000;
@@ -44,9 +57,10 @@ interface Row {
   marker_id: string | null;
   created_at: number;
   kind?: string;
+  image_id?: string | null;
 }
 
-const toApi = (r: Row): ChatMessage => ({
+const toApi = (r: Row, reactions: Reaction[] = []): ChatMessage => ({
   id: r.id,
   room: r.room,
   kind: r.kind === 'system' ? 'system' : 'text',
@@ -60,7 +74,29 @@ const toApi = (r: Row): ChatMessage => ({
   replyTo: r.reply_to,
   markerId: r.marker_id,
   createdAt: new Date(r.created_at).toISOString(),
+  imageUrl: chatImages.url(r.image_id),
+  reactions,
 });
+
+// Reactions on these messages, as the viewer sees them: emojis in the order
+// they were first used, with counts, and which ones are the viewer's own.
+function reactionsFor(ids: string[], viewerId: string | null): Map<string, Reaction[]> {
+  const out = new Map<string, Reaction[]>();
+  if (!ids.length) return out;
+  const rows = getDb()
+    .prepare(
+      `SELECT message_id AS m, emoji, count(*) AS n, max(user_id = ?) AS mine, min(created_at) AS first
+         FROM chat_reactions WHERE message_id IN (${ids.map(() => '?').join(',')})
+        GROUP BY message_id, emoji ORDER BY first`,
+    )
+    .all(viewerId ?? '', ...ids) as { m: string; emoji: string; n: number; mine: number }[];
+  for (const r of rows) {
+    const list = out.get(r.m) ?? [];
+    list.push({ emoji: r.emoji, count: r.n, mine: r.mine === 1 });
+    out.set(r.m, list);
+  }
+  return out;
+}
 
 export class ChatError extends Error {
   constructor(
@@ -95,7 +131,7 @@ export interface ChatRoom {
   id: string;
   kind: 'global' | 'country' | 'cult';
   name: string;
-  icon: string; // G for Global, the country's flag, or the cult's first letter
+  icon: string; // G for Global, the country's flag, the cult's picture (a /v1 URL) or its first letter
   memberCount: number;
   lastMessage: ChatMessage | null; // for the "your groups" list: latest line and when
 }
@@ -127,7 +163,7 @@ const flag = (cc: string) => String.fromCodePoint(...[...cc.toUpperCase()].map((
 function roomIcon(r: { id: string; kind: string; name: string }): string {
   if (r.kind === 'global') return 'G'; // a letter badge like cults, until Global gets its own image
   if (r.kind === 'country') return flag(r.id.slice(8));
-  return (r.name.trim()[0] ?? '?').toUpperCase();
+  return cultImages.url(r.id.slice(5)) ?? (r.name.trim()[0] ?? '?').toUpperCase();
 }
 
 // A room event, not something a member typed: "joined the cult", "opened BTC-PERP
@@ -161,7 +197,7 @@ export function pinnedFor(room: string): Pinned | null {
   const pinId = clan ? (getDb().prepare('SELECT pinned_message_id AS p FROM clans WHERE id = ?').get(clan.id) as { p: string | null }).p : null;
   if (!pinId) return null;
   const r = getDb().prepare('SELECT * FROM chat_messages WHERE id = ? AND room = ?').get(pinId, room) as Row | undefined;
-  return r ? { id: r.id, memberName: toApi(r).memberName, body: r.body } : null;
+  return r ? { id: r.id, memberName: toApi(r).memberName, body: r.body || (r.image_id ? 'Photo' : '') } : null;
 }
 
 // The cult owner pins one of the room's messages (or clears it with null).
@@ -174,9 +210,16 @@ export function setPin(room: string, userId: string, messageId: string | null): 
   return pinnedFor(room);
 }
 
-export function postMessage(room: string, userId: string, input: { body: string; replyTo?: string | null; markerId?: string | null }): ChatMessage {
+// image: a photo as a data URL (resized in the browser); the body may then be empty.
+export function postMessage(room: string, userId: string, input: { body: string; replyTo?: string | null; markerId?: string | null; image?: string | null }): ChatMessage {
   const body = input.body.trim();
-  if (!body) throw new ChatError(400, 'message is empty');
+  let image = null;
+  try {
+    image = input.image ? decodeImage(input.image, CHAT_IMAGE_MAX_BYTES) : null;
+  } catch (e) {
+    throw new ChatError(400, e instanceof ImageError ? e.message : 'that photo could not be read');
+  }
+  if (!body && !image) throw new ChatError(400, 'message is empty');
   if (body.length > MAX_MESSAGE_CHARS) throw new ChatError(400, `message is over ${MAX_MESSAGE_CHARS} characters`);
   if (input.replyTo && !getDb().prepare('SELECT 1 FROM chat_messages WHERE id = ? AND room = ?').get(input.replyTo, room)) {
     throw new ChatError(404, 'the message you replied to is not in this room');
@@ -187,18 +230,46 @@ export function postMessage(room: string, userId: string, input: { body: string;
   mine.push(now);
   recent.set(userId, mine);
 
-  const row: Row = { id: randomUUID(), room, user_id: userId, body, reply_to: input.replyTo ?? null, marker_id: input.markerId ?? null, created_at: now };
-  getDb()
-    .prepare('INSERT INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(row.id, row.room, row.user_id, row.body, row.reply_to, row.marker_id, row.created_at);
+  const row: Row = { id: randomUUID(), room, user_id: userId, body, reply_to: input.replyTo ?? null, marker_id: input.markerId ?? null, created_at: now, image_id: image ? randomUUID() : null };
+  const db = getDb();
+  db.exec('BEGIN');
+  try {
+    if (image && row.image_id) chatImages.put(row.image_id, room, image);
+    db.prepare('INSERT INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at, image_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      row.id,
+      row.room,
+      row.user_id,
+      row.body,
+      row.reply_to,
+      row.marker_id,
+      row.created_at,
+      row.image_id ?? null,
+    );
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
   const msg = toApi(row);
   clanBus.emit('message', room, msg);
   return msg;
 }
 
+// A member reacts to a message with one of REACTIONS; the same emoji again
+// takes it back. Returns the message's reactions as that member sees them.
+export function react(room: string, userId: string, messageId: string, emoji: string): Reaction[] {
+  if (!(REACTIONS as readonly string[]).includes(emoji)) throw new ChatError(400, `react with one of ${REACTIONS.join(' ')}`);
+  const db = getDb();
+  if (!db.prepare('SELECT 1 FROM chat_messages WHERE id = ? AND room = ?').get(messageId, room)) throw new ChatError(404, 'no such message in this room');
+  const removed = db.prepare('DELETE FROM chat_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').run(messageId, userId, emoji);
+  if (!Number(removed.changes)) db.prepare('INSERT INTO chat_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)').run(messageId, userId, emoji, Date.now());
+  return reactionsFor([messageId], userId).get(messageId) ?? [];
+}
+
 // Newest page first by default; `before` (a message id) pages further back.
-// Messages come back oldest to newest within the page, ready to render.
-export function listMessages(room: string, opts: { before?: string; limit?: number } = {}): { messages: ChatMessage[]; hasMore: boolean; pinned: Pinned | null } {
+// Messages come back oldest to newest within the page, ready to render, with
+// their reactions as `viewerId` sees them.
+export function listMessages(room: string, opts: { before?: string; limit?: number; viewerId?: string } = {}): { messages: ChatMessage[]; hasMore: boolean; pinned: Pinned | null } {
   const limit = Math.min(Math.max(1, opts.limit ?? 50), PAGE_MAX);
   let cursor: number | null = null;
   if (opts.before) {
@@ -210,5 +281,7 @@ export function listMessages(room: string, opts: { before?: string; limit?: numb
     .prepare(`SELECT * FROM chat_messages WHERE room = ? ${cursor != null ? 'AND rowid < ?' : ''} ORDER BY rowid DESC LIMIT ?`)
     .all(...(cursor != null ? [room, cursor, limit + 1] : [room, limit + 1])) as unknown as Row[];
   const hasMore = rows.length > limit;
-  return { messages: rows.slice(0, limit).reverse().map(toApi), hasMore, pinned: pinnedFor(room) };
+  const page = rows.slice(0, limit).reverse();
+  const reactions = reactionsFor(page.map((r) => r.id), opts.viewerId ?? null);
+  return { messages: page.map((r) => toApi(r, reactions.get(r.id))), hasMore, pinned: pinnedFor(room) };
 }

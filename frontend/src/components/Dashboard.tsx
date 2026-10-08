@@ -6,7 +6,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useCreateWallet, usePrivy, useSendTransaction, useSignMessage, useSignTypedData, useSigners, useWallets } from '@privy-io/react-auth';
 import { createPublicClient, formatEther, http, isAddress, isHex } from 'viem';
 import { monad, monadTestnet } from 'viem/chains';
-import { ArrowLeft, ArrowRight, CandlestickChart, Compass, Globe2, Home, Link2, Lock, PanelRightOpen, Plus, Search, Trophy, UserRound, UsersRound, X } from './icons';
+import { ArrowLeft, ArrowRight, Camera, CandlestickChart, Compass, Globe2, Home, Link2, Lock, Menu, Plus, Search, Trophy, UserRound, UsersRound, X } from './icons';
 import { createClan, createShare, enrollPerpl, ensureGas, setCultAdmin, getChart, getMarkets, setCountry, setPin, resetPin, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
@@ -48,7 +48,9 @@ import type { FlowStep, PredictionAccount, PredictionOrder, PredictionPosition, 
 import { Landing } from './Landing';
 import { AlertsMenu, notifyDevice } from './AlertsMenu';
 import { lastReadOf, markRead, mentions, notifyPref, priceAlerts, pushAlert, removePriceAlert, setMentioned, setUnread, unreadOf, useMentions, useUnread } from '@/lib/prefs';
-import { getRoomMessages } from '@/lib/api';
+import { getRoomMessages, sendRoomMessage, setCultImage } from '@/lib/api';
+import { squareImage } from '@/lib/image';
+import { CHART_SHARE, chartShareBody } from './ChartShareCard';
 import { TradingPermissionDialog } from './TradingPermissionDialog';
 import { Avatar } from './Avatar';
 import { SideRail, type NavItem } from './SideRail';
@@ -165,6 +167,9 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   };
   useEffect(() => () => { permissionResolve.current?.(false); }, []);
   const [createVisibility, setCreateVisibility] = useState<'private' | 'public'>('private');
+  // The new cult's picture (resized, as a data URL), picked in the Create dialog.
+  const [createImage, setCreateImage] = useState<string | null>(null);
+  const createImageInput = useRef<HTMLInputElement>(null);
   // The page comes from the URL (see lib/routes), so back and forward move
   // between pages, and a page can be refreshed or linked.
   const pathname = usePathname();
@@ -689,10 +694,11 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   };
   const create = () => perform('create', async () => {
     if (!name.trim()) throw new Error('Name your cult first.');
-    const created = await createClan(await token(), name.trim(), createVisibility);
+    const created = await createClan(await token(), name.trim(), createVisibility, createImage ?? undefined);
     await enterCult(created);
     setFormOpen(null);
     setName('');
+    setCreateImage(null);
     setNotice(`Cult created. Invite code: ${created.inviteCode}`);
   });
   const joinTarget = async (target: { inviteCode: string } | { cultId: string }) => {
@@ -713,6 +719,22 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     await loadMe();
     await loadChart(clanId, marketId ?? undefined);
     setNotice(visibility === 'public' ? 'Your Cult is now discoverable.' : 'Your Cult now requires an invite.');
+  });
+  // An admin sets the cult's picture (a resized data URL) or takes it off (null).
+  const changeCultImage = (image: string | null) => perform('cult-image', async () => {
+    if (!clanId || !clan?.isAdmin) throw new Error('Only admins can change the cult picture.');
+    await setCultImage(await token(), clanId, image);
+    await loadMe();
+    setNotice(image ? 'Cult picture updated.' : 'Cult picture removed.');
+  });
+  // Send a market's chart into your cults' chats, as a card that opens it.
+  const sendChart = (market: { id: string; symbol: string }, cultIds: string[]) => perform('send-chart', async () => {
+    if (!cultIds.length) throw new Error('Pick a cult to send the chart to.');
+    const accessToken = await token();
+    await Promise.all(cultIds.map(id => sendRoomMessage(accessToken, `cult:${id}`, chartShareBody(market.symbol), undefined, `${CHART_SHARE}${market.id}`)));
+    await loadMe();
+    const names = cultIds.map(id => me?.clans.find(c => c.id === id)?.name ?? 'your cult');
+    setNotice(`${market.symbol} chart sent to ${names.length === 1 ? names[0] : `${names.length} cults`}.`);
   });
   const leave = () => perform('leave', async () => {
     if (!clanId) throw new Error('Choose a cult first.');
@@ -1209,20 +1231,21 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} mentioned={mentioned} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
         : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo || !!config?.features?.predictions} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))} onAccountNeeded={demo ? undefined : () => { void loadPredictionAccount().catch(() => undefined); }}
             onBack={() => goUp({ view: 'markets' })} onBuy={placePrediction} onSell={sellPredictionPosition} onShare={sharePrediction} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
-          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} /> : <MarketsView owner={me.id} onSection={setMarketsTab} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
+          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} onSendChart={sendChart} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} /> : <MarketsView owner={me.id} onSection={setMarketsTab} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
-        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onShareHolding={shareHolding} onMarket={openMarket} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
+        : view === 'account' ? <AccountView id={profileId} usernameChangedAt={me.usernameChangedAt} holdings={holdings} onCloseHolding={closeTrade} onShareHolding={shareHolding} onMarket={openMarket} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
         : <div className="view two-col room-view">
           <section className="view-main room-main">
-            <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => goUp({ view: 'groups' })}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm" onClick={() => setGroupPanelOpen(true)}><PanelRightOpen size={14} /> {activeRoom?.kind === 'cult' ? 'Positions' : 'Rankings'}</button></div>
+            <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => goUp({ view: 'groups' })}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm room-more" aria-label={activeRoom?.kind === 'cult' ? 'More: positions, members and settings' : 'More: rankings'} onClick={() => setGroupPanelOpen(true)}><Menu size={15} /> More</button></div>
             {activeRoom ? <ClanChat key={activeRoom.id} room={activeRoom} liveMessage={activeRoom.kind === 'cult' ? liveMessage : null} selectedMarker={activeRoom.kind === 'cult' ? selected : null} onOpenMarker={openLinkedMarker} onMember={openAccount} onActivity={loadMeSoon} onInvite={activeRoom.kind === 'cult' ? copyInvite : undefined} canPin={!!clan?.isOwner && activeRoom.kind === 'cult'} meId={me.id} meName={me.name} markers={activeRoom.kind === 'cult' ? snapshot?.markers : undefined}
               onTrade={activeRoom.kind === 'cult' ? () => { setMarketSolo(false); showMarketsTab('perpl'); openMarket(null); } : undefined}
               shareCults={activeRoom.kind === 'cult' ? undefined : me.clans.filter(c => c.visibility === 'public').map(c => ({ id: c.id, name: c.name }))}
               myCultIds={me.clans.map(c => c.id)} onJoinCult={joinPublic} onOpenRoom={openRoom}
               copyable={activeRoom.kind === 'cult' && !(clan?.autoFollow ?? false)} copyUsd={Number(stackUsd) || 50}
-              onCopyTrade={activeRoom.kind === 'cult' ? (markerId, symbol, usd) => copyTrade(activeRoom.id.slice(5), markerId, symbol, usd) : undefined} />
+              onCopyTrade={activeRoom.kind === 'cult' ? (markerId, symbol, usd) => copyTrade(activeRoom.id.slice(5), markerId, symbol, usd) : undefined}
+              onOpenMarket={id => openMarket(id)} />
               : <div className="empty"><strong>This room is unavailable.</strong><span>Refresh your account or choose a country in Account.</span></div>}
           </section>
           {activeRoom && <div className={`view-side room-side ${groupPanelOpen ? 'open' : ''}`}>
@@ -1235,7 +1258,8 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
               onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker}
               onOpenTrade={() => { if (market) { setMarketSolo(false); navigate({ view: 'markets', market: market.id }); } }} onGuideDrop={(marker, kind, level) => { void submitGuide(marker, kind, level); }}
               onInvite={copyInvite} onVisibility={changeVisibility} onLeave={leave} onProfile={openAccount}
-              meId={me.id} onSetAdmin={activeRoom.kind === 'cult' ? (memberId, admin) => setAdmin(activeRoom.id.slice(5), memberId, admin) : undefined} />
+              meId={me.id} onSetAdmin={activeRoom.kind === 'cult' ? (memberId, admin) => setAdmin(activeRoom.id.slice(5), memberId, admin) : undefined}
+              onImage={activeRoom.kind === 'cult' ? changeCultImage : undefined} />
           </div>}
           {groupPanelOpen && <button className="sheet-scrim" aria-label="Close details" onClick={() => setGroupPanelOpen(false)} />}
         </div>}
@@ -1258,7 +1282,11 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         <button className="icon-btn dialog-close" title="Close" onClick={() => setFormOpen(null)}><X size={16} /></button>
         <div className="dialog-switch seg seg--sm"><button className={formOpen === 'create' ? 'on' : ''} onClick={() => setFormOpen('create')}>Create</button><button className={formOpen === 'join' ? 'on' : ''} onClick={() => setFormOpen('join')}>Join</button></div>
         {formOpen === 'create' ? <>
-          <div className="cult-preview"><span className="cult-preview-badge">{name.trim()[0]?.toUpperCase() ?? 'C'}</span><span><strong>{name.trim() || 'Your cult'}</strong><small>{createVisibility === 'public' ? 'Public · listed in Discover' : 'Private · invite only'}</small></span></div>
+          <div className="cult-preview"><button type="button" className="cult-preview-badge cult-image-pick" title={createImage ? 'Change the cult picture' : 'Add a cult picture'} aria-label={createImage ? 'Change the cult picture' : 'Add a cult picture'} disabled={!!busy} onClick={() => createImageInput.current?.click()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {createImage ? <img src={createImage} alt="" /> : name.trim()[0]?.toUpperCase() ?? 'C'}<span className="cult-image-cam"><Camera size={12} /></span>
+          </button>
+          <input ref={createImageInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void squareImage(file).then(setCreateImage, reason => setError(errorText(reason))); }} /><span><strong>{name.trim() || 'Your cult'}</strong><small>{createVisibility === 'public' ? 'Public · listed in Discover' : 'Private · invite only'}</small></span></div>
           <h2 className="display">Create a cult</h2>
           <p className="dialog-sub">Trade together. Every member&apos;s position shows on one chart, with live PnL.</p>
           <label className="field"><span className="field-top"><span>Name</span><small>{name.length}/36</small></span><input id="cult-name" value={name} onChange={event => setName(event.target.value)} maxLength={36} placeholder="Night Shift" autoFocus onKeyDown={event => { if (event.key === 'Enter' && name.trim()) create(); }} /></label>
