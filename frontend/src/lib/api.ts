@@ -56,7 +56,10 @@ export const getHoldings = (token: string) => api<{ positions: Holding[] }>('/v1
 export const openPosition = (token: string, marketId: string, side: 'long' | 'short' | 'buy', marginUsd: number, leverage?: number, cultIds?: string[]) => api<Fill>('/v1/positions/open', token, { method: 'POST', body: json({ marketId, side, marginUsd, ...(leverage ? { leverage } : {}), ...(cultIds ? { cultIds } : {}) }) });
 // sizeRaw closes part of the position (raw size units, from Holding.sizeRaw); omitted closes it all.
 export const closePosition = (token: string, marketId: string, sizeRaw?: string) => api<Fill>('/v1/positions/close', token, { method: 'POST', body: json(sizeRaw ? { marketId, sizeRaw } : { marketId }) });
-export const createClan = (token: string, name: string, visibility: 'private' | 'public') => api<Clan>('/v1/cults', token, { method: 'POST', body: json({ name, visibility }) });
+// image: the cult's picture as a data URL (lib/image squareImage), optional.
+export const createClan = (token: string, name: string, visibility: 'private' | 'public', image?: string) => api<Clan>('/v1/cults', token, { method: 'POST', body: json({ name, visibility, ...(image ? { image } : {}) }) });
+// An admin changes the cult's picture; null takes it off (back to the letter).
+export const setCultImage = (token: string, cultId: string, image: string | null) => api<Clan>(`/v1/cults/${encodeURIComponent(cultId)}/image`, token, { method: 'POST', body: json({ image }) });
 export const getJoinChallenge = (token: string, target: { inviteCode: string } | { cultId: string }, policy: MirrorPolicy) => api<SignedChallenge>('/v1/cults/join/challenge', token, { method: 'POST', body: json({ ...target, policy }) });
 export const joinClan = (token: string, target: { inviteCode: string } | { cultId: string }) => api<Clan>('/v1/cults/join', token, { method: 'POST', body: json(target) });
 export const getPolicyChallenge = (token: string, clanId: string, policy: MirrorPolicy) => api<SignedChallenge>(`/v1/cults/${encodeURIComponent(clanId)}/policy/challenge`, token, { method: 'POST', body: json({ policy }) });
@@ -88,9 +91,12 @@ export const setCultVisibility = (token: string, cultId: string, visibility: 'pr
 export const setCountry = (token: string, country: string) => api<{ country: { code: string; name: string }; rooms: ChatRoom[] }>('/v1/me/country', token, { method: 'POST', body: json({ country }) });
 export const getRooms = (token: string) => api<{ rooms: ChatRoom[] }>('/v1/chat/rooms', token);
 export const getRoomMessages = (token: string, room: string, before?: string) => api<ChatPage>(`/v1/chat/${encodeURIComponent(room)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : ''}`, token);
-export const sendRoomMessage = (token: string, room: string, body: string, replyTo?: string, markerId?: string) => api<ChatMessage>(`/v1/chat/${encodeURIComponent(room)}/messages`, token, { method: 'POST', body: json({ body, ...(replyTo ? { replyTo } : {}), ...(markerId ? { markerId } : {}) }) });
-// Reactions and who's typing. The demo serves both; live accounts get them
-// once the backend stores reactions and sends typing events.
+// image: a photo (data URL, lib/image fittedImage); the body is then its caption and may be empty.
+export const sendRoomMessage = (token: string, room: string, body: string, replyTo?: string, markerId?: string, image?: string) => api<ChatMessage>(`/v1/chat/${encodeURIComponent(room)}/messages`, token, { method: 'POST', body: json({ body, ...(replyTo ? { replyTo } : {}), ...(markerId ? { markerId } : {}), ...(image ? { image } : {}) }) });
+// Reactions, who's typing, photos in chat and cult pictures: the demo serves
+// them; live accounts get them once the backend stores them (then this is true
+// for everyone).
+export const hasSocialExtras = () => isDemo();
 export const reactToMessage = (token: string, room: string, messageId: string, emoji: string) => api<{ reactions: Reaction[] }>(`/v1/chat/${encodeURIComponent(room)}/messages/${encodeURIComponent(messageId)}/reactions`, token, { method: 'POST', body: json({ emoji }) });
 export const getTyping = (token: string, room: string) => api<{ names: string[] }>(`/v1/chat/${encodeURIComponent(room)}/typing`, token);
 export const getRoomEventUrl = (room: string) => {

@@ -14,7 +14,7 @@ export type Market = {
 export type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number };
 export type Candle = { time: number; open: number; high: number; low: number; close: number };
 // isAdmin: admins share their trades with the cult (the creator always is one).
-export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; isAdmin?: boolean; memberCount: number; myPolicy: MirrorPolicy | null; autoFollow: boolean };
+export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; isAdmin?: boolean; memberCount: number; myPolicy: MirrorPolicy | null; autoFollow: boolean; imageUrl?: string | null };
 export type Member = {
   id: string; name: string; avatarUrl: string | null; address: string; admin?: boolean; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
@@ -26,7 +26,7 @@ export type Member = {
   };
 };
 export type ChatRoom = { id: string; kind: 'global' | 'country' | 'cult'; name: string; icon: string; memberCount: number; lastMessage: ChatMessage | null };
-export type DiscoverCult = { id: string; name: string; visibility: 'public'; memberCount: number; createdAt: string; joined: boolean };
+export type DiscoverCult = { id: string; name: string; visibility: 'public'; memberCount: number; createdAt: string; joined: boolean; imageUrl?: string | null };
 export type BoardPeriod = 'all' | '30d' | '7d';
 export type LeaderboardEntry = { rank: number; memberId: string; name: string; avatarUrl: string | null; address: string; country: string | null; realizedPnlUsd: number; winRate: number | null; tradeCount: number; copiedTradeCount: number };
 export type Leaderboard = { scope: string; name: string; metric: 'realizedPnlUsd'; period: BoardPeriod; entries: LeaderboardEntry[]; me: (Omit<LeaderboardEntry, 'rank'> & { rank: number | null }) | null; rankedCount: number; memberCount: number; asOf: string };
@@ -36,6 +36,7 @@ export type ChatMessage = {
   memberAvatarUrl: string | null; body: string; text: string;
   replyTo: string | null; markerId: string | null; createdAt: string;
   reactions?: Reaction[];
+  imageUrl?: string | null; // a photo sent with the message (the body is its caption, or empty)
 };
 // An emoji reaction on a message: how many, and whether one is yours.
 export type Reaction = { emoji: string; count: number; mine: boolean };
@@ -67,7 +68,9 @@ export type BackendConfig = {
   features?: { predictions: boolean; crossChain: boolean; gasTopUp?: boolean };
 };
 export type Me = {
-  id: string; address: `0x${string}`; name: string; username: string | null; needsUsername: boolean; pinSet?: boolean; avatarUrl: string | null; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
+  id: string; address: `0x${string}`; name: string; username: string | null; needsUsername: boolean; pinSet?: boolean;
+  usernameChangedAt?: string | null; // last time the member changed their username (not the first pick); once every 3 months
+  avatarUrl: string | null; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
   perpl: { accountId: string | null; keyEnrolled: boolean; forwarding: boolean };
   balances: {
     perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;
@@ -139,7 +142,7 @@ export type TradeView = {
 export type Profile = { id: string; name: string; username: string | null; avatarUrl: string | null; address: string; country: { code: string; name: string | null } | null;
   memberSince: number; isMe: boolean; record: Member['stats'];
   openTrades: { tradeId: string; markerId: string; venue: string; market: string; symbol: string; side: string; leverage: number; openedAt: number }[];
-  closedTrades: ClosedTrade[]; cults: { id: string; name: string; visibility: string }[] };
+  closedTrades: ClosedTrade[]; cults: { id: string; name: string; visibility: string; imageUrl?: string | null }[] };
 
 export type MarketListing = { venue: Venue; id: string; symbol: string; name: string; priceUsd: number | null; change24hPct: number | null; volume24hUsd: number | null; imageUri: string | null; maxLeverage: number };
 export type MarketDetail = { market: MarketListing; candles: Candle[]; resolution: number };

@@ -7,7 +7,7 @@ import { HotPill, isHotMarket } from './HotPill';
 import { getHome, getMarkets, getProfile } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { ChatRoom, ClosedTrade, Holding, Home, MarketListing, Me } from '@/lib/contracts';
-import { compactDollars, dollars, price, signedDollars, signedPct, timeAgo } from '@/lib/format';
+import { compactDollars, dollars, price, signedDollars, signedPct, messageLine, timeAgo } from '@/lib/format';
 import { Avatar } from './Avatar';
 import { TokenLogo } from './TokenLogo';
 import { RoomBadge } from './RoomBadge';
@@ -32,7 +32,7 @@ export function RoomRow({ room, unread, mention, onOpen }: { room: ChatRoom; unr
   const last = room.lastMessage;
   return <button className={`room-row${unread ? ' is-unread' : ''}`} onClick={onOpen}>
     <span className="badge-wrap"><RoomBadge icon={room.icon} kind={room.kind} size="lg" /><UnreadBubble count={unread} mention={mention} /></span>
-    <span className="room-row-lines"><strong>{room.name}</strong><small>{last ? (last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`) : 'No messages yet'}</small></span>
+    <span className="room-row-lines"><strong>{room.name}</strong><small>{last ? (last.kind === 'system' ? last.text : `${last.memberName}: ${messageLine(last)}`) : 'No messages yet'}</small></span>
     <span className="room-row-meta"><small>{room.memberCount} {room.memberCount === 1 ? 'member' : 'members'}</small>{last && <time>{timeAgo(Date.parse(last.createdAt))}</time>}</span>
     <ArrowRight size={16} className="room-row-go" />
   </button>;

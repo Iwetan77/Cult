@@ -14,3 +14,5 @@ export const timeAgo = (ms: number) => {
   if (s < 86_400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86_400)}d`;
 };
+// A message as one line: its text, or "Photo" for a photo sent without a caption.
+export const messageLine = (message: { body: string; imageUrl?: string | null }) => message.body || (message.imageUrl ? 'Photo' : '');
