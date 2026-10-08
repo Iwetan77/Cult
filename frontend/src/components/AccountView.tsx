@@ -19,6 +19,7 @@ import { setNotifyPref, useNotifyPref } from '@/lib/prefs';
 import { enableNotifications } from './AlertsMenu';
 import { PinSetting } from './PinSetting';
 import { isDemo } from '@/lib/demo';
+import { UsernameSetting } from './UsernameSetting';
 
 // Settings: notifications. On, every alert and new cult message shows in the
 // app, and as a system notification in the background where the browser allows.
@@ -187,6 +188,12 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Photo removal failed.'); }
     finally { setPhotoBusy(false); }
   };
+  const refreshProfile = async () => {
+    const token = await getAccessToken();
+    if (!token) throw new Error('Sign in again to update your profile.');
+    setProfile(await getProfile(token, 'me'));
+    await onAvatarSaved();
+  };
 
   if (error && !profile) return <div className="view one-col"><section className="view-main"><p className="notice-line">{error}</p></section></div>;
   if (!profile) return <div className="view one-col"><section className="view-main"><div className="skel skel-banner" /><div className="skel skel-chart" /></section></div>;
@@ -217,7 +224,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
             <h1>{profile.name}</h1>
             <small>{shortAddress(profile.address)} · {profile.country?.name ?? profile.country?.code ?? 'Country not set'} · since {new Date(profile.memberSince).toLocaleDateString([], { month: 'short', year: 'numeric' })}</small>
           </div>
-          {profile.isMe && <div className="profile-actions"><button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
+          {profile.isMe && <div className="profile-actions"><button className="btn btn-ghost btn-sm" onClick={() => setTab('settings')}>Edit profile</button><button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
         </div>
         {profile.isMe && (profile.avatarUrl || photoBusy || error) && <div className="profile-photo-note">{profile.avatarUrl && <button className="link" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}{photoBusy && <span>Updating photo…</span>}{error && <span className="down">{error}</span>}</div>}
       </section>
@@ -293,10 +300,11 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
           <span className={`num ${(trade.returnPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(trade.returnPct, 1)}</span>
         </button>; })())}</div> : <div className="empty"><span>No closed trades yet.</span></div>)
         : <div className="settings">
+          <UsernameSetting key={profile.id} current={profile.username ?? profile.name} onSaved={refreshProfile} />
           <NotificationsSetting owner={profile.id} />
           {!isDemo() && <PinSetting onSignOut={onSignOut} />}
           <CountryPicker currentCode={profile.country?.code} onSaved={onCountrySaved} />
-          <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> Change</button></div>
+          <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" type="button" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> {photoBusy ? 'Updating...' : 'Change photo'}</button>{profile.avatarUrl && <button className="btn btn-ghost btn-sm" type="button" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}</div>
           <div className="setting danger"><div><strong>{signOutLabel}</strong><small>Your funds stay in your wallet.</small></div><button className="btn btn-ghost btn-sm" onClick={onSignOut}><LogOut size={14} /> {signOutLabel}</button></div>
         </div>}
       </section>
