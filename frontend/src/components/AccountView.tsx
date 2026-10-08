@@ -20,6 +20,7 @@ import { enableNotifications } from './AlertsMenu';
 import { PinSetting } from './PinSetting';
 import { isDemo } from '@/lib/demo';
 import { UsernameSetting } from './UsernameSetting';
+import { PhoneNotifications } from './PhoneNotifications';
 
 // Settings: notifications. On, every alert and new cult message shows in the
 // app, and as a system notification in the background where the browser allows.
@@ -31,11 +32,11 @@ function NotificationsSetting({ owner }: { owner: string }) {
     if (!next) { setNotifyPref(owner, false); return; }
     setPermission(await enableNotifications(owner));
   };
-  const note = !on ? 'Get an alert for every new message and notification in Cult.'
-    : permission === 'granted' ? 'On. You also get them when Cult is in the background.'
-      : permission === 'denied' ? 'On in Cult. Your browser blocks system notifications; allow them in its site settings to get them in the background too.'
+  const note = !on ? 'Get message and price alerts while Cult is open.'
+    : permission === 'granted' ? 'On while Cult is open. Enable Phone alerts below for liquidations and trades when it is closed.'
+      : permission === 'denied' ? 'On in Cult. Your browser blocks system notifications.'
         : permission === 'unsupported' ? 'On in Cult. This browser can\'t show system notifications.'
-          : 'On in Cult. Allow notifications when your browser asks to get them in the background too.';
+          : 'On in Cult. Phone alerts are a separate setting below.';
   return <label className="setting setting--switch"><div><strong>Notifications</strong><small>{note}</small></div><input type="checkbox" className="switch" aria-label="Notifications" checked={on} onChange={event => void toggle(event.target.checked)} /></label>;
 }
 
@@ -302,6 +303,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
         : <div className="settings">
           <UsernameSetting key={profile.id} current={profile.username ?? profile.name} onSaved={refreshProfile} />
           <NotificationsSetting owner={profile.id} />
+          <PhoneNotifications owner={profile.id} />
           {!isDemo() && <PinSetting onSignOut={onSignOut} />}
           <CountryPicker currentCode={profile.country?.code} onSaved={onCountrySaved} />
           <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" type="button" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> {photoBusy ? 'Updating...' : 'Change photo'}</button>{profile.avatarUrl && <button className="btn btn-ghost btn-sm" type="button" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}</div>

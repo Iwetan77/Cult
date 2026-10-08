@@ -18,6 +18,7 @@ import { cachedList } from '@/lib/marketCache';
 import { dollars, price, shortAddress } from '@/lib/format';
 import { validateMirrorPolicy } from '@/lib/mirrorPolicy';
 import { tradeAudienceNotice } from '@/lib/tradeAudience';
+import { disablePhonePush } from '@/lib/phonePush';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
 import { ClanChat } from './ClanChat';
@@ -1085,7 +1086,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   };
   const signOut = () => {
     if (demo) { exitDemo(); window.location.assign('/'); return; }
-    void logout().then(() => navigate({ view: 'home' }, true));
+    void disablePhonePush().catch(() => undefined).then(() => logout()).then(() => navigate({ view: 'home' }, true));
   };
 
   // The market page asks the cult chart for its own market (once per page).
