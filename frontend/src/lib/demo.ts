@@ -891,7 +891,7 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     const name = String(body.name);
     const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cult'}-${++s.next}`;
     const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-    const code = Array.from({ length: 6 }, (_, i) => letters[(hash(id) >> (i * 4)) % letters.length]).join('');
+    const code = Array.from({ length: 6 }, (_, i) => letters[(hash(id) >>> (i * 4)) % letters.length]).join('');
     const image = imageOf(body.image);
     const clan: Clan = { id, name, inviteCode: `${code.slice(0, 3)}-${code.slice(3)}`, visibility: body.visibility === 'public' ? 'public' : 'private', isOwner: true, isAdmin: true, memberCount: 1, myPolicy: policy(false), autoFollow: false, imageUrl: image };
     s.me.clans.push(clan);

@@ -93,10 +93,16 @@ export const getRooms = (token: string) => api<{ rooms: ChatRoom[] }>('/v1/chat/
 export const getRoomMessages = (token: string, room: string, before?: string) => api<ChatPage>(`/v1/chat/${encodeURIComponent(room)}/messages?limit=50${before ? `&before=${encodeURIComponent(before)}` : ''}`, token);
 // image: a photo (data URL, lib/image fittedImage); the body is then its caption and may be empty.
 export const sendRoomMessage = (token: string, room: string, body: string, replyTo?: string, markerId?: string, image?: string) => api<ChatMessage>(`/v1/chat/${encodeURIComponent(room)}/messages`, token, { method: 'POST', body: json({ body, ...(replyTo ? { replyTo } : {}), ...(markerId ? { markerId } : {}), ...(image ? { image } : {}) }) });
-// Reactions, who's typing, photos in chat and cult pictures: the demo serves
-// them; live accounts get them once the backend stores them (then this is true
-// for everyone).
-export const hasSocialExtras = () => isDemo();
+// Who's typing: the demo shows it; live rooms get it once the backend sends
+// typing events. (Reactions, photos and cult pictures work everywhere.)
+export const hasTyping = () => isDemo();
+// Pictures the API serves (chat photos, cult pictures) come as /v1 paths;
+// data URLs (just picked, or from the demo) are used as they are.
+export const mediaUrl = (url: string | null | undefined) => {
+  if (!url) return null;
+  if (!url.startsWith('/')) return url;
+  return BASE ? `${BASE.replace(/\/$/, '')}${url}` : null;
+};
 export const reactToMessage = (token: string, room: string, messageId: string, emoji: string) => api<{ reactions: Reaction[] }>(`/v1/chat/${encodeURIComponent(room)}/messages/${encodeURIComponent(messageId)}/reactions`, token, { method: 'POST', body: json({ emoji }) });
 export const getTyping = (token: string, room: string) => api<{ names: string[] }>(`/v1/chat/${encodeURIComponent(room)}/typing`, token);
 export const getRoomEventUrl = (room: string) => {

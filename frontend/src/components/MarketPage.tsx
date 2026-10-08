@@ -14,6 +14,7 @@ import { TokenLogo } from './TokenLogo';
 import { Avatar } from './Avatar';
 import { MarkerCard } from './MarkerCard';
 import { TradeTicket, type PostTo, type TicketMarket } from './TradeTicket';
+import { SendChartControl } from './SendChartControl';
 
 // A market is also its cult's chart: pick one of your cults and every
 // cult-mate's position on this market is drawn on it, with name and live PnL.
@@ -50,12 +51,14 @@ type Props = {
   onBack: () => void;
   onTrade: (market: TicketMarket, side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => void;
   onDeposit: () => void;
+  // Send this market's chart into your cults' chats.
+  onSendChart?: (market: { id: string; symbol: string }, cultIds: string[]) => Promise<void> | void;
 };
 
 const RESOLUTIONS = CHART_RESOLUTIONS;
 const originName = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? 'Auto copy' : origin === 'manual_stack' ? 'Stacked' : 'Own trade';
 
-export function MarketPage({ id, me, config, busy, social, holdings, onBack, onTrade, onDeposit }: Props) {
+export function MarketPage({ id, me, config, busy, social, holdings, onBack, onTrade, onDeposit, onSendChart }: Props) {
   const resolution = social.resolution;
   const [detail, setDetail] = useState<MarketDetail | null>(() => cachedMarket(id, resolution));
   const [error, setError] = useState<string | null>(null);
@@ -110,6 +113,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
             <span className="mkt-bar-actions">
               <button className={`icon-btn mkt-star${starred ? ' on' : ''}`} aria-pressed={starred} aria-label={starred ? `Remove ${m.symbol} from your watchlist` : `Add ${m.symbol} to your watchlist`} title={starred ? 'On your watchlist' : 'Add to your watchlist'} onClick={() => toggleStar(me.id, m.id)}><Star size={17} fill={starred ? 'currentColor' : 'none'} /></button>
               <PriceAlertControl owner={me.id} marketId={m.id} symbol={m.symbol} current={m.priceUsd ?? last?.close ?? null} />
+              {onSendChart && <SendChartControl symbol={m.symbol} cults={me.clans} busy={!!busy} onSend={cultIds => onSendChart({ id: m.id, symbol: m.symbol }, cultIds)} />}
             </span>
           </div>
           <div className="mkt-bar-price"><strong className={`num ${(m.change24hPct ?? 0) >= 0 ? 'up' : 'down'}`}>{price(m.priceUsd ?? last?.close)}</strong><small>Mark price</small></div>
