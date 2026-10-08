@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeftRight } from './icons';
 import type { Clan, Me, TpslValues } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
 import { HIGH_LEVERAGE, liquidationMove, liquidationPrice } from '@/lib/risk';
+import { availableTradeFunds } from '@/lib/tradeFunds';
 
 // A perps ticket in the terms people bet in: the big number is the money you
 // put in; leverage multiplies it into the position size shown under it. So
@@ -21,6 +22,7 @@ type Props = {
   market: TicketMarket;
   balances: Me['balances'];
   monPriceUsd: number | null;
+  chainId?: number;
   cults: Clan[]; // the cults this trade can be shared with (where you're an admin)
   inCults?: boolean; // a member of any cult at all
   defaultPostTo: PostTo;
@@ -28,8 +30,6 @@ type Props = {
   onSubmit: (side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => void;
   onDeposit?: () => void;
 };
-
-const TOPUP_GAS_MON = 0.1; // kept for the swap + deposit, on top of the reserve (matches the backend)
 
 // Round leverage stops that fit the market, always ending at its max.
 function leverageTicks(max: number): number[] {
@@ -41,7 +41,7 @@ function leverageTicks(max: number): number[] {
 const assetOf = (symbol: string) => symbol.replace(/-PERP$/i, '').replace(/^\$/, '');
 const trim = (value: number, digits: number) => String(Number(value.toFixed(digits)));
 
-export function TradeTicket({ market, balances, monPriceUsd, cults, inCults = false, defaultPostTo, busy, onSubmit, onDeposit }: Props) {
+export function TradeTicket({ market, balances, monPriceUsd, chainId, cults, inCults = false, defaultPostTo, busy, onSubmit, onDeposit }: Props) {
   const isPerp = market.venue === 'perpl';
   const maxLev = Math.max(1, Math.floor(market.maxLeverage));
   const asset = assetOf(market.symbol);
@@ -60,16 +60,7 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, inCults = fa
   useEffect(() => { setAmountText(''); setUnit('usd'); setSide('long'); setLevelsOn(false); setTpText(''); setSlText(''); setConfirming(false); setLeverage(isPerp ? Math.min(2, maxLev) : 1); }, [market.id, isPerp, maxLev]);
 
   // What this trade can draw on, in $ of stake.
-  const available = useMemo(() => {
-    if (!balances) return null;
-    const px = monPriceUsd ?? 0;
-    const spareMon = Math.max(0, balances.mon - balances.gasReserveMon - (isPerp ? TOPUP_GAS_MON : 0));
-    // Deposited USDC counts as dollars: a trade turns it into AUSD when it needs it.
-    const dollars = balances.walletUsd + (balances.usdcUsd ?? 0);
-    if (isPerp) return (balances.perplMarginUsd ?? 0) + dollars + spareMon * px * 0.97;
-    const monUsd = spareMon * px;
-    return balances.memesPayWith === 'ausd' ? Math.max(dollars, monUsd) : monUsd;
-  }, [balances, monPriceUsd, isPerp]);
+  const available = availableTradeFunds(market.venue, balances, monPriceUsd, chainId);
 
   const lev = isPerp ? leverage : 1;
   const typed = Number(amountText);
@@ -156,7 +147,8 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, inCults = fa
       {feeUsd != null && <div><dt>Fee ≈</dt><dd className="num">{dollars(feeUsd)} <span className="ticket-est">{(market.takerFeeBps! / 100).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}%</span></dd></div>}
     </dl>
     {tooBig && <p className="ticket-warn">More than you have available.{onDeposit && <button type="button" className="link" onClick={onDeposit}>Deposit</button>}</p>}
-    {!tooBig && shortInAccount && stakeUsd > 0 && <p className="ticket-note">Funds move from your wallet automatically.</p>}
+    {isPerp && chainId === 10143 && <p className="ticket-note">Testnet perps use testnet dollars. MON pays fees and buys meme tokens, but cannot fund perps here.</p>}
+    {!tooBig && shortInAccount && stakeUsd > 0 && <p className="ticket-note">{chainId === 143 ? 'Funds move from your wallet automatically.' : 'Testnet dollars move from your wallet automatically.'}</p>}
 
     {cults.length ? <label className="ticket-post">
       <span className="ticket-label">Post to</span>

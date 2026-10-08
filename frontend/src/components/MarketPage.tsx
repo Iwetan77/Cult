@@ -184,7 +184,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
       <aside className="view-side">
         <section className="card ticket-card">
           <div className="card-head"><h2>{isPerp ? 'Trade' : 'Buy'} {m.symbol.replace(/-PERP$/, '')}</h2><span className="count num">{price(ticket.priceUsd)}</span></div>
-          <TradeTicket market={ticket} balances={me.balances} monPriceUsd={config?.monPriceAusd ?? null}
+          <TradeTicket market={ticket} balances={me.balances} monPriceUsd={config?.monPriceAusd ?? null} chainId={config?.chainId}
             cults={social.cults.filter(c => c.isAdmin ?? true)} inCults={social.cults.length > 0} defaultPostTo={postTo} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds, tpsl) => onTrade(ticket, side, margin, lev, cultIds, tpsl)} onDeposit={onDeposit} />
         </section>
       </aside>
