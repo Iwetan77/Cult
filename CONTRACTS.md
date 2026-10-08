@@ -985,6 +985,16 @@ event carries `orderDescId`, which is our `requestId`:
 Map `accountId` to member and clans through `/accounts`. Page with `since` (the
 `createdAt` of the last row seen), 1000 rows max per page.
 
+### Phone push notifications
+
+- Authenticated `GET /v1/notifications/push` returns `{ publicKey }` (the public VAPID key only).
+- `POST /v1/notifications/push { endpoint, keys: { p256dh, auth } }` subscribes this device; `DELETE` with `{ endpoint }` removes the caller's subscription. Both return 204. Known HTTPS browser push services only; at most 10 devices per member.
+- `POST /v1/notifications/push/test` queues an own-account test notification (204), limited to once per minute (429 + Retry-After).
+- Server push covers confirmed new trades posted by cult admins, to members of the selected cults except the trader, and a member's confirmed Perpl liquidations (including private trades and copies). It does not infer liquidation from price estimates or an absent position.
+- VAPID keys are generated once and encrypted in the existing persistent database using `KEY_ENCRYPTION_SECRET`. No frontend secret or new deployment key is required. Keep the database volume and encryption secret stable.
+- Delivery is queued persistently, deduplicated per event/device, expires after an hour, retries transient failures with backoff, and removes 404/410 endpoints. Cult membership is checked again before delivery.
+- Browser opt-in is required. On iPhone/iPad, enable push from the installed Home Screen app. Logout unsubscribes the device.
+
 ## Backend env vars
 
 See `backend/.env.example`. Frontend and indexer only need to know:
