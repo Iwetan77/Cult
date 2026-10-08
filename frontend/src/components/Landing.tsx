@@ -438,7 +438,7 @@ export function Landing({ onLogin, pendingLogin, onDemo }: Props) {
       <p className="lp-join__word" aria-hidden="true">CULT</p>
       <div className="lp-join__inner">
         <div className="lp-join__text">
-          <h2 className="lp-join__title"><Words text="Get in the cult" step={0.09} /></h2>
+          <h2 className="lp-join__title"><Words text="Trade with your cabal" step={0.08} /></h2>
           <p className="lp-join__lead lp-a lp-a--rise" style={d(0.4)}>Your wallet, your funds, your trades. Pick a cult or start your own on Monad.</p>
         </div>
         <div className="lp-join__ctas">
