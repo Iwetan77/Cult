@@ -769,13 +769,13 @@ export function createApp(engine: MirrorEngine) {
     const { memberId, admin } = z.object({ memberId: z.string().min(1).max(200), admin: z.boolean() }).parse(await c.req.json());
     if (!clans.isAdmin(clan.id, c.get('userId'))) throw bad(403, 'only admins can change admins');
     if (!clans.membership(clan.id, memberId)) throw bad(404, 'not a member of this cult');
-    if (memberId === clan.createdBy && !admin) throw bad(400, 'the creator is always an admin');
+    if (memberId === clan.createdBy && !admin) throw bad(400, 'The cult owner cannot be demoted.');
     if (clans.isAdmin(clan.id, memberId) !== admin) {
       clans.setRole(clan.id, memberId, admin ? 'admin' : 'member');
       const who = members.get(memberId);
       postSystem(cultRoom(clan.id), c.get('userId'), `${admin ? 'made' : 'removed'} ${who ? displayName(who) : 'a member'} ${admin ? 'an admin' : 'as admin'}`);
     }
-    return c.json({ memberId, admin });
+    return c.json({ memberId, admin: clans.isAdmin(clan.id, memberId), owner: memberId === clan.createdBy });
   });
 
   // The owner makes their cult public (listed, joinable without the code) or private again.

@@ -8,6 +8,7 @@ import type { BackendConfig, ChartMarker, ChartSnapshot, ChatRoom, Clan, Leaderb
 import { dollars, percent, price, signedDollars } from '@/lib/format';
 import { candleResolution } from '@/lib/chartHistory';
 import { autoFollowDraft, mirrorPolicyFromDraft } from '@/lib/mirrorPolicy';
+import { canManageCultMember, cultMemberRole } from '@/lib/cultRoles';
 import { SharedChart } from './SharedChart';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
@@ -146,12 +147,12 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         <div className="card-head sub"><h3>Ranking</h3></div>
         <RoomRanking room={room} cultId={cult.id} onProfile={onProfile} />
       </div> : tab === 'members' ? <div className="mini-members">{members.length ? members.map(member => <div key={member.id} className="mini-member">
-        <button className="mini-member-main" onClick={() => onProfile(member.id)}><Avatar name={member.name} url={member.avatarUrl} /><span><strong>{member.name}{member.admin && <i className="admin-tag">Admin</i>}</strong><small>{member.verified ? `${member.tradeCount} trades · ${member.winRate == null ? '—' : percent(member.winRate * 100)} win` : 'Unverified'}</small></span><b className={`num ${(member.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{member.realizedPnlUsd == null ? '—' : signedDollars(member.realizedPnlUsd)}</b></button>
-        {cult.isAdmin && onSetAdmin && member.id !== meId && <button className="btn btn-ghost btn-sm" disabled={busy || adminBusy === member.id} onClick={() => { setAdminBusy(member.id); void onSetAdmin(member.id, !member.admin).finally(() => setAdminBusy(null)); }}>{member.admin ? 'Remove admin' : 'Make admin'}</button>}
+        <button className="mini-member-main" onClick={() => onProfile(member.id)}><Avatar name={member.name} url={member.avatarUrl} /><span><strong>{member.name}{cultMemberRole(member, cult, meId) !== 'member' && <i className="admin-tag">{cultMemberRole(member, cult, meId) === 'owner' ? 'Owner' : 'Admin'}</i>}</strong><small>{member.verified ? `${member.tradeCount} trades · ${member.winRate == null ? '—' : percent(member.winRate * 100)} win` : 'Unverified'}</small></span><b className={`num ${(member.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{member.realizedPnlUsd == null ? '—' : signedDollars(member.realizedPnlUsd)}</b></button>
+        {canManageCultMember(cult, member, meId) && onSetAdmin && <button className="btn btn-ghost btn-sm" disabled={busy || adminBusy === member.id} onClick={() => { setAdminBusy(member.id); void onSetAdmin(member.id, !member.admin).finally(() => setAdminBusy(null)); }}>{member.admin ? 'Remove admin' : 'Make admin'}</button>}
       </div>) : <div className="empty compact"><span>Member records appear after the indexer syncs.</span></div>}</div>
       : <div className="group-settings">
         <div className="setting"><div><strong>Your copy limits</strong><small>{cult.autoFollow ? 'Auto-follow on' : 'Auto-follow off'}{policy && ` · Up to ${dollars(policy.maxUsdPerTrade)} per copy · ${policy.balancePercentCap}% of free balance`}</small></div><button className="btn btn-ghost btn-sm" disabled={busy} onClick={openFollowSheet}>{cult.autoFollow ? 'Edit limits' : 'Set limits'}</button></div>
-        <div className="setting"><div><strong>{cult.isAdmin ? 'You’re an admin' : 'You’re a member'}</strong><small>{cult.isAdmin
+        <div className="setting"><div><strong>{cult.isOwner ? 'You’re the owner' : cult.isAdmin ? 'You’re an admin' : 'You’re a member'}</strong><small>{cult.isAdmin || cult.isOwner
           ? 'Your trades are shared here and copied by members on Auto-follow. Make others admins from Members.'
           : 'Only admins share trades here; yours stay yours. Turn on Auto-follow to copy them, or tap Copy on one in the chat.'}</small></div></div>
         <div className="setting"><div><strong>Invite link</strong><small>Code <b className="code">{cult.inviteCode}</b></small></div><button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Copy</button></div>
