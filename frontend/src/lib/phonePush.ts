@@ -44,8 +44,13 @@ export async function disablePhonePush() {
   const registration = await navigator.serviceWorker.getRegistration('/sw.js');
   const subscription = await registration?.pushManager.getSubscription();
   if (!subscription) { storeOwner(null); return; }
+  // Stop device delivery first, even when the API is offline during logout.
+  await subscription.unsubscribe();
+  storeOwner(null);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 5000);
   try {
     const token = await getAccessToken();
-    if (token) await deletePushSubscription(token, subscription.endpoint);
-  } finally { await subscription.unsubscribe(); storeOwner(null); }
+    if (token) await deletePushSubscription(token, subscription.endpoint, controller.signal);
+  } finally { window.clearTimeout(timer); }
 }

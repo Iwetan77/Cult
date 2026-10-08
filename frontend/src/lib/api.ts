@@ -118,7 +118,7 @@ export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: s
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
 export const getPushConfig = (token: string) => api<{ publicKey: string }>('/v1/notifications/push', token);
 export const savePushSubscription = (token: string, subscription: PushSubscriptionJSON) => api<void>('/v1/notifications/push', token, { method: 'POST', body: json(subscription) });
-export const deletePushSubscription = (token: string, endpoint: string) => api<void>('/v1/notifications/push', token, { method: 'DELETE', body: json({ endpoint }) });
+export const deletePushSubscription = (token: string, endpoint: string, signal?: AbortSignal) => api<void>('/v1/notifications/push', token, { method: 'DELETE', body: json({ endpoint }), signal });
 export const testPhonePush = (token: string) => api<void>('/v1/notifications/push/test', token, { method: 'POST' });
 // Prediction markets: market data comes straight from Polymarket
 // (lib/polymarket.ts); bets go through the backend (Polymarket account per
