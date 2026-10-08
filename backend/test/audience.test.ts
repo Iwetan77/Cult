@@ -41,9 +41,9 @@ before(async () => {
 
 const open = (market: string) => engine.leaderOpened({ venue: 'perpl', userId: 'L', market, side: 'long', sizeRaw: '100', entryPriceAusd: 1, leverageHundredths: 200, marginFraction: 0.1 });
 
-test('no pick: every cult the trader is in', async () => {
+test('no pick: every cult the trader is an admin of', async () => {
   const t = await open('16');
-  assert.equal(t!.cultIds, null);
+  assert.deepEqual([...t!.cultIds!].sort(), [x, y].sort()); // stored explicitly
   assert.deepEqual(mirrors.forTrade(t!.id).map((m) => m.userId).sort(), ['F', 'G']);
 });
 
@@ -58,10 +58,29 @@ test('posted to one cult: only its followers copy, and it is stored on the trade
 
 test('the pick is used once, then trades reach every cult again', async () => {
   const t = await open('32');
-  assert.equal(t!.cultIds, null);
+  assert.deepEqual([...t!.cultIds!].sort(), [x, y].sort());
 });
 
 test('posted to nobody: kept to themselves', async () => {
   audience.setAudience('L', 'perpl', '48', []);
   assert.equal(await open('48'), null);
+});
+
+// Only admins share trades with a cult. The creator always is one; others
+// become admins when an admin makes them one.
+test('a member who is not an admin: their trade stays theirs alone', async () => {
+  const t = await engine.leaderOpened({ venue: 'perpl', userId: 'F', market: '64', side: 'long', sizeRaw: '100', entryPriceAusd: 1, leverageHundredths: 200, marginFraction: 0.1 });
+  assert.equal(t, null);
+});
+
+test('made an admin: their trades are shared and copied', async () => {
+  const { clans } = await import('../src/store/clans.js');
+  assert.equal(clans.isAdmin(x, 'L'), true, 'the creator is an admin');
+  assert.equal(clans.isAdmin(x, 'F'), false);
+  clans.setRole(x, 'F', 'admin');
+  assert.equal(clans.isAdmin(x, 'F'), true);
+  const t = await engine.leaderOpened({ venue: 'perpl', userId: 'F', market: '80', side: 'long', sizeRaw: '100', entryPriceAusd: 1, leverageHundredths: 200, marginFraction: 0.1 });
+  assert.deepEqual(t!.cultIds, [x]);
+  assert.deepEqual(mirrors.forTrade(t!.id).map((m) => m.userId), ['L']);
+  clans.setRole(x, 'F', 'member');
 });

@@ -3,6 +3,7 @@ import { listMonMarkets, searchMonMarkets, type NadMarket } from '../nadfun/trad
 import { monPriceAusd } from '../prices.js';
 import { venue as venueOf } from '../venues/index.js';
 import { nadCandles, nadMarket, perplCandles, toApiMarket } from './chart.js';
+import { chartResolution } from './chart-history.js';
 
 // One market list across both venues, for the Markets page, search and
 // "trending": Perpl perps (BTC-PERP ...) and MON-quoted Nad.fun memes ($MOE).
@@ -152,6 +153,7 @@ export interface MarketDetail {
 }
 
 export async function marketDetail(id: string, resolutionSec = 300): Promise<MarketDetail> {
+  resolutionSec = chartResolution(resolutionSec);
   const isToken = /^0x[0-9a-fA-F]{40}$/.test(id);
   const market = (await all()).find((m) => m.id === id.toLowerCase()) ?? (isToken ? await tokenListing(id) : null);
   if (!market) throw new MarketError(404, 'no such market');

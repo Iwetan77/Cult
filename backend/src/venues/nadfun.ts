@@ -94,8 +94,13 @@ export const nadfun: VenueAdapter = {
     let monIn: bigint;
     let spentAusd: number;
     const extraTxs: string[] = [];
-    // Paid in dollars when there are enough of them; otherwise straight from
-    // MON, so a member who only deposited MON can still buy.
+    // Paid in dollars when there are enough of them (deposited USDC is turned
+    // into AUSD first if that's what's missing); otherwise straight from MON,
+    // so a member who only deposited MON can still buy.
+    if (nadPaysWith() === 'ausd' && (await memePockets(i.userId, monPx)).ausdUsd < i.notionalAusd) {
+      const { convertUsdcNow } = await import('../funding/usdc.js');
+      await convertUsdcNow(i.userId);
+    }
     const payWith = await payWithFor(i.userId, i.notionalAusd, monPx);
     if (payWith === 'ausd') {
       const ausdIn = toAusdRaw(i.notionalAusd);

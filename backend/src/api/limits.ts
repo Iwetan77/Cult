@@ -46,5 +46,8 @@ const TRADE_ROUTES: RegExp[] = [
   /^\/v1\/(clans|cults)\/[^/]+\/stack$/,
   /^\/v1\/(clans|cults)\/[^/]+\/markers\/[^/]+\/suggest-tpsl$/,
   /^\/v1\/funding\/usdc\/(prepare|confirm)$/,
+  /^\/v1\/predictions\/(orders|sell|redeem|fund|withdraw|setup)$/,
+  /^\/v1\/intents\/(deposit|withdraw)$/,
+  /^\/v1\/wallet\/withdraw$/,
 ];
 export const isTradeRoute = (method: string, path: string) => method === 'POST' && TRADE_ROUTES.some((r) => r.test(path));

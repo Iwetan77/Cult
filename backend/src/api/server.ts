@@ -18,11 +18,13 @@ import { listMonMarkets } from '../nadfun/trading.js';
 import { monPriceAusd } from '../prices.js';
 import { venue, venueOf } from '../venues/index.js';
 import { invalidatePerplReads } from '../venues/perpl.js';
-import { AuthError, identify } from '../privy/auth.js';
+import { AuthError, identify, privyLastSignIn } from '../privy/auth.js';
 import { backendSignerStatus, forgetSignerStatus, memberSignerGrant } from '../privy/policy.js';
 import { clans, MirrorPolicySchema, type MirrorPolicy, AUTO_FOLLOW_DEFAULTS } from '../store/clans.js';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
+import { PinError, pins } from '../store/pins.js';
+import { ensureGas, gasToppingOn } from '../funding/gas.js';
 import { buildChart, shortName, toApiMarket } from './chart.js';
 import { heldMarkets } from './holdings.js';
 import { UpstreamError } from '../http.js';
@@ -38,11 +40,16 @@ import { listMarkets, marketDetail, MarketError } from './markets.js';
 import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit } from './limits.js';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
+import { LeverageError, OrderFailed } from '../trading/positions.js';
 import { indexerStatus } from '../indexer/stats.js';
 import { recentConversion } from '../funding/usdc.js';
 import { FundsError } from '../funding/margin.js';
 import { SwapUnavailable } from '../swap/kuruFlow.js';
 import { confirmFunding, FundingUnavailable, prepareUsdcFunding } from '../funding/plan.js';
+import { predictionRoutes } from './predictions.js';
+import { intentRoutes, withdrawActions, WithdrawError } from './intents.js';
+import { predictionsEnabled } from '../polymarket/client.js';
+import { intentsEnabled } from '../intents/aurora.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
 
@@ -100,6 +107,9 @@ export function createApp(engine: MirrorEngine) {
   app.onError((err, c) => {
     if (err instanceof HTTPException) return c.json({ message: err.message }, err.status);
     if (err instanceof AuthError) return c.json({ message: err.message }, 401);
+    if (err instanceof PinError) return c.json({ message: err.message, code: err.code }, err.status);
+    // A transaction the member's wallet couldn't pay the fee for (no MON).
+    if (ethers.isError(err, 'INSUFFICIENT_FUNDS') || /insufficient (balance|funds)/i.test(String((err as Error)?.message ?? ''))) return c.json({ message: NO_GAS, code: 'needs_gas' }, 409);
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
@@ -108,6 +118,12 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
     if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
     if (err instanceof FundsError) return c.json({ message: err.message }, 409);
+    if (err instanceof LeverageError) return c.json({ message: err.message, code: 'unsupported_leverage' }, 400);
+    if (err instanceof OrderFailed) {
+      console.warn('[api] Perpl order not completed:', err.message);
+      return c.json({ message: `Perpl could not complete this order (status ${err.order.st}, reason ${err.order.sr}, fill reason ${err.order.fr ?? '-'}). Refresh your positions before placing another trade.`, code: 'order_failed' }, 502);
+    }
+    if (err instanceof WithdrawError) return c.json({ message: err.message }, err.status);
     if (err instanceof SwapUnavailable) return c.json({ message: `Couldn't swap for this trade right now (${err.message}). Try again shortly.` }, 503);
     if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
@@ -157,6 +173,9 @@ export function createApp(engine: MirrorEngine) {
       autoFollowDefaults: AUTO_FOLLOW_DEFAULTS, // what the Auto-follow switch suggests
       mirrorPolicyBounds: { balancePercentCap: { min: 0, minExclusive: true, max: 100 }, maxUsdPerTrade: { min: 1, max: 1_000_000 } },
       markets: ctx.markets.filter((m) => m.config.is_open).map(toApiMarket),
+      // What's switched on. predictions: Polymarket bets (needs the builder key);
+      // crossChain: deposits from / withdrawals to other chains (Aurora Intents, mainnet).
+      features: { predictions: predictionsEnabled(), crossChain: intentsEnabled() && env.chainId === 143, gasTopUp: gasToppingOn() },
     });
   });
 
@@ -296,7 +315,7 @@ export function createApp(engine: MirrorEngine) {
   const authed = new Hono<Vars>();
   authed.use('*', async (c, next) => {
     const id = await identify(c.req.header('Authorization'));
-    if (!id.wallet) throw bad(409, 'no Privy embedded wallet on this user yet');
+    if (!id.wallet) throw bad(409, 'Your wallet is still being created. Try again in a moment.');
     const isNew = !members.get(id.userId);
     members.upsert(id.userId, id.wallet, id.walletId);
     if (isNew) postSystem('global', id.userId, 'joined Cult');
@@ -320,6 +339,7 @@ export function createApp(engine: MirrorEngine) {
       inviteCode: clan.inviteCode,
       visibility: clan.visibility,
       isOwner: clan.createdBy === userId,
+      isAdmin: clans.isAdmin(clan.id, userId), // admins share trades here
       memberCount: clans.members(clan.id).length,
       myPolicy: clans.membership(clan.id, userId)?.policy ?? null,
       autoFollow: clans.membership(clan.id, userId)?.policy.enabled ?? false,
@@ -335,12 +355,13 @@ export function createApp(engine: MirrorEngine) {
       name: displayName(m),
       username: m.username,
       needsUsername: !m.username, // first sign-in: ask for one before anything else
+      pinSet: pins.isSet(m.userId), // then a 4-digit PIN (store/pins.ts)
       avatarUrl: avatarUrl(m),
       country: m.country ? { code: m.country, name: countryName(m.country) } : null,
       rooms: roomsFor(userId),
       clans: clans.forUser(userId).map((cl) => clanView(cl.id, userId)),
       perpl: { accountId: m.perplAccountId, keyEnrolled: !!m.apiKey, forwarding: m.forwarding },
-      balances: await balancesFor(userId).catch(() => null),
+      balances: await gasCheckedBalances(userId, m.wallet),
       // prepared = grant issued; attached/policyCurrent = verified with Privy.
       signer: await backendSignerStatus(userId).catch(() => ({ prepared: !!m.privyPolicyId, attached: null, policyCurrent: null })),
       usdcConverted: recentConversion(userId), // last USDC -> AUSD conversion, if in the last 10 min
@@ -349,6 +370,22 @@ export function createApp(engine: MirrorEngine) {
 
   // The Deposit screen: your address + what you can send + what you hold.
   authed.get('/wallet/deposit', async (c) => c.json(await depositInfo(c.get('userId'))));
+
+  // PIN: set right after the username (/v1/me.pinSet), asked before money
+  // leaves Cult. Changing it needs the current one; a forgotten one is reset
+  // after signing in again (Privy says the last sign-in was minutes ago).
+  authed.post('/me/pin', async (c) => {
+    const b = z.object({ pin: z.string(), currentPin: z.string().optional() }).parse(await c.req.json());
+    pins.set(c.get('userId'), b.pin, b.currentPin);
+    return c.json({ pinSet: true });
+  });
+  authed.post('/me/pin/reset', async (c) => {
+    const b = z.object({ pin: z.string() }).parse(await c.req.json());
+    const last = await privyLastSignIn(c.get('userId'));
+    if (last == null || Date.now() - last > PIN_RESET_WINDOW_MS) throw bad(403, 'Sign in again to reset your PIN.');
+    pins.reset(c.get('userId'), b.pin);
+    return c.json({ pinSet: true });
+  });
 
   // Username: asked once at first sign-in (/v1/me.needsUsername), changeable later.
   authed.post('/me/username', async (c) => {
@@ -428,6 +465,13 @@ export function createApp(engine: MirrorEngine) {
     const body = z
       .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
       .parse(await c.req.json());
+    // A shared cult ("cult:<id>") must be a public cult the sender is in. Trade
+    // links only go in cult rooms: Global and country rooms are for finding
+    // cults, not for following strangers' trades.
+    if (body.markerId?.startsWith('cult:')) {
+      const shared = clans.get(body.markerId.slice(5));
+      if (!shared || shared.visibility !== 'public' || !clans.membership(shared.id, c.get('userId'))) throw bad(400, 'only a public cult you are in can be shared');
+    } else if (body.markerId && !room.startsWith('cult:')) throw bad(400, 'trades are shared in cults');
     return c.json(postMessage(room, c.get('userId'), body), 201);
   });
   // The cult owner pins a message ({ messageId }) or clears it ({ messageId: null }).
@@ -697,6 +741,22 @@ export function createApp(engine: MirrorEngine) {
     return c.json(await cultBoard(clan, c.get('userId'), boardLimit(c), parsePeriod(c.req.query('period'))));
   });
 
+  // Admins make another member an admin (they then share trades with the cult
+  // too) or take it back. The creator always stays one.
+  cultRoutes.post('/:clanId/admins', async (c) => {
+    const clan = clanFor(c);
+    const { memberId, admin } = z.object({ memberId: z.string().min(1).max(200), admin: z.boolean() }).parse(await c.req.json());
+    if (!clans.isAdmin(clan.id, c.get('userId'))) throw bad(403, 'only admins can change admins');
+    if (!clans.membership(clan.id, memberId)) throw bad(404, 'not a member of this cult');
+    if (memberId === clan.createdBy && !admin) throw bad(400, 'the creator is always an admin');
+    if (clans.isAdmin(clan.id, memberId) !== admin) {
+      clans.setRole(clan.id, memberId, admin ? 'admin' : 'member');
+      const who = members.get(memberId);
+      postSystem(cultRoom(clan.id), c.get('userId'), `${admin ? 'made' : 'removed'} ${who ? displayName(who) : 'a member'} ${admin ? 'an admin' : 'as admin'}`);
+    }
+    return c.json({ memberId, admin });
+  });
+
   // The owner makes their cult public (listed, joinable without the code) or private again.
   cultRoutes.post('/:clanId/visibility', async (c) => {
     const clan = clanFor(c);
@@ -814,11 +874,39 @@ export function createApp(engine: MirrorEngine) {
     });
   });
 
+  authed.route('/predictions', predictionRoutes());
+  authed.route('/intents', intentRoutes());
+
+  // MON for network fees before the app sends a transaction from the member's
+  // wallet (perps setup, withdrawals, moving money to predictions).
+  authed.post('/wallet/gas', async (c) => c.json(await ensureGas(c.get('wallet'))));
+
+  // A plain send on Monad: wallet actions for the member to sign (the backend
+  // can't move funds). Other chains: POST /v1/intents/withdraw.
+  authed.post('/wallet/withdraw', async (c) => {
+    const b = z.object({ symbol: z.enum(['MON', 'AUSD', 'USDC']), amount: z.number().positive(), to: z.string(), pin: z.string().optional() }).parse(await c.req.json());
+    pins.check(c.get('userId'), b.pin);
+    return c.json(await withdrawActions(c.get('userId'), { symbol: b.symbol, amount: b.amount, to: b.to }));
+  });
   authed.route('/cults', cultRoutes);
   authed.route('/clans', cultRoutes);
   app.route('/v1', authed);
   return app;
 }
+
+// Balances for /v1/me. A wallet with dollars but no MON for fees gets topped
+// up in the background (funding/gas.ts), so the first trade just works.
+async function gasCheckedBalances(userId: string, wallet: string) {
+  const b = await balancesFor(userId).catch(() => null);
+  if (b?.lowGas && b.walletUsd >= 1) void ensureGas(wallet).catch(() => undefined);
+  return b;
+}
+
+// What a member sees when their wallet can't pay a network fee.
+const NO_GAS = 'Top up MON for gas.';
+
+// A forgotten PIN can be reset this long after signing in again.
+const PIN_RESET_WINDOW_MS = 10 * 60_000;
 
 function remoteAddress(c: Context<Vars>): string | undefined {
   try {

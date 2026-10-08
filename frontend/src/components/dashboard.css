@@ -89,6 +89,9 @@
 .down { color: var(--red); }
 .muted { color: var(--muted); }
 .strong { font-weight: 500; color: var(--text); }
+/* A strong figure that's a gain or a loss keeps its colour. */
+.strong.up { color: var(--up); }
+.strong.down { color: var(--red); }
 .display { font-family: var(--display); font-weight: 400; text-transform: uppercase; line-height: 1; letter-spacing: 0.01em; }
 .eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
 .count { font-size: 13px; color: var(--dim); white-space: nowrap; }
@@ -377,6 +380,7 @@
 .tone-b { background: var(--accent); }
 .tone-c { background: #e9d5ff; }
 .tone-d { background: var(--amber); }
+.tone-e { background: var(--peach); }
 .portfolio-lines { display: flex; flex-direction: column; gap: 12px; margin: 0 0 19px; }
 .portfolio-lines div { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
 .portfolio-lines dt { display: flex; align-items: center; gap: 10px; color: var(--muted); }
@@ -490,8 +494,10 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .my-pos-grid b, .about dd { margin: 0; font-size: 14px; font-weight: 500; }
 .ticket-card .card-head { margin-bottom: 19px; }
 .mini-members { display: flex; flex-direction: column; gap: 2px; margin: 0 -10px; }
-.mini-members button { display: flex; align-items: center; gap: 14px; padding: 11px 10px; border: 0; border-radius: var(--r-ctl); background: none; text-align: left; }
-.mini-members button:hover { background: var(--hover); }
+.mini-member { display: flex; align-items: center; gap: 8px; padding-right: 10px; border-radius: var(--r-ctl); }
+.mini-member:hover { background: var(--hover); }
+.mini-members .mini-member-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 11px 10px; border: 0; border-radius: var(--r-ctl); background: none; text-align: left; }
+.admin-tag { margin-left: 8px; padding: 2px 7px; border-radius: 99px; background: var(--accent-soft); color: var(--accent-text); font-size: 10.5px; font-style: normal; font-weight: 500; letter-spacing: 0.02em; vertical-align: 1px; }
 .mini-members .room-avatar { width: 32px; height: 32px; font-size: 12px; }
 .mini-members span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .mini-members strong { font-size: 14px; font-weight: 500; }
@@ -648,6 +654,8 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .follow-sheet { display: flex; flex-direction: column; gap: 19px; padding: 17px; border-radius: var(--r-inner); background: transparent; animation: sheet-in 0.2s var(--ease); }
 .follow-sheet-head { display: flex; align-items: center; justify-content: space-between; }
 .follow-sheet-head strong { font-size: 14px; font-weight: 500; }
+.follow-field input { width: 100%; min-width: 0; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.follow-field small { font-size: 13px; line-height: 1.5; color: var(--dim); }
 .group-pos { display: flex; flex-direction: column; gap: 5px; }
 .group-pos > .btn { margin-top: 14px; }
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; border-radius: var(--r-inner); overflow: hidden; background: transparent; }
@@ -820,6 +828,9 @@ button.ttable-row:hover, .ttable-row:hover { background: var(--hover); }
 button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .ttable-row.is-link:focus-visible { outline: 2px solid rgba(147, 51, 234, 0.6); outline-offset: -2px; }
 .ttable-row > :nth-child(3), .ttable-row > :nth-child(4) { justify-self: end; }
+/* Open rows: Share and Close side by side in the last column. */
+.ttable-row--open { grid-template-columns: minmax(0, 1fr) auto 96px auto; }
+.ttable-actions { display: inline-flex; align-items: center; gap: 6px; }
 .ttable-main { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 0; border: 0; background: none; text-align: left; }
 .ttable-main .token-logo { width: 32px; height: 32px; font-size: 12px; }
 .ttable-main > span { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
@@ -1177,8 +1188,7 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 
 /* username gate */
 .username-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 29px; padding: 29px; background: var(--bg); }
-.login-brand { font-family: var(--display); font-size: 32px; text-transform: uppercase; }
-.login-brand span { color: var(--accent-text); }
+.login-brand { display: block; height: 34px; width: auto; }
 .username-form { width: min(400px, 100%); display: flex; flex-direction: column; gap: 12px; padding: 26px 24px; border-radius: 16px; background: var(--pop); }
 .username-form h1 { font-family: var(--display); font-weight: 400; font-size: 24px; text-transform: uppercase; margin-bottom: 7px; }
 .username-available { font-size: 14px; color: var(--up); }
@@ -1505,6 +1515,18 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .room-badge { display: inline-grid !important; flex: none !important; gap: 0 !important; }
 .chat-trade-main small, .chat-trade-main small time, .chat-trade-main small b { white-space: nowrap; }
 
+/* Cross-chain deposit / withdraw (Aurora Intents) */
+.xchain { display: flex; flex-direction: column; gap: 18px; }
+.xchain-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.xchain-select { width: 100%; min-width: 0; height: 44px; padding: 0 36px 0 14px; border: 0; border-radius: var(--r-ctl); background: var(--s2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b939d' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 13px center; color: var(--text); font-size: 15px; -webkit-appearance: none; appearance: none; }
+.xchain-status { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-radius: var(--r-inner); background: var(--s2); font-size: 14px; color: var(--muted); }
+.xchain-status.up { color: var(--mint); }
+.xchain-status.down { color: var(--red); }
+.xchain-status .link { margin-left: auto; }
+.xchain-status .button-spinner { width: 14px; height: 14px; flex: none; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: xchain-spin 0.8s linear infinite; }
+@keyframes xchain-spin { to { transform: rotate(360deg); } }
+.deposit-instruction strong { color: var(--text); font-weight: 500; }
+
 /* Keyboard focus: a violet ring, only when focus comes from the keyboard.
    Fields show it on their container, since the input itself has no outline. */
 :is(.dash, .modal-backdrop) :is(button, a, [role="button"], [tabindex]:not([tabindex="-1"]), select, summary):not(.pbars-col):focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
@@ -1574,6 +1596,29 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .chat-row:has(> .chat-bubble-wrap > .chat-reactions) > .chat-avatar { margin-bottom: 32px; }
 .chat-row:has(> .chat-bubble-wrap > .reaction-picker) > .chat-avatar { margin-bottom: 48px; }
 .chat-row:has(> .chat-bubble-wrap > .chat-reactions):has(> .chat-bubble-wrap > .reaction-picker) > .chat-avatar { margin-bottom: 80px; }
+
+/* PIN pad: four dots and a number pad (set at sign-in, asked before money leaves). */
+.pinpad { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 4px 0; }
+.pinpad-title { font-size: 15px; font-weight: 500; }
+.pinpad-note { margin: -6px 0 0; font-size: 13px; line-height: 1.45; color: var(--dim); text-align: center; }
+.pinpad-dots { display: flex; gap: 16px; padding: 8px 0 2px; }
+.pinpad-dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--s3); transition: background-color 0.12s, transform 0.12s; }
+.pinpad-dots i.on { background: var(--accent-text); transform: scale(1.08); }
+.pinpad-dots.is-error { animation: pin-shake 0.36s ease; }
+.pinpad-dots.is-error i:not(.on) { background: rgba(255, 107, 107, 0.35); }
+@keyframes pin-shake { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+.pinpad-error { min-height: 18px; margin: 0; font-size: 13px; color: var(--red); text-align: center; }
+.pinpad-keys { display: grid; grid-template-columns: repeat(3, 64px); gap: 12px 22px; }
+.pinpad-key { width: 64px; height: 64px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--s2); color: var(--text); font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; transition: background-color 0.12s, transform 0.08s; }
+.pinpad-key:hover { background: var(--s3); }
+.pinpad-key:active { transform: scale(0.94); background: var(--accent-soft); }
+.pinpad-key:disabled { opacity: 0.5; }
+.pinpad-key[aria-label="Delete"] { background: none; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .pinpad-dots.is-error { animation: none; } }
+.pin-form { align-items: stretch; }
+.pin-form h1 { text-align: center; }
+.pin-signout { align-self: center; margin-top: 4px; }
+.setting--pin .setting-pin-body { flex: 1 0 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 6px; }
 @media (max-width: 760px) { .dash { --section-gap: 26px; } }
 @media (max-width: 760px) {
   /* Prediction header on phones: the whole title, no big chance figure (each
@@ -1606,3 +1651,24 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
   .feed-row > .feed-copy { grid-column: 4; grid-row: 1 / 3; }
   .feed-who small { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.35; }
 }
+
+/* Global and country rooms: a shared public cult, and the picker to share yours. */
+.chat-cult-share { display: flex; align-items: center; gap: 10px; min-width: 220px; padding: 2px 0; }
+.chat-cult-share > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.chat-cult-share strong { font-size: 14.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-cult-share small { font-size: 12px; color: var(--dim); }
+.chat-share-pick { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 2px 10px; }
+.chat-share-pick button { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 6px; border: 0; border-radius: 99px; background: var(--s2); color: var(--text); font-size: 13.5px; }
+.chat-share-pick button:hover { background: var(--s3); }
+.chat-share-pick .field-note { margin: 0; }
+.chat-tool.on { background: var(--accent-soft); color: var(--accent-text); }
+
+/* Copy an admin's trade from the chat (Auto-follow off). */
+.chat-trade-copy { flex: none; }
+.chat-copy { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.chat-copy-input { display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 0 10px; border-radius: 99px; background: var(--s2); font-size: 14px; color: var(--muted); }
+.chat-copy-input input { width: 56px; border: 0; outline: 0; background: none; color: var(--text); font: inherit; font-variant-numeric: tabular-nums; }
+.chat-copy-input:focus-within { box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.55); }
+
+/* Account > Open: Share is labelled; phones show just the icon. */
+@media (max-width: 760px) { .ttable-share span { display: none; } .ttable-share { padding: 0 10px; } }

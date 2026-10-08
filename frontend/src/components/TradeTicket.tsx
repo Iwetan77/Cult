@@ -21,7 +21,8 @@ type Props = {
   market: TicketMarket;
   balances: Me['balances'];
   monPriceUsd: number | null;
-  cults: Clan[];
+  cults: Clan[]; // the cults this trade can be shared with (where you're an admin)
+  inCults?: boolean; // a member of any cult at all
   defaultPostTo: PostTo;
   busy: boolean;
   onSubmit: (side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => void;
@@ -40,7 +41,7 @@ function leverageTicks(max: number): number[] {
 const assetOf = (symbol: string) => symbol.replace(/-PERP$/i, '').replace(/^\$/, '');
 const trim = (value: number, digits: number) => String(Number(value.toFixed(digits)));
 
-export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostTo, busy, onSubmit, onDeposit }: Props) {
+export function TradeTicket({ market, balances, monPriceUsd, cults, inCults = false, defaultPostTo, busy, onSubmit, onDeposit }: Props) {
   const isPerp = market.venue === 'perpl';
   const maxLev = Math.max(1, Math.floor(market.maxLeverage));
   const asset = assetOf(market.symbol);
@@ -63,9 +64,11 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
     if (!balances) return null;
     const px = monPriceUsd ?? 0;
     const spareMon = Math.max(0, balances.mon - balances.gasReserveMon - (isPerp ? TOPUP_GAS_MON : 0));
-    if (isPerp) return (balances.perplMarginUsd ?? 0) + balances.walletUsd + spareMon * px * 0.97;
+    // Deposited USDC counts as dollars: a trade turns it into AUSD when it needs it.
+    const dollars = balances.walletUsd + (balances.usdcUsd ?? 0);
+    if (isPerp) return (balances.perplMarginUsd ?? 0) + dollars + spareMon * px * 0.97;
     const monUsd = spareMon * px;
-    return balances.memesPayWith === 'ausd' ? Math.max(balances.walletUsd, monUsd) : monUsd;
+    return balances.memesPayWith === 'ausd' ? Math.max(dollars, monUsd) : monUsd;
   }, [balances, monPriceUsd, isPerp]);
 
   const lev = isPerp ? leverage : 1;
@@ -162,7 +165,7 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, defaultPostT
         {cults.map(cult => <option key={cult.id} value={cult.id}>{cult.name}</option>)}
         <option value="none">Only me (private)</option>
       </select>
-    </label> : <p className="ticket-note">You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</p>}
+    </label> : <p className="ticket-note">{inCults ? 'Only cult admins share trades, so this one is yours alone.' : <>You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</>}</p>}
 
     {isPerp && confirming ? <div className="ticket-confirm" role="alertdialog" aria-label={`Confirm ${lev}x leverage`}>
       <strong>{lev}x is high leverage</strong>

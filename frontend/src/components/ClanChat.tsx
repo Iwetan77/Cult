@@ -27,7 +27,21 @@ type Props = {
   markers?: ChartMarker[]; // the cult's open positions, for live PnL on trade notices
   onTrade?: () => void;
   headerExtra?: React.ReactNode;
+  // Global and country rooms are for finding cults, not trading: members
+  // share their public cults there as cards others can join.
+  shareCults?: { id: string; name: string }[]; // your public cults
+  myCultIds?: string[];
+  onJoinCult?: (cultId: string) => void;
+  onOpenRoom?: (roomId: string) => void;
+  // Auto-follow off: a cult-mate admin's new trade gets a Copy button (your own
+  // amount, opened in your own account).
+  copyable?: boolean; copyUsd?: number;
+  onCopyTrade?: (markerId: string, symbol: string, usd: number) => void;
 };
+
+const CULT_SHARE = 'Join my cult ';
+const sharedCultOf = (message: { markerId: string | null; body: string }) =>
+  message.markerId?.startsWith('cult:') ? { id: message.markerId.slice(5), name: message.body.startsWith(CULT_SHARE) ? message.body.slice(CULT_SHARE.length) : message.body } : null;
 
 // A message as shown: sent ones, plus ours still on their way (or failed).
 type Shown = ChatMessage & { local?: 'sending' | 'failed' };
@@ -68,7 +82,9 @@ function readTrade(body: string): { symbol: string; tone: 'long' | 'short' | 'bu
   return { symbol, tone: 'buy' };
 }
 
-export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false, meId, meName, markers = [], onTrade, headerExtra }: Props) {
+export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false, meId, meName, markers = [], onTrade, headerExtra, shareCults, myCultIds = [], onJoinCult, onOpenRoom, copyable = false, copyUsd = 50, onCopyTrade }: Props) {
+  const [sharePick, setSharePick] = useState(false);
+  const [copying, setCopying] = useState<{ id: string; usd: string } | null>(null);
   const [messages, setMessages] = useState<Shown[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [pinned, setPinned] = useState<ChatPage['pinned']>(null);
@@ -285,6 +301,19 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
       setError(messageError(reason));
     }
   };
+  // Post one of your public cults as a joinable card.
+  const shareCult = (cult: { id: string; name: string }) => {
+    const body = `${CULT_SHARE}${cult.name}`;
+    const local: Shown = {
+      id: `local:${Date.now()}`, room: room.id, kind: 'text', clanId: null, memberId: meId ?? 'me', memberName: 'You', memberAvatarUrl: null,
+      body, text: body, replyTo: null, markerId: `cult:${cult.id}`, createdAt: new Date().toISOString(), local: 'sending',
+    };
+    stickToBottom.current = true;
+    setMessages(current => [...current, local]);
+    setSharePick(false);
+    setError(null);
+    void deliver(local);
+  };
   const send = (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     const body = draft.trim();
@@ -341,6 +370,15 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     if (pendingCaret.current != null) { input.focus(); input.setSelectionRange(pendingCaret.current, pendingCaret.current); pendingCaret.current = null; }
   }, [draft]);
 
+  // A new trade by someone else, in a cult, while your Auto-follow is off.
+  const canCopy = (message: Shown) => room.kind === 'cult' && copyable && !!onCopyTrade && !!message.markerId
+    && !message.markerId.startsWith('cult:') && message.memberId !== meId && /^(opened|bought)\b/.test(message.body);
+  const copyNow = (message: Shown, symbol: string) => {
+    const usd = Number(copying?.usd);
+    if (!(usd > 0) || !message.markerId) return;
+    onCopyTrade?.(message.markerId, symbol, usd);
+    setCopying(null);
+  };
   const tradeCard = (message: Shown) => {
     const trade = readTrade(message.body);
     const live = message.markerId ? markers.find(item => item.id === message.markerId) : undefined;
@@ -354,6 +392,15 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
         {reactionRow(message)}
       </div>
       {tools}
+      {canCopy(message) && (copying?.id === message.id
+        ? <span className="chat-copy">
+          <label className="chat-copy-input"><span>$</span><input inputMode="decimal" autoFocus value={copying.usd} aria-label={`Amount to copy ${trade.symbol} with`}
+            onChange={event => setCopying({ id: message.id, usd: event.target.value.replace(/[^0-9.]/g, '') })}
+            onKeyDown={event => { if (event.key === 'Enter') copyNow(message, trade.symbol); if (event.key === 'Escape') setCopying(null); }} /></label>
+          <button type="button" className="btn btn-primary btn-sm" disabled={!(Number(copying.usd) > 0)} onClick={() => copyNow(message, trade.symbol)}>Copy</button>
+          <button type="button" className="icon-btn icon-btn--sm" title="Cancel" onClick={() => setCopying(null)}><X size={13} /></button>
+        </span>
+        : <button type="button" className="btn btn-primary btn-sm chat-trade-copy" onClick={() => setCopying({ id: message.id, usd: String(copyUsd) })}>Copy</button>)}
       {message.markerId && <button className="chat-trade-open" onClick={() => onOpenMarker(message.markerId!)}>View on chart <ArrowRight size={13} /></button>}
     </div>;
   };
@@ -388,12 +435,22 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
               {!mine && !grouped && <button className="chat-name" onClick={() => onMember(message.memberId)}>{message.memberName}</button>}
               <div className={`chat-bubble ${message.local ?? ''} ${forMe ? 'mentioned' : ''}`} data-picker onClick={tapToReact(message)}>
                 {quoted && <div className="chat-quote"><Reply size={11} /> <strong>{quoted.memberName}</strong> {quoted.body.slice(0, 80)}</div>}
-                <p>{withMentions(message.text)}</p>
+                {(() => {
+                  const cult = sharedCultOf(message);
+                  if (!cult) return <p>{withMentions(message.text)}</p>;
+                  const joined = myCultIds.includes(cult.id);
+                  return <div className="chat-cult-share">
+                    <RoomBadge icon={cult.name.trim()[0]?.toUpperCase() ?? 'C'} kind="cult" size="sm" />
+                    <span><strong>{cult.name}</strong><small>Public cult</small></span>
+                    {joined ? <button type="button" className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onOpenRoom?.(`cult:${cult.id}`); }}>Open</button>
+                      : onJoinCult && <button type="button" className="btn btn-primary btn-sm" onClick={event => { event.stopPropagation(); onJoinCult(cult.id); }}>Join</button>}
+                  </div>;
+                })()}
                 <span className="chat-bubble-meta">{message.local === 'sending' ? 'Sending…' : message.local === 'failed' ? <button onClick={() => retry(message)}><RotateCcw size={11} /> Retry</button> : time(message.createdAt)}</span>
               </div>
               {reactionRow(message)}
               {reactionPicker(message)}
-              {!message.local && <div className="chat-actions" data-picker>{reactButton(message)}<button title="Reply" onClick={() => { setReplyTo(message); inputRef.current?.focus(); }}><Reply size={13} /></button>{message.markerId && <button title="View trade on chart" onClick={() => onOpenMarker(message.markerId!)}><Link2 size={13} /></button>}{canPin && <button title="Pin message" onClick={() => void togglePin(message.id)}><Pin size={13} /></button>}</div>}
+              {!message.local && <div className="chat-actions" data-picker>{reactButton(message)}<button title="Reply" onClick={() => { setReplyTo(message); inputRef.current?.focus(); }}><Reply size={13} /></button>{message.markerId && !message.markerId.startsWith('cult:') && <button title="View trade on chart" onClick={() => onOpenMarker(message.markerId!)}><Link2 size={13} /></button>}{canPin && <button title="Pin message" onClick={() => void togglePin(message.id)}><Pin size={13} /></button>}</div>}
             </div>
           </div></Fragment>;
         })}
@@ -414,8 +471,13 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
         <textarea ref={inputRef} value={draft} onChange={event => { setDraft(event.target.value); setCaret(event.target.selectionStart); setMentionHidden(false); setMentionIndex(0); }} onSelect={event => setCaret(event.currentTarget.selectionStart)} onKeyDown={onKey} maxLength={1000} rows={1} placeholder={`Message ${room.name}`} aria-label={`Message ${room.name}`} />
         <button className="chat-send" type="submit" title="Send" disabled={!draft.trim()}><Send size={16} /></button>
       </div>
-      {(onTrade || (room.kind === 'cult' && onInvite)) && <div className="chat-tools">
+      {sharePick && shareCults && <div className="chat-share-pick">
+        {shareCults.length ? shareCults.map(cult => <button key={cult.id} type="button" onClick={() => shareCult(cult)}><RoomBadge icon={cult.name.trim()[0]?.toUpperCase() ?? 'C'} kind="cult" size="sm" /> {cult.name}</button>)
+          : <p className="field-note">Make one of your cults public (in its settings) to share it here.</p>}
+      </div>}
+      {(onTrade || (room.kind === 'cult' && onInvite) || (room.kind !== 'cult' && shareCults)) && <div className="chat-tools">
         {onTrade && <button type="button" className="chat-tool" onClick={onTrade}><CandlestickChart size={14} /> Trade</button>}
+        {room.kind !== 'cult' && shareCults && <button type="button" className={`chat-tool${sharePick ? ' on' : ''}`} onClick={() => setSharePick(open => !open)}><Link2 size={14} /> Share a cult</button>}
         {room.kind === 'cult' && onInvite && <button type="button" className="chat-tool" onClick={onInvite}><Link2 size={14} /> Invite</button>}
         <span className="chat-hint">Enter to send · Shift+Enter for a new line</span>
       </div>}

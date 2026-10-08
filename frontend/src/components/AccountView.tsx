@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, ArrowUpRight, Camera, LogOut, Wallet } from './icons';
+import { ArrowRight, ArrowUpRight, Camera, LogOut, Share2, Wallet } from './icons';
 import { deleteAvatar, getPredictionPositions, getProfile, uploadAvatar } from '@/lib/api';
 import type { ClosedTrade, Holding, PredictionClosed, PredictionPosition, Profile } from '@/lib/contracts';
 import { getEvent, type PredictionOutcome } from '@/lib/polymarket';
@@ -14,8 +14,11 @@ import { RoomBadge } from './RoomBadge';
 import { TokenLogo } from './TokenLogo';
 import { PerfBars, type PerfBar } from './PerfBars';
 import type { TradeSheetTarget } from './TradeSheet';
+import type { AccountTab } from '@/lib/routes';
 import { setNotifyPref, useNotifyPref } from '@/lib/prefs';
 import { enableNotifications } from './AlertsMenu';
+import { PinSetting } from './PinSetting';
+import { isDemo } from '@/lib/demo';
 
 // Settings: notifications. On, every alert and new cult message shows in the
 // app, and as a system notification in the background where the browser allows.
@@ -42,10 +45,14 @@ type Props = {
   onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void; onAvatarSaved: () => Promise<unknown>; onRoom: (roomId: string) => void;
   tab: AccountTab; onTab: (tab: AccountTab) => void;
   predictionRevision: number; onOpenPrediction: (slug: string, pick?: PredictionPick) => void; onSellPrediction: (position: PredictionPosition, price: number) => void;
+  // Live accounts: collect a resolved bet, and open the predictions balance.
+  onRedeemPrediction?: (position: PredictionPosition) => void;
+  // Your open positions: the PnL card as it stands, and the market page.
+  onShareHolding?: (holding: Holding) => void; onMarket?: (marketId: string) => void;
   signOutLabel?: string;
 };
 
-export type AccountTab = 'open' | 'closed' | 'settings';
+export type { AccountTab } from '@/lib/routes';
 
 // Realized PnL per day, week or month (whichever gives a readable run of
 // bars for how long you've traded), with the running total behind each.
@@ -82,7 +89,7 @@ function performanceBars(trades: ClosedTrade[], now: number): PerfBar[] {
   return bars.slice(-8);
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out' }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -100,13 +107,13 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
     return () => { active = false; };
   }, [id]);
   // Your prediction bets (open and sold), with live odds for the open ones.
-  const [predictions, setPredictions] = useState<{ open: PredictionPosition[]; closed: PredictionClosed[] }>({ open: [], closed: [] });
+  const [predictions, setPredictions] = useState<{ open: PredictionPosition[]; closed: PredictionClosed[]; redeemable: string[] }>({ open: [], closed: [], redeemable: [] });
   const [odds, setOdds] = useState<Record<string, PredictionOutcome>>({});
   useEffect(() => {
-    if (id !== 'me') { setPredictions({ open: [], closed: [] }); return; }
+    if (id !== 'me') { setPredictions({ open: [], closed: [], redeemable: [] }); return; }
     let active = true;
     getAccessToken().then(token => token ? getPredictionPositions(token) : null)
-      .then(r => { if (active && r) setPredictions({ open: r.positions, closed: r.closed }); }).catch(() => undefined);
+      .then(r => { if (active && r) setPredictions({ open: r.positions, closed: r.closed, redeemable: r.redeemable ?? [] }); }).catch(() => undefined);
     return () => { active = false; };
   }, [id, predictionRevision]);
   const slugsKey = [...new Set(predictions.open.map(p => p.eventSlug))].sort().join('|');
@@ -186,10 +193,15 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
   const record = profile.record;
   // Perps/memes and predictions in one list each, newest first.
   const when = (value: number | string | null | undefined) => value == null ? 0 : typeof value === 'number' ? value : Date.parse(value) || 0;
-  const openItems: ({ kind: 'trade'; at: number; trade: Profile['openTrades'][number] } | { kind: 'prediction'; at: number; p: PredictionPosition })[] = [
+  // Your own open positions too: a trade only becomes a cult trade (with a
+  // trade page) when it's posted to a cult, but every position you hold shows.
+  const tracked = (h: Holding) => profile.openTrades.some(trade => trade.market === h.market && trade.venue === h.venue);
+  const openItems: ({ kind: 'trade'; at: number; trade: Profile['openTrades'][number] } | { kind: 'prediction'; at: number; p: PredictionPosition } | { kind: 'position'; at: number; h: Holding })[] = [
     ...profile.openTrades.map(trade => ({ kind: 'trade' as const, at: when(trade.openedAt), trade })),
     ...(profile.isMe ? predictions.open.map(p => ({ kind: 'prediction' as const, at: p.openedAt, p })) : []),
+    ...(profile.isMe ? holdings.filter(h => !tracked(h)).map(h => ({ kind: 'position' as const, at: Number.MAX_SAFE_INTEGER, h })) : []),
   ].sort((a, b) => b.at - a.at);
+  const share = (h: Holding) => onShareHolding && <button className="btn btn-ghost btn-sm ttable-share" title="Share PnL card" aria-label={`Share ${h.symbol} PnL card`} onClick={event => { event.stopPropagation(); onShareHolding(h); }}><Share2 size={14} /><span>Share</span></button>;
   const closedItems: ({ kind: 'trade'; at: number; trade: ClosedTrade } | { kind: 'prediction'; at: number; c: PredictionClosed })[] = [
     ...profile.closedTrades.map(trade => ({ kind: 'trade' as const, at: trade.closedAt, trade })),
     ...(profile.isMe ? predictions.closed.map(c => ({ kind: 'prediction' as const, at: c.closedAt, c })) : []),
@@ -239,7 +251,19 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
               <span className="ttable-main"><EventArt event={{ image: p.image, title: p.eventTitle }} /><span><strong className="ttable-title">{predictionTitle(p)}</strong><small><span className="ttable-side-sm">{p.sideLabel} · </span>Polymarket<span className="ttable-when"> · opened {new Date(p.openedAt).toLocaleDateString()}</span></small></span></span>
               <span className={`side-chip ${p.side === 'yes' ? 'long' : 'short'}`}>{p.sideLabel.toUpperCase()}</span>
               <span className={`num strong ${(pnl ?? 0) >= 0 ? 'up' : 'down'}`}>{pnl == null ? '' : signedDollars(pnl)}</span>
-              {now != null ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onSellPrediction(p, now); }}>Sell</button> : <ArrowRight size={15} className="muted" />}
+              {onRedeemPrediction && predictions.redeemable.includes(p.id) ? <button className="btn btn-primary btn-sm" onClick={event => { event.stopPropagation(); onRedeemPrediction(p); }}>Collect</button>
+                : now != null ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onSellPrediction(p, now); }}>Sell</button> : <ArrowRight size={15} className="muted" />}
+            </div>;
+          }
+          if (item.kind === 'position') {
+            const h = item.h;
+            const open = () => onMarket?.(h.market);
+            return <div className="ttable-row ttable-row--open is-link" key={`pos:${h.venue}:${h.market}`} role="button" tabIndex={0} aria-label={`Open ${h.symbol}`}
+              onClick={open} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
+              <span className="ttable-main"><TokenLogo symbol={h.symbol} /><span><strong>{h.symbol}</strong><small><span className="ttable-side-sm">{h.side === 'buy' ? 'Buy' : `${h.side === 'long' ? 'Long' : 'Short'} ${h.leverage}x`} · </span>{h.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · just you</small></span></span>
+              <span className={`side-chip ${h.side}`}>{h.side.toUpperCase()}{h.venue === 'perpl' ? ` ${h.leverage}x` : ''}</span>
+              <span className={`num strong ${(h.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}`}>{h.pnlAusd != null ? signedDollars(h.pnlAusd) : ''}</span>
+              <span className="ttable-actions">{share(h)}<button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onCloseHolding(h); }}>{h.venue === 'nadfun' ? 'Sell' : 'Close'}</button></span>
             </div>;
           }
           const trade = item.trade;
@@ -251,7 +275,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
           <span className="ttable-main"><TokenLogo symbol={trade.symbol} /><span><strong>{trade.symbol}</strong><small><span className="ttable-side-sm">{trade.side === 'buy' ? 'Buy' : `${trade.side === 'long' ? 'Long' : 'Short'} ${trade.leverage}x`} · </span>{trade.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}<span className="ttable-when"> · opened {new Date(trade.openedAt).toLocaleDateString()}</span></small></span></span>
           <span className={`side-chip ${trade.side}`}>{trade.side.toUpperCase()}{trade.venue === 'perpl' ? ` ${trade.leverage}x` : ''}</span>
           <span className={`num strong ${(holding?.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}`}>{holding?.pnlAusd != null ? signedDollars(holding.pnlAusd) : ''}</span>
-          {holding ? <button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onCloseHolding(holding); }}>Close</button> : <ArrowRight size={15} className="muted" />}
+          {holding ? <span className="ttable-actions">{share(holding)}<button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onCloseHolding(holding); }}>Close</button></span> : <ArrowRight size={15} className="muted" />}
         </div>; })}</div> : <div className="empty"><span>No open trades.</span></div>)
         : tab === 'closed' ? (closedItems.length ? <div className="ttable">{closedItems.map((item, index) => item.kind === 'prediction' ? (() => {
           const c = item.c, p = c.position;
@@ -270,6 +294,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
         </button>; })())}</div> : <div className="empty"><span>No closed trades yet.</span></div>)
         : <div className="settings">
           <NotificationsSetting owner={profile.id} />
+          {!isDemo() && <PinSetting onSignOut={onSignOut} />}
           <CountryPicker currentCode={profile.country?.code} onSaved={onCountrySaved} />
           <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> Change</button></div>
           <div className="setting danger"><div><strong>{signOutLabel}</strong><small>Your funds stay in your wallet.</small></div><button className="btn btn-ghost btn-sm" onClick={onSignOut}><LogOut size={14} /> {signOutLabel}</button></div>

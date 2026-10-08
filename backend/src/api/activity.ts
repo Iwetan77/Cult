@@ -23,7 +23,8 @@ export function describeTrade(t: LeaderTrade, what: 'opened' | 'changed' | 'clos
 
 async function announce(t: LeaderTrade, what: 'opened' | 'changed' | 'closed', ratio?: number) {
   const body = describeTrade(t, what, await label(t), ratio);
-  for (const id of tradeCults(t, clans.forUser(t.userId).map((c) => c.id))) postSystem(cultRoom(id), t.userId, body, `trade:${t.id}`);
+  // Only to cults the trader shares with (admins), as the engine recorded it.
+  for (const id of tradeCults(t, clans.adminCultIds(t.userId))) postSystem(cultRoom(id), t.userId, body, `trade:${t.id}`);
 }
 
 export function startActivityFeed(engine: MirrorEngine) {

@@ -210,6 +210,32 @@ if (JSON.stringify(updated.myPolicy) !== JSON.stringify(newPolicy)) throw new Er
 if (!polCh.message.startsWith('Update my copy limits in the Cult')) throw new Error('policy consent text wrong');
 await call('leave clan', 'POST', `/v1/clans/${clan.id}/leave`, auth(bob, 'bob'));
 await call('chart after leaving', 'GET', `/v1/clans/${clan.id}/chart`, auth(bob, 'bob'));
+// Predictions (Polymarket) and cross-chain (Aurora Intents): with no keys set
+// they answer "not switched on yet", never a 5xx.
+if (cfg.features?.predictions !== false || cfg.features?.crossChain !== false) throw new Error('features should be off without keys');
+const pacct = await call('predictions account (no builder key)', 'GET', '/v1/predictions/account', auth(alice, 'alice'));
+if (pacct.step !== 'unavailable' || !pacct.access) throw new Error('predictions should be unavailable without keys');
+await call('predictions setup (no builder key)', 'POST', '/v1/predictions/setup', auth(alice, 'alice'));
+await call('predictions bet before setup', 'POST', '/v1/predictions/orders', auth(alice, 'alice'), { marketId: '601819', eventSlug: 'x', eventTitle: 'X', outcomeLabel: 'Q', question: 'Q', image: null, side: 'yes', sideLabel: 'Yes', price: 0.5, amountUsd: 5 });
+const pp = await call('prediction positions (none)', 'GET', '/v1/predictions/positions', auth(alice, 'alice'));
+if (!Array.isArray(pp.positions) || !Array.isArray(pp.closed)) throw new Error('positions shape');
+await call('cult bets on an event', 'POST', '/v1/predictions/bets', auth(alice, 'alice'), { eventSlug: 'x', outcomes: [] });
+await call('sign an unknown flow', 'POST', '/v1/predictions/sign', auth(alice, 'alice'), { flowId: 'nope', challengeId: 'nope', signature: '0x00' });
+const ic = await call('cross-chain coins (no Aurora key / testnet)', 'GET', '/v1/intents/chains', auth(alice, 'alice'));
+if (ic.enabled !== false) throw new Error('intents should be off');
+await call('cross-chain deposit on testnet', 'POST', '/v1/intents/deposit', auth(alice, 'alice'), { originAsset: 'nep141:sol.omft.near', amount: '1' });
+// PIN: set after sign-in, asked before money leaves.
+const expectCode = (r: any, code: string) => { if (r?.code !== code) throw new Error(`expected ${code}, got ${JSON.stringify(r)}`); };
+expectCode(await call('withdraw before setting a PIN', 'POST', '/v1/wallet/withdraw', auth(alice, 'alice'), { symbol: 'AUSD', amount: 1, to: alice.address, pin: '4826' }), 'pin_required');
+expectCode(await call('a PIN that is too easy', 'POST', '/v1/me/pin', auth(alice, 'alice'), { pin: '1234' }), 'pin_weak');
+await call('set my PIN', 'POST', '/v1/me/pin', auth(alice, 'alice'), { pin: '4826' });
+if ((await call('me shows the PIN is set', 'GET', '/v1/me', auth(alice, 'alice'))).pinSet !== true) throw new Error('pinSet should be true');
+expectCode(await call('withdraw without the PIN', 'POST', '/v1/wallet/withdraw', auth(alice, 'alice'), { symbol: 'AUSD', amount: 1, to: alice.address }), 'pin_missing');
+expectCode(await call('withdraw with a wrong PIN', 'POST', '/v1/wallet/withdraw', auth(alice, 'alice'), { symbol: 'AUSD', amount: 1, to: alice.address, pin: '0007' }), 'pin_wrong');
+expectCode(await call('change the PIN without the current one', 'POST', '/v1/me/pin', auth(alice, 'alice'), { pin: '5937' }), 'pin_missing');
+await call('change the PIN', 'POST', '/v1/me/pin', auth(alice, 'alice'), { pin: '5937', currentPin: '4826' });
+await call('withdraw to my own wallet', 'POST', '/v1/wallet/withdraw', auth(alice, 'alice'), { symbol: 'AUSD', amount: 1, to: alice.address, pin: '5937' });
+await call('withdraw more MON than I have', 'POST', '/v1/wallet/withdraw', auth(alice, 'alice'), { symbol: 'MON', amount: 1000, to: bob.address, pin: '5937' });
 // Rate limits: a burst of order calls from one member is cut off with Retry-After.
 const carol = ethers.Wallet.createRandom();
 let limitedRes: Response | undefined;

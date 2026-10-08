@@ -8,10 +8,13 @@ import { getDeposit } from '@/lib/api';
 import type { DepositInfo } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
 import { TokenLogo } from './TokenLogo';
+import { CrossChainDeposit } from './CrossChain';
 
-type Props = { onClose: () => void; signerReady: boolean; permissionBusy: boolean; onGrantPermission: () => void };
+// crossChain: also offer deposits from other chains (Aurora Intents).
+type Props = { onClose: () => void; signerReady: boolean; permissionBusy: boolean; onGrantPermission: () => void; crossChain?: boolean };
 
-export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPermission }: Props) {
+export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPermission, crossChain = false }: Props) {
+  const [network, setNetwork] = useState<'monad' | 'other'>('monad');
   const [info, setInfo] = useState<DepositInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [revision, setRevision] = useState(0);
@@ -45,7 +48,11 @@ export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPerm
     <section className="deposit-sheet" role="dialog" aria-modal="true" aria-label="Deposit">
       <div className="trade-sheet-head"><h2>Deposit</h2><button className="icon-btn" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
       {!signerReady && <div className="deposit-permission"><strong>Allow Cult to place your trades</strong><p className="field-note">Needed to convert USDC and fund trades automatically</p><button className="btn btn-ghost btn-block" disabled={permissionBusy} onClick={onGrantPermission}>Allow</button></div>}
-      {loading ? <p className="field-note">Loading your wallet...</p> : error && !info ? <><p className="notice-line">{error}</p><button className="btn btn-ghost" onClick={() => { setLoading(true); setRevision(value => value + 1); }}><RefreshCw size={14} /> Retry</button></> : info && <>
+      {crossChain && <div className="seg seg--sm" role="tablist">
+        <button role="tab" aria-selected={network === 'monad'} className={network === 'monad' ? 'on' : ''} onClick={() => setNetwork('monad')}>Monad</button>
+        <button role="tab" aria-selected={network === 'other'} className={network === 'other' ? 'on' : ''} onClick={() => setNetwork('other')}>Another chain</button>
+      </div>}
+      {network === 'other' ? <CrossChainDeposit /> : loading ? <p className="field-note">Loading your wallet...</p> : error && !info ? <><p className="notice-line">{error}</p><button className="btn btn-ghost" onClick={() => { setLoading(true); setRevision(value => value + 1); }}><RefreshCw size={14} /> Retry</button></> : info && <>
         <div className="deposit-qr"><QRCodeSVG value={info.address} size={184} level="M" bgColor="#ffffff" fgColor="#151820" /></div>
         <div className="deposit-address-large">{info.address}</div>
         <button className="btn btn-ghost btn-block" onClick={copy}><Copy size={15} /> {copied ? 'Copied' : 'Copy address'}</button>

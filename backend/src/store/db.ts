@@ -15,7 +15,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 11;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -175,6 +175,14 @@ function migrate(d: DatabaseSync) {
       created_at INTEGER NOT NULL,
       PRIMARY KEY (account_id, rq)
     );
+    -- v10: MON the gas wallet sent members for network fees (funding/gas.ts).
+    CREATE TABLE IF NOT EXISTS gas_drips (
+      wallet     TEXT NOT NULL,       -- lowercase
+      amount_wei TEXT NOT NULL,
+      tx_hash    TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS gas_drips_wallet ON gas_drips(wallet, created_at);
     CREATE TABLE IF NOT EXISTS engine_txs (
       tx_hash    TEXT PRIMARY KEY,    -- lowercase
       wallet     TEXT NOT NULL,
@@ -249,6 +257,72 @@ function migrate(d: DatabaseSync) {
       value INTEGER NOT NULL
     );
 
+    -- A member's Polymarket account (predictions), on Polygon: their Deposit
+    -- Wallet (owned by their Privy wallet), whether its trading approvals are
+    -- in, their CLOB credentials, and the session key they authorized us to
+    -- trade with (trade only, it can't withdraw). Independent of the Monad
+    -- chain, so a chain switch leaves it alone.
+    CREATE TABLE IF NOT EXISTS prediction_accounts (
+      user_id             TEXT PRIMARY KEY REFERENCES members(user_id),
+      owner               TEXT NOT NULL,      -- lowercased owner address (the member's wallet)
+      deposit_wallet      TEXT NOT NULL,      -- lowercased Polymarket Deposit Wallet
+      deployed            INTEGER NOT NULL DEFAULT 0,
+      approvals           INTEGER NOT NULL DEFAULT 0,
+      clob_creds          TEXT,               -- sealed JSON {key, secret, passphrase} for the owner
+      session_address     TEXT,
+      session_key         TEXT,               -- sealed private key of the session signer
+      session_valid_until INTEGER,            -- unix seconds
+      session_retry_at    INTEGER,            -- ms; authorization was refused, try again after this
+      updated_at          INTEGER NOT NULL
+    );
+
+    -- Prediction bets placed through Cult. Shares are reconciled against
+    -- Polymarket's own positions when listed.
+    CREATE TABLE IF NOT EXISTS prediction_positions (
+      id            TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL REFERENCES members(user_id),
+      market_id     TEXT NOT NULL,          -- Polymarket (Gamma) market id
+      condition_id  TEXT NOT NULL,
+      token_id      TEXT NOT NULL,          -- the outcome token held
+      side          TEXT NOT NULL,          -- yes | no
+      side_label    TEXT NOT NULL,          -- "Yes", or a team name
+      event_slug    TEXT NOT NULL,
+      event_title   TEXT NOT NULL,
+      outcome_label TEXT NOT NULL,
+      question      TEXT NOT NULL,
+      image         TEXT,
+      neg_risk      INTEGER NOT NULL DEFAULT 0,
+      shares        REAL NOT NULL,
+      cost_usd      REAL NOT NULL,
+      cult_ids      TEXT,                   -- JSON array of cults it was posted to; NULL = all
+      opened_at     INTEGER NOT NULL,
+      closed_at     INTEGER,
+      close_price   REAL,
+      proceeds_usd  REAL
+    );
+    CREATE INDEX IF NOT EXISTS prediction_positions_user ON prediction_positions(user_id, closed_at);
+    CREATE INDEX IF NOT EXISTS prediction_positions_event ON prediction_positions(event_slug, closed_at);
+
+    -- Cross-chain moves through Aurora Intents (NEAR Intents 1Click): money in
+    -- from another chain to the member's Monad wallet, or out to one. Keyed by
+    -- the one-time deposit address the quote handed out.
+    CREATE TABLE IF NOT EXISTS intent_swaps (
+      deposit_address   TEXT PRIMARY KEY,
+      user_id           TEXT NOT NULL REFERENCES members(user_id),
+      kind              TEXT NOT NULL,      -- deposit | withdraw
+      origin_asset      TEXT NOT NULL,
+      destination_asset TEXT NOT NULL,
+      amount_in         TEXT NOT NULL,      -- raw, origin asset units
+      amount_out_usd    REAL,
+      recipient         TEXT NOT NULL,
+      memo              TEXT,
+      status            TEXT NOT NULL,      -- 1Click status (PENDING_DEPOSIT ... SUCCESS | REFUNDED | FAILED)
+      deadline          TEXT,
+      created_at        INTEGER NOT NULL,
+      updated_at        INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS intent_swaps_user ON intent_swaps(user_id, created_at);
+
     -- Facts about this database itself, e.g. which chain its trading state is for.
     CREATE TABLE IF NOT EXISTS meta (
       key   TEXT PRIMARY KEY,
@@ -274,6 +348,17 @@ function migrate(d: DatabaseSync) {
   // ...and which of the member's cults a trade was posted to (JSON array of ids;
   // NULL = every cult they're in).
   if (!hasCol('leader_trades', 'cult_ids')) d.exec('ALTER TABLE leader_trades ADD COLUMN cult_ids TEXT');
+  // v10 -> v11: cult admins. Only admins' trades are shared with the cult;
+  // the creator is always one and can make others admins.
+  if (!hasCol('clan_members', 'role')) {
+    d.exec("ALTER TABLE clan_members ADD COLUMN role TEXT NOT NULL DEFAULT 'member'");
+    d.exec("UPDATE clan_members SET role = 'admin' WHERE user_id = (SELECT created_by FROM clans WHERE clans.id = clan_members.clan_id)");
+  }
+  // v8 -> v9: a 4-digit PIN per member (hashed, see store/pins.ts), with a
+  // wrong-try count and a lock.
+  if (!hasCol('members', 'pin_hash')) d.exec('ALTER TABLE members ADD COLUMN pin_hash TEXT');
+  if (!hasCol('members', 'pin_failures')) d.exec('ALTER TABLE members ADD COLUMN pin_failures INTEGER NOT NULL DEFAULT 0');
+  if (!hasCol('members', 'pin_locked_until')) d.exec('ALTER TABLE members ADD COLUMN pin_locked_until INTEGER');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);

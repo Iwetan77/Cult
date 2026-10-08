@@ -49,12 +49,31 @@ export async function privyEmbeddedWallet(userId: string): Promise<{ wallet: str
   });
   if (!res.ok) throw new Error(`privy users/${userId} -> ${res.status}`);
   const user = (await res.json()) as { linked_accounts?: PrivyLinkedAccount[] };
+  // Privy labels embedded wallets "privy" or, for newer ones, "privy-v2"
+  // (its own SDK accepts both).
   const embedded = (user.linked_accounts ?? []).find(
-    (a) => a.type === 'wallet' && a.chain_type === 'ethereum' && a.wallet_client_type === 'privy',
+    (a) => a.type === 'wallet' && a.chain_type === 'ethereum' && (a.wallet_client_type === 'privy' || a.wallet_client_type === 'privy-v2'),
   );
   const out = { wallet: embedded?.address ?? null, walletId: embedded?.id ?? null };
-  walletCache.set(userId, { at: Date.now(), ...out });
+  // Only a found wallet is remembered. A new account's wallet is created just
+  // after sign-in, so "none yet" must be asked again on the next request.
+  if (out.wallet) walletCache.set(userId, { at: Date.now(), ...out });
   return out;
+}
+
+// When this member last signed in with Privy (any method), from the user's
+// linked accounts; asked fresh, never cached. Used where a recent sign-in
+// stands in for "it's really you" (resetting a forgotten PIN).
+export async function privyLastSignIn(userId: string): Promise<number | null> {
+  const secret = process.env.PRIVY_APP_SECRET;
+  if (!secret) throw new Error('PRIVY_APP_SECRET not set');
+  const res = await fetch(`https://auth.privy.io/api/v1/users/${encodeURIComponent(userId)}`, {
+    headers: { Authorization: 'Basic ' + Buffer.from(`${appId()}:${secret}`).toString('base64'), 'privy-app-id': appId() },
+  });
+  if (!res.ok) throw new Error(`privy users/${userId} -> ${res.status}`);
+  const user = (await res.json()) as { linked_accounts?: { latest_verified_at?: number | null }[] };
+  const times = (user.linked_accounts ?? []).map((a) => a.latest_verified_at ?? 0).filter((t) => t > 0);
+  return times.length ? Math.max(...times) * 1000 : null;
 }
 
 export async function identify(authorization: string | undefined): Promise<PrivyIdentity> {

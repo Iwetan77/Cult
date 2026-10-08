@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { AppProvider } from '@/components/AppProvider';
+import { BOOT_SCRIPT } from '@/lib/session';
 import './globals.css';
 
 // The only two faces: Insidia for display, Aeonik Pro for everything else
@@ -27,5 +28,7 @@ export const metadata: Metadata = { title: 'Cult | Trade with your cult', descri
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // Extensions such as Grammarly add attributes to <html>/<body> before React
   // hydrates; ignore those (this only covers these two tags' own attributes).
-  return <html lang="en" suppressHydrationWarning><body suppressHydrationWarning className={`${insidia.variable} ${aeonik.variable}`}><AppProvider>{children}</AppProvider></body></html>;
+  // BOOT_SCRIPT: hide the landing page before the first paint when this
+  // browser is signed in (see lib/session).
+  return <html lang="en" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{ __html: BOOT_SCRIPT }} /></head><body suppressHydrationWarning className={`${insidia.variable} ${aeonik.variable}`}><AppProvider>{children}</AppProvider></body></html>;
 }
