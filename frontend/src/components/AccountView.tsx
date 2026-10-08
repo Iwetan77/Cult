@@ -8,7 +8,6 @@ import type { ClosedTrade, Holding, PredictionClosed, PredictionPosition, Profil
 import { getEvent, type PredictionOutcome } from '@/lib/polymarket';
 import { EventArt, type PredictionPick } from './PredictionsBrowse';
 import { percent, shortAddress, signedDollars, signedPct } from '@/lib/format';
-import { CountryPicker } from './CountryPicker';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
 import { TokenLogo } from './TokenLogo';
@@ -43,7 +42,7 @@ function NotificationsSetting({ owner }: { owner: string }) {
 const predictionTitle = (p: PredictionPosition) => p.outcomeLabel === p.question ? p.question : `${p.outcomeLabel} · ${p.eventTitle}`;
 
 type Props = {
-  id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onCountrySaved: () => Promise<unknown>; onDeposit: () => void; onWithdraw: () => void;
+  id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onDeposit: () => void; onWithdraw: () => void;
   onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void; onAvatarSaved: () => Promise<unknown>; onRoom: (roomId: string) => void;
   tab: AccountTab; onTab: (tab: AccountTab) => void;
   predictionRevision: number; onOpenPrediction: (slug: string, pick?: PredictionPick) => void; onSellPrediction: (position: PredictionPosition, price: number) => void;
@@ -91,7 +90,7 @@ function performanceBars(trades: ClosedTrade[], now: number): PerfBar[] {
   return bars.slice(-8);
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out' }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -305,7 +304,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
           <NotificationsSetting owner={profile.id} />
           <PhoneNotifications owner={profile.id} />
           {!isDemo() && <PinSetting onSignOut={onSignOut} />}
-          <CountryPicker currentCode={profile.country?.code} onSaved={onCountrySaved} />
+          <div className="setting"><div><strong>Your country</strong><small>{profile.country?.name ?? profile.country?.code ?? 'Location not detected yet'}</small></div></div>
           <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" type="button" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> {photoBusy ? 'Updating...' : 'Change photo'}</button>{profile.avatarUrl && <button className="btn btn-ghost btn-sm" type="button" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}</div>
           <div className="setting danger"><div><strong>{signOutLabel}</strong><small>Your funds stay in your wallet.</small></div><button className="btn btn-ghost btn-sm" onClick={onSignOut}><LogOut size={14} /> {signOutLabel}</button></div>
         </div>}
