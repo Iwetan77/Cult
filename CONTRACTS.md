@@ -565,8 +565,10 @@ type MarketListing = {       // GET /v1/markets, GET /v1/markets/:id
 type DepositInfo = {         // GET /v1/wallet/deposit
   address: string;           // show it big with a copy button + QR; no contract addresses anywhere
   network: { name: string; chainId: number };
-  tokens: { symbol: 'MON' | 'USDC' | 'AUSD'; name: string; what: string; balance: number; balanceUsd: number | null }[];
-                             // testnet: MON + AUSD; mainnet adds USDC
+  tokens: { symbol: 'MON' | 'USDC' | 'AUSD'; name: string; what: string; balance: number | null; balanceUsd: number | null; depositSupported: boolean }[];
+                             // both networks show MON, USDC, AUSD; null balance = RPC unavailable
+                             // testnet USDC: wallet visibility only, depositSupported=false and balanceUsd=null
+                             // Send instructions and dollar totals exclude depositSupported=false tokens
   tradingAccountUsd: number | null;   // dollars in the Perpl account
   totalUsd: number | null;
 };
