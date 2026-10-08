@@ -50,13 +50,12 @@ type Props = {
   onBack: () => void;
   onTrade: (market: TicketMarket, side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => void;
   onDeposit: () => void;
-  onProfile: (memberId: string) => void;
 };
 
 const RESOLUTIONS = CHART_RESOLUTIONS;
 const originName = (origin: ChartMarker['origin']) => origin === 'auto_mirror' ? 'Auto copy' : origin === 'manual_stack' ? 'Stacked' : 'Own trade';
 
-export function MarketPage({ id, me, config, busy, social, holdings, onBack, onTrade, onDeposit, onProfile }: Props) {
+export function MarketPage({ id, me, config, busy, social, holdings, onBack, onTrade, onDeposit }: Props) {
   const resolution = social.resolution;
   const [detail, setDetail] = useState<MarketDetail | null>(() => cachedMarket(id, resolution));
   const [error, setError] = useState<string | null>(null);
@@ -188,10 +187,6 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
           <TradeTicket market={ticket} balances={me.balances} monPriceUsd={config?.monPriceAusd ?? null}
             cults={social.cults.filter(c => c.isAdmin ?? true)} inCults={social.cults.length > 0} defaultPostTo={postTo} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds, tpsl) => onTrade(ticket, side, margin, lev, cultIds, tpsl)} onDeposit={onDeposit} />
         </section>
-        {cult && snap && <section className="card">
-          <div className="card-head"><h2>{cult.name}</h2></div>
-          <div className="mini-members">{snap.members.slice(0, 6).map(member => <button key={member.id} onClick={() => onProfile(member.id)}><Avatar name={member.name} url={member.avatarUrl} /><span><strong>{member.name}</strong><small>{member.winRate == null ? '—' : `${Math.round(member.winRate * 100)}% win`}</small></span><b className={`num ${(member.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{member.realizedPnlUsd == null ? '—' : signedDollars(member.realizedPnlUsd)}</b></button>)}</div>
-        </section>}
       </aside>
     </>}
   </div>;

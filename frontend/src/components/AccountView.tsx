@@ -8,7 +8,6 @@ import type { ClosedTrade, Holding, PredictionClosed, PredictionPosition, Profil
 import { getEvent, type PredictionOutcome } from '@/lib/polymarket';
 import { EventArt, type PredictionPick } from './PredictionsBrowse';
 import { percent, shortAddress, signedDollars, signedPct } from '@/lib/format';
-import { CountryPicker } from './CountryPicker';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
 import { TokenLogo } from './TokenLogo';
@@ -19,6 +18,8 @@ import { setNotifyPref, useNotifyPref } from '@/lib/prefs';
 import { enableNotifications } from './AlertsMenu';
 import { PinSetting } from './PinSetting';
 import { isDemo } from '@/lib/demo';
+import { UsernameSetting } from './UsernameSetting';
+import { PhoneNotifications } from './PhoneNotifications';
 
 // Settings: notifications. On, every alert and new cult message shows in the
 // app, and as a system notification in the background where the browser allows.
@@ -30,18 +31,18 @@ function NotificationsSetting({ owner }: { owner: string }) {
     if (!next) { setNotifyPref(owner, false); return; }
     setPermission(await enableNotifications(owner));
   };
-  const note = !on ? 'Get an alert for every new message and notification in Cult.'
-    : permission === 'granted' ? 'On. You also get them when Cult is in the background.'
-      : permission === 'denied' ? 'On in Cult. Your browser blocks system notifications; allow them in its site settings to get them in the background too.'
+  const note = !on ? 'Get message and price alerts while Cult is open.'
+    : permission === 'granted' ? 'On while Cult is open. Enable Phone alerts below for liquidations and trades when it is closed.'
+      : permission === 'denied' ? 'On in Cult. Your browser blocks system notifications.'
         : permission === 'unsupported' ? 'On in Cult. This browser can\'t show system notifications.'
-          : 'On in Cult. Allow notifications when your browser asks to get them in the background too.';
+          : 'On in Cult. Phone alerts are a separate setting below.';
   return <label className="setting setting--switch"><div><strong>Notifications</strong><small>{note}</small></div><input type="checkbox" className="switch" aria-label="Notifications" checked={on} onChange={event => void toggle(event.target.checked)} /></label>;
 }
 
 const predictionTitle = (p: PredictionPosition) => p.outcomeLabel === p.question ? p.question : `${p.outcomeLabel} · ${p.eventTitle}`;
 
 type Props = {
-  id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onCountrySaved: () => Promise<unknown>; onDeposit: () => void; onWithdraw: () => void;
+  id: string; holdings: Holding[]; onCloseHolding: (holding: Holding) => void; onDeposit: () => void; onWithdraw: () => void;
   onSignOut: () => void; onTrade: (target: TradeSheetTarget) => void; onAvatarSaved: () => Promise<unknown>; onRoom: (roomId: string) => void;
   tab: AccountTab; onTab: (tab: AccountTab) => void;
   predictionRevision: number; onOpenPrediction: (slug: string, pick?: PredictionPick) => void; onSellPrediction: (position: PredictionPosition, price: number) => void;
@@ -89,7 +90,7 @@ function performanceBars(trades: ClosedTrade[], now: number): PerfBar[] {
   return bars.slice(-8);
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out' }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -187,6 +188,12 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Photo removal failed.'); }
     finally { setPhotoBusy(false); }
   };
+  const refreshProfile = async () => {
+    const token = await getAccessToken();
+    if (!token) throw new Error('Sign in again to update your profile.');
+    setProfile(await getProfile(token, 'me'));
+    await onAvatarSaved();
+  };
 
   if (error && !profile) return <div className="view one-col"><section className="view-main"><p className="notice-line">{error}</p></section></div>;
   if (!profile) return <div className="view one-col"><section className="view-main"><div className="skel skel-banner" /><div className="skel skel-chart" /></section></div>;
@@ -217,7 +224,7 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
             <h1>{profile.name}</h1>
             <small>{shortAddress(profile.address)} · {profile.country?.name ?? profile.country?.code ?? 'Country not set'} · since {new Date(profile.memberSince).toLocaleDateString([], { month: 'short', year: 'numeric' })}</small>
           </div>
-          {profile.isMe && <div className="profile-actions"><button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
+          {profile.isMe && <div className="profile-actions"><button className="btn btn-ghost btn-sm" onClick={() => setTab('settings')}>Edit profile</button><button className="btn btn-glass btn-sm" onClick={onWithdraw}><ArrowUpRight size={14} /> Withdraw</button><button className="btn btn-primary btn-sm" onClick={onDeposit}><Wallet size={14} /> Deposit</button></div>}
         </div>
         {profile.isMe && (profile.avatarUrl || photoBusy || error) && <div className="profile-photo-note">{profile.avatarUrl && <button className="link" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}{photoBusy && <span>Updating photo…</span>}{error && <span className="down">{error}</span>}</div>}
       </section>
@@ -293,10 +300,12 @@ export function AccountView({ id, holdings, onCloseHolding, onCountrySaved, onDe
           <span className={`num ${(trade.returnPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(trade.returnPct, 1)}</span>
         </button>; })())}</div> : <div className="empty"><span>No closed trades yet.</span></div>)
         : <div className="settings">
+          <UsernameSetting key={profile.id} current={profile.username ?? profile.name} onSaved={refreshProfile} />
           <NotificationsSetting owner={profile.id} />
+          <PhoneNotifications owner={profile.id} />
           {!isDemo() && <PinSetting onSignOut={onSignOut} />}
-          <CountryPicker currentCode={profile.country?.code} onSaved={onCountrySaved} />
-          <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> Change</button></div>
+          <div className="setting"><div><strong>Your country</strong><small>{profile.country?.name ?? profile.country?.code ?? 'Location not detected yet'}</small></div></div>
+          <div className="setting"><div><strong>Profile photo</strong><small>Shown next to your trades and messages.</small></div><button className="btn btn-ghost btn-sm" type="button" disabled={photoBusy} onClick={() => fileInput.current?.click()}><Camera size={14} /> {photoBusy ? 'Updating...' : 'Change photo'}</button>{profile.avatarUrl && <button className="btn btn-ghost btn-sm" type="button" disabled={photoBusy} onClick={() => void removePhoto()}>Remove photo</button>}</div>
           <div className="setting danger"><div><strong>{signOutLabel}</strong><small>Your funds stay in your wallet.</small></div><button className="btn btn-ghost btn-sm" onClick={onSignOut}><LogOut size={14} /> {signOutLabel}</button></div>
         </div>}
       </section>

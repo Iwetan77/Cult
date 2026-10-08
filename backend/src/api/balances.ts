@@ -75,8 +75,9 @@ export interface DepositToken {
   symbol: 'MON' | 'USDC' | 'AUSD';
   name: string;
   what: string; // one line for the UI
-  balance: number;
+  balance: number | null; // null if the token balance could not be read
   balanceUsd: number | null;
+  depositSupported: boolean; // false = visible in the wallet, not usable for funding
 }
 
 export interface DepositInfo {
@@ -87,27 +88,41 @@ export interface DepositInfo {
   totalUsd: number | null; // everything above, in $
 }
 
+export function monDepositDescription(chainId: number): string {
+  return chainId === 143
+    ? 'Trade with it directly: perps swap it to dollars for you. Keep a little for fees.'
+    : 'Pays network fees and supported meme buys. Testnet MON cannot be swapped into perps dollars.';
+}
+
+export function depositTokensFor(b: Pick<Balances, 'mon' | 'monUsd' | 'walletUsd'>, chainId: number, usdc: number | null): DepositToken[] {
+  const mainnet = chainId === 143;
+  return [
+    { symbol: 'MON', name: 'Monad', what: monDepositDescription(chainId), balance: b.mon, balanceUsd: b.monUsd, depositSupported: true },
+    { symbol: 'USDC', name: mainnet ? 'USD Coin' : 'USD Coin (testnet)', what: mainnet ? 'Turned into dollars (AUSD) automatically, within a minute.' : 'Held in your wallet, but cannot be converted into Perpl trading dollars on testnet.', balance: usdc, balanceUsd: mainnet ? usdc : null, depositSupported: mainnet },
+    { symbol: 'AUSD', name: 'Dollars (AUSD)', what: 'Your trading dollars, 1:1 with USD.', balance: b.walletUsd, balanceUsd: b.walletUsd, depositSupported: true },
+  ];
+}
+
+export function depositTotalUsd(tokens: DepositToken[], tradingAccountUsd: number | null): number | null {
+  const parts = [...tokens.filter(token => token.depositSupported).map(token => token.balanceUsd), tradingAccountUsd ?? 0];
+  return parts.some(value => value == null) ? null : parts.reduce<number>((total, value) => total + value!, 0);
+}
+
 export async function depositInfo(userId: string): Promise<DepositInfo> {
   const { env } = await import('../config/env.js');
-  const { USDC_MAINNET } = await import('../funding/plan.js');
+  const { USDC_MAINNET, USDC_TESTNET } = await import('../chain/tokens.js');
   const m = members.get(userId);
   if (!m) throw new Error('unknown member');
   const b = await balancesFor(userId);
-  const tokens: DepositToken[] = [
-    { symbol: 'MON', name: 'Monad', what: 'Trade with it directly: perps swap it to dollars for you. Keep a little for fees.', balance: b.mon, balanceUsd: b.monUsd },
-    { symbol: 'AUSD', name: 'Dollars (AUSD)', what: 'Your trading dollars, 1:1 with USD.', balance: b.walletUsd, balanceUsd: b.walletUsd },
-  ];
-  if (env.chainId === 143) {
-    const raw: bigint = await new ethers.Contract(USDC_MAINNET, erc20Abi, rpc()).getFunction('balanceOf')(m.wallet).catch(() => 0n);
-    const usdc = Number(ethers.formatUnits(raw, 6));
-    tokens.splice(1, 0, { symbol: 'USDC', name: 'USD Coin', what: 'Turned into dollars (AUSD) automatically, within a minute.', balance: usdc, balanceUsd: usdc });
-  }
-  const parts = [...tokens.map((t) => t.balanceUsd), b.perplMarginUsd ?? 0];
+  const usdcToken = env.chainId === 143 ? USDC_MAINNET : USDC_TESTNET;
+  const raw: bigint | null = await new ethers.Contract(usdcToken, erc20Abi, rpc()).getFunction('balanceOf')(m.wallet).catch(() => null);
+  const usdc = raw == null ? null : Number(ethers.formatUnits(raw, 6));
+  const tokens = depositTokensFor(b, env.chainId, usdc);
   return {
     address: ethers.getAddress(m.wallet),
     network: { name: env.chainId === 143 ? 'Monad' : 'Monad testnet', chainId: env.chainId },
     tokens,
     tradingAccountUsd: b.perplMarginUsd,
-    totalUsd: parts.some((x) => x == null) ? null : parts.reduce((a, x) => a! + x!, 0),
+    totalUsd: depositTotalUsd(tokens, b.perplMarginUsd),
   };
 }
