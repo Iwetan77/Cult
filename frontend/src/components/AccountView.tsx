@@ -51,6 +51,7 @@ type Props = {
   // Your open positions: the PnL card as it stands, and the market page.
   onShareHolding?: (holding: Holding) => void; onMarket?: (marketId: string) => void;
   signOutLabel?: string;
+  usernameChangedAt?: string | null; // your last username change (one every 3 months)
 };
 
 export type { AccountTab } from '@/lib/routes';
@@ -90,7 +91,7 @@ function performanceBars(trades: ClosedTrade[], now: number): PerfBar[] {
   return bars.slice(-8);
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out' }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out', usernameChangedAt }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
@@ -300,7 +301,7 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
           <span className={`num ${(trade.returnPct ?? 0) >= 0 ? 'up' : 'down'}`}>{signedPct(trade.returnPct, 1)}</span>
         </button>; })())}</div> : <div className="empty"><span>No closed trades yet.</span></div>)
         : <div className="settings">
-          <UsernameSetting key={profile.id} current={profile.username ?? profile.name} onSaved={refreshProfile} />
+          <UsernameSetting key={profile.id} current={profile.username ?? profile.name} changedAt={usernameChangedAt} onSaved={refreshProfile} />
           <NotificationsSetting owner={profile.id} />
           <PhoneNotifications owner={profile.id} />
           {!isDemo() && <PinSetting onSignOut={onSignOut} />}

@@ -432,7 +432,8 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 
 /* ---------- market page ---------- */
 /* One strip: back, market, price, then the stats as label-over-value columns. */
-.mkt-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 24px; padding: 18px 24px 18px 12px; }
+/* z-index: its fade-in makes it a layer of its own, so its popovers (price alert, send chart) need it above the chart card below. */
+.mkt-bar { z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 18px 24px; padding: 18px 24px 18px 12px; }
 .mkt-bar::-webkit-scrollbar { display: none; }
 .mkt-bar-id { display: flex; align-items: center; gap: 14px; flex: none; min-width: 0; }
 .mkt-bar-id .token-logo { width: 36px; height: 36px; font-size: 13px; }
@@ -1489,6 +1490,8 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
   .market-view .mkt-bar:not(.pm-head) .mkt-bar-id { display: contents; }
   .market-view .mkt-bar:not(.pm-head) .mkt-bar-name { flex: 1 1 0; min-width: 0; }
   .market-view .mkt-bar-actions { flex: none; margin-left: 0; }
+  /* ...and star, alert and send-chart up on the back button's row, so the name gets the full width. */
+  .market-view .mkt-bar:not(.pm-head) .mkt-bar-actions { position: absolute; top: 9px; right: 12px; }
   .market-view .mkt-bar:not(.pm-head) .mkt-bar-price { order: 2; flex: 1 1 100%; align-items: flex-start; padding: 0 0 0 2px; }
 
   /* Trending markets: four cards. */
@@ -1712,3 +1715,40 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .chart-share-line--empty { border-radius: 8px; background: var(--s2); }
 .chart-share-open { align-self: flex-start; }
 @media (max-width: 760px) { .chart-share { min-width: 0; } }
+
+/* Phones: the chart's timeframes (1m to 1D) share the card's width instead of
+   running off its right edge on narrow screens (iPhone, small Androids). */
+@media (max-width: 760px) {
+  .chart-tools > .seg:first-child { display: flex; width: 100%; }
+  .chart-tools > .seg:first-child button { flex: 1 1 0; min-width: 0; padding: 0 2px; }
+}
+
+/* Phones: holding a message opens its reactions, so the browser's own
+   long-press callout and text selection stay out of the way. */
+@media (hover: none) {
+  .chat-bubble, .chat-trade { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+}
+
+/* A cult's picture: admins tap the badge to change it (the create dialog too). */
+.cult-image-pick { position: relative; flex: none; padding: 0; border: 0; border-radius: 50%; background: none; color: inherit; cursor: pointer; }
+.cult-image-pick:disabled { cursor: default; }
+.cult-preview-badge.cult-image-pick { border-radius: 10px; overflow: visible; background: #2a1d47; color: var(--accent-text); }
+.cult-preview-badge.cult-image-pick img { width: 100%; height: 100%; border-radius: 10px; object-fit: cover; }
+.cult-image-cam { position: absolute; right: -4px; bottom: -4px; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; box-shadow: 0 0 0 2px var(--panel); }
+
+/* Send a market's chart to your cults. */
+.send-chart-drop { gap: 10px; }
+.send-chart-cults { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
+.send-chart-cult { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 6px 10px; border: 0; border-radius: var(--r-ctl); background: none; color: var(--text); font-size: 14px; text-align: left; }
+.send-chart-cult:hover { background: var(--s3); }
+.send-chart-cult > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.send-chart-check { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; background: var(--s4); color: #fff; }
+.send-chart-cult.on .send-chart-check { background: var(--accent); }
+
+/* Phones: the room's More button (positions, members and settings). */
+.room-more { flex: none; }
+
+/* Settings > Username: the warning before a change (one every 3 months). */
+.username-confirm { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--r-inner); background: rgba(253, 230, 138, 0.07); }
+.username-confirm p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+.username-confirm p strong { display: block; margin-bottom: 2px; color: var(--butter); font-weight: 500; }

@@ -15,7 +15,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -251,6 +251,32 @@ function migrate(d: DatabaseSync) {
       updated_at INTEGER NOT NULL
     );
 
+    -- A cult's picture (admins set it; resized in the browser first).
+    CREATE TABLE IF NOT EXISTS cult_images (
+      clan_id    TEXT PRIMARY KEY REFERENCES clans(id) ON DELETE CASCADE,
+      mime       TEXT NOT NULL,
+      bytes      BLOB NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    -- Photos sent in chat (chat_messages.image_id points here).
+    CREATE TABLE IF NOT EXISTS chat_images (
+      id         TEXT PRIMARY KEY,
+      room       TEXT NOT NULL,
+      mime       TEXT NOT NULL,
+      bytes      BLOB NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    -- Emoji reactions: one row per member, message and emoji (sending it again takes it back).
+    CREATE TABLE IF NOT EXISTS chat_reactions (
+      message_id TEXT NOT NULL REFERENCES chat_messages(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL REFERENCES members(user_id),
+      emoji      TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (message_id, user_id, emoji)
+    );
+
     -- How far the Nad.fun router log watcher has read.
     CREATE TABLE IF NOT EXISTS cursors (
       name  TEXT PRIMARY KEY,
@@ -382,6 +408,11 @@ function migrate(d: DatabaseSync) {
   if (!hasCol('members', 'pin_hash')) d.exec('ALTER TABLE members ADD COLUMN pin_hash TEXT');
   if (!hasCol('members', 'pin_failures')) d.exec('ALTER TABLE members ADD COLUMN pin_failures INTEGER NOT NULL DEFAULT 0');
   if (!hasCol('members', 'pin_locked_until')) d.exec('ALTER TABLE members ADD COLUMN pin_locked_until INTEGER');
+  // v12 -> v13: photos in chat (the tables above hold cult pictures, chat
+  // photos and reactions).
+  if (!hasCol('chat_messages', 'image_id')) d.exec('ALTER TABLE chat_messages ADD COLUMN image_id TEXT');
+  // ...and when a member last changed their username (one change every 3 months).
+  if (!hasCol('members', 'username_changed_at')) d.exec('ALTER TABLE members ADD COLUMN username_changed_at INTEGER');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);
