@@ -19,6 +19,6 @@ export function Avatar({ name, url, className = '' }: Props) {
   const src = avatarSrc(url);
   return <span className={`room-avatar ${className}`} aria-label={name}>
     {initialsOf(name)}
-    {src && <Image src={src} alt="" width={64} height={64} unoptimized onError={event => { event.currentTarget.hidden = true; }} />}
+    {src && <Image key={src} src={src} alt="" width={64} height={64} unoptimized onError={event => { event.currentTarget.hidden = true; }} />}
   </span>;
 }
