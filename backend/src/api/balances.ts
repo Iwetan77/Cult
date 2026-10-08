@@ -87,6 +87,12 @@ export interface DepositInfo {
   totalUsd: number | null; // everything above, in $
 }
 
+export function monDepositDescription(chainId: number): string {
+  return chainId === 143
+    ? 'Trade with it directly: perps swap it to dollars for you. Keep a little for fees.'
+    : 'Pays network fees and supported meme buys. Testnet MON cannot be swapped into perps dollars.';
+}
+
 export async function depositInfo(userId: string): Promise<DepositInfo> {
   const { env } = await import('../config/env.js');
   const { USDC_MAINNET } = await import('../funding/plan.js');
@@ -94,7 +100,7 @@ export async function depositInfo(userId: string): Promise<DepositInfo> {
   if (!m) throw new Error('unknown member');
   const b = await balancesFor(userId);
   const tokens: DepositToken[] = [
-    { symbol: 'MON', name: 'Monad', what: 'Trade with it directly: perps swap it to dollars for you. Keep a little for fees.', balance: b.mon, balanceUsd: b.monUsd },
+    { symbol: 'MON', name: 'Monad', what: monDepositDescription(env.chainId), balance: b.mon, balanceUsd: b.monUsd },
     { symbol: 'AUSD', name: 'Dollars (AUSD)', what: 'Your trading dollars, 1:1 with USD.', balance: b.walletUsd, balanceUsd: b.walletUsd },
   ];
   if (env.chainId === 143) {
