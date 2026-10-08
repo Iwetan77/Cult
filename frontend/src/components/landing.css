@@ -446,7 +446,7 @@
   .lp-hero__title { font-size: clamp(48px, 15vw, 64px); }
   .lp-join { min-height: 0; }
   .lp-join__inner { padding-top: var(--lp-section-y); }
-  .lp-join__title { white-space: normal; }
+  .lp-join__title { white-space: normal; text-wrap: balance; } /* phones: "Trade with / your cabal" */
   .lp-join__word { order: 1; position: relative; left: auto; top: auto; transform: translateX(var(--ink)) translateY(calc((1 - var(--join-p, 1)) * 80px)); align-self: center; margin: 48px 0 -12vw; }
   .lp-footer { order: 2; }
   .lp-footer { flex-direction: column; align-items: flex-start; }
