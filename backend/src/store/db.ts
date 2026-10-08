@@ -15,7 +15,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -322,6 +322,29 @@ function migrate(d: DatabaseSync) {
       updated_at        INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS intent_swaps_user ON intent_swaps(user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES members(user_id) ON DELETE CASCADE,
+      subscription TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS push_subscriptions_user ON push_subscriptions(user_id);
+    CREATE TABLE IF NOT EXISTS push_events (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS push_deliveries (
+      event_id TEXT NOT NULL REFERENCES push_events(id) ON DELETE CASCADE,
+      subscription_id TEXT NOT NULL REFERENCES push_subscriptions(id) ON DELETE CASCADE,
+      clan_id TEXT,
+      payload TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      sent INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (event_id, subscription_id)
+    );
 
     -- Facts about this database itself, e.g. which chain its trading state is for.
     CREATE TABLE IF NOT EXISTS meta (

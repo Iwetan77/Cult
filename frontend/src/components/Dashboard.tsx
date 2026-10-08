@@ -17,6 +17,8 @@ import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Hold
 import { cachedList } from '@/lib/marketCache';
 import { dollars, messageLine, price, shortAddress } from '@/lib/format';
 import { validateMirrorPolicy } from '@/lib/mirrorPolicy';
+import { tradeAudienceNotice } from '@/lib/tradeAudience';
+import { disablePhonePush } from '@/lib/phonePush';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
 import { ClanChat } from './ClanChat';
@@ -822,8 +824,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (clanId) await loadChart(clanId, target.id).catch(() => undefined);
     setHoldings((await getHoldings(await token())).positions);
     await loadMe();
-    const posted = cultIds?.length === 1 ? me?.clans.find(item => item.id === cultIds[0])?.name : null;
-    setNotice(cultIds?.length === 0 ? `Trade placed on ${target.symbol}. Only you see it.` : posted ? `Trade placed on ${target.symbol}, posted to ${posted}.` : `Trade placed on ${target.symbol}, posted to your cults.`);
+    setNotice(`Trade placed on ${target.symbol}. ${tradeAudienceNotice(me?.clans ?? [], cultIds)}`);
     if (levelsFailed) setError(`The trade is open, but TP/SL wasn't set: ${levelsFailed} Set it from the chart.`);
   });
   const trader = () => ({ name: me?.name ?? 'You', avatarUrl: me?.avatarUrl ?? null });
@@ -916,7 +917,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (!demo) void loadPredictionAccount().catch(() => undefined);
     await loadMe();
     setPredictionRev(value => value + 1);
-    const posted = order.cultIds?.length === 0 ? 'Only you see it.' : 'Posted to your cults.';
+    const posted = tradeAudienceNotice(me?.clans ?? [], order.cultIds);
     setNotice(`Bet placed: ${order.sideLabel} at ${Math.round(order.price * 100)}¢. ${posted}`);
   });
   // Selling a prediction asks first, with the card as it would close.
@@ -1085,7 +1086,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   };
   const signOut = () => {
     if (demo) { exitDemo(); window.location.assign('/'); return; }
-    void logout().then(() => navigate({ view: 'home' }, true));
+    void disablePhonePush().catch(() => undefined).then(() => logout()).then(() => navigate({ view: 'home' }, true));
   };
 
   // The market page asks the cult chart for its own market (once per page).
@@ -1198,7 +1199,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} mentioned={mentioned} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
         : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo || !!config?.features?.predictions} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))} onAccountNeeded={demo ? undefined : () => { void loadPredictionAccount().catch(() => undefined); }}
             onBack={() => goUp({ view: 'markets' })} onBuy={placePrediction} onSell={sellPredictionPosition} onShare={sharePrediction} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
-          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} /> : <MarketsView owner={me.id} onSection={setMarketsTab} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
+          : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} /> : <MarketsView owner={me.id} onSection={setMarketsTab} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />

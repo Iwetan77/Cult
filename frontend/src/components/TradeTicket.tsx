@@ -97,7 +97,7 @@ export function TradeTicket({ market, balances, monPriceUsd, cults, inCults = fa
     setUnit(next);
     if (stakeUsd > 0) show(stakeUsd, next);
   };
-  const cultIds = cults.length === 0 || postTo === 'all' ? undefined : postTo === 'none' ? [] : [postTo];
+  const cultIds = cults.length === 0 || postTo === 'none' ? [] : postTo === 'all' ? undefined : [postTo];
   // Risk, shown before you trade: the taker fee and where you'd be liquidated.
   const feeUsd = isPerp && market.takerFeeBps != null && positionUsd > 0 ? positionUsd * market.takerFeeBps / 10_000 : null;
   const liq = isPerp && price > 0 ? liquidationPrice(price, side, lev, maxLev) : null;

@@ -8,6 +8,7 @@ import { reconcileStacks } from './mirror/stack.js';
 import { startUsdcConversion } from './funding/usdc.js';
 import { warmMarkets } from './api/markets.js';
 import { getDb } from './store/db.js';
+import { startPushNotifications } from './notifications/push.js';
 
 getDb();
 if (storageStatus().persistent === false) {
@@ -15,6 +16,7 @@ if (storageStatus().persistent === false) {
 }
 const engine = new MirrorEngine({ optOutSeconds: env.mirrorOptOutSeconds }, { sessionFor });
 startActivityFeed(engine);
+const stopPush = startPushNotifications(engine);
 await engine.start();
 void reconcileStacks().catch((e) => console.error('[stack] reconcile', e));
 const stopUsdc = startUsdcConversion();
@@ -26,6 +28,7 @@ const server = serve({ fetch: createApp(engine).fetch, port: env.port }, (info) 
 
 const shutdown = () => {
   engine.stop();
+  stopPush();
   stopUsdc();
   stopAllSessions();
   server.close();
