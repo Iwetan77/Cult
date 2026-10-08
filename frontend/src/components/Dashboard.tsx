@@ -15,7 +15,7 @@ import { BOOT_CLASS, PIN_RESET_KEY, hasStoredSession, markSession } from '@/lib/
 import { signsQuietly } from '@/lib/quietSign';
 import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Holding, MarketListing, Me, MirrorPolicy, SetupStatus, TpslSuggestion, TpslValues, WalletAction } from '@/lib/contracts';
 import { cachedList } from '@/lib/marketCache';
-import { dollars, price, shortAddress } from '@/lib/format';
+import { dollars, messageLine, price, shortAddress } from '@/lib/format';
 import { validateMirrorPolicy } from '@/lib/mirrorPolicy';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
@@ -341,8 +341,8 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         const newest = fresh.at(-1);
         if (fresh.length > before && newest?.kind === 'text' && notifyPref(owner)) {
           const title = `${newest.memberName} in ${room.name}`;
-          pushAlert(owner, { kind: 'cult', title, body: newest.body, roomId: room.id });
-          alertNow(title, newest.body);
+          pushAlert(owner, { kind: 'cult', title, body: messageLine(newest), roomId: room.id });
+          alertNow(title, messageLine(newest));
         }
       }).catch(() => undefined);
     }

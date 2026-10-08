@@ -1,6 +1,7 @@
 import type { BackendConfig, Candle, ChartMarker, ChartSnapshot, ChatMessage, ChatPage, BoardPeriod, ChatRoom, Clan, ClosedTrade, CultStanding, DepositInfo, DiscoverCult, Fill, Holding, Home, Leaderboard, LeaderboardEntry, Market, MarketDetail, MarketListing, Me, Member, MirrorPolicy, Profile, TpslSuggestion, TradeView, Venue, WithdrawRequest, WithdrawResult, PredictionBet, PredictionClosed, PredictionOrder, PredictionPosition, PredictionSale } from './contracts';
 import { cents } from './polymarket';
 import { cachedList } from './marketCache';
+import { USERNAME_PATTERN, longDate, nextUsernameChange } from './username';
 
 // Demo mode: the whole app, signed out, on realistic sample data. Every API
 // call is answered here instead of the backend. Public market data is still
@@ -446,15 +447,30 @@ function holdingOf(s: State, pos: Position): Holding {
   };
 }
 
+// A cult's picture shows on the cult, its room (as the room icon) and in Discover.
+function setCultPicture(s: State, clan: Clan, image: string | null) {
+  clan.imageUrl = image;
+  const room = s.me.rooms.find(r => r.id === `cult:${clan.id}`);
+  if (room) room.icon = image ?? clan.name.trim()[0]?.toUpperCase() ?? 'C';
+  const listed = s.discover.find(x => x.id === clan.id);
+  if (listed) listed.imageUrl = image;
+}
+// Pictures arrive as data URLs from the browser's resize; anything else is refused.
+const imageOf = (value: unknown) => {
+  if (value == null) return null;
+  if (typeof value !== 'string' || !/^data:image\/(png|jpeg|webp);base64,/.test(value)) throw new DemoError('Send a PNG, JPEG or WebP image.');
+  return value;
+};
+
 function withLastMessages(s: State): Me {
   const rooms = s.me.rooms.map(room => ({ ...room, lastMessage: s.messages[room.id]?.at(-1) ?? null }));
   return { ...s.me, rooms, balances: s.me.balances && { ...s.me.balances, monUsd: s.me.balances.mon * 0.42 } };
 }
 
-function post(s: State, room: string, memberId: string, body: string, kind: ChatMessage['kind'], markerId: string | null = null, replyTo: string | null = null): ChatMessage {
+function post(s: State, room: string, memberId: string, body: string, kind: ChatMessage['kind'], markerId: string | null = null, replyTo: string | null = null, imageUrl: string | null = null): ChatMessage {
   const p = person(memberId);
   const name = memberId === ME_ID ? s.me.name : p.name;
-  const message: ChatMessage = { id: `msg-${++s.next}`, room, kind, clanId: room.startsWith('cult:') ? room.slice(5) : null, memberId, memberName: name, memberAvatarUrl: memberId === ME_ID ? s.me.avatarUrl : p.avatar, body, text: kind === 'system' ? `${name} ${body}` : body, replyTo, markerId, createdAt: new Date().toISOString() };
+  const message: ChatMessage = { id: `msg-${++s.next}`, room, kind, clanId: room.startsWith('cult:') ? room.slice(5) : null, memberId, memberName: name, memberAvatarUrl: memberId === ME_ID ? s.me.avatarUrl : p.avatar, body, text: kind === 'system' ? `${name} ${body}` : body, replyTo, markerId, createdAt: new Date().toISOString(), ...(imageUrl ? { imageUrl } : {}) };
   (s.messages[room] ??= []).push(message);
   return message;
 }
@@ -543,7 +559,7 @@ function profile(s: State, id: string): Profile {
     address: mine ? DEMO_ADDRESS : addr(memberId), country: mine ? s.me.country : { code: p.country, name: null },
     memberSince: Date.now() - 86_400_000 * (30 + hash(memberId) % 200), isMe: mine, record: mine ? myStats() : statsFor(memberId),
     openTrades: unique.map(x => { const m = materialize(s, x); return { tradeId: m.tradeId, markerId: m.id, venue: m.venue, market: m.marketId, symbol: x.symbol, side: x.side, leverage: x.leverage, openedAt: m.entryTime * 1000 }; }),
-    closedTrades: mine ? [...(s.myClosed ?? []), ...closedTrades(memberId)] : closedTrades(memberId), cults: s.me.clans.filter(c => s.members[c.id]?.includes(memberId)).map(c => ({ id: c.id, name: c.name, visibility: c.visibility })),
+    closedTrades: mine ? [...(s.myClosed ?? []), ...closedTrades(memberId)] : closedTrades(memberId), cults: s.me.clans.filter(c => s.members[c.id]?.includes(memberId)).map(c => ({ id: c.id, name: c.name, visibility: c.visibility, imageUrl: c.imageUrl ?? null })),
   };
 }
 
@@ -615,7 +631,17 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
   if (a === 'usernames') return done({ available: !PEOPLE.some(p => p.name.toLowerCase() === (b ?? '').toLowerCase()) });
 
   if (a === 'me' && !b) { cultActivity(s); return done(withLastMessages(s)); }
-  if (a === 'me' && b === 'username') { s.me = { ...s.me, name: String(body.username), username: String(body.username), needsUsername: false }; return done({ username: s.me.username, name: s.me.name }); }
+  if (a === 'me' && b === 'username') {
+    const username = String(body.username ?? '').trim();
+    if (!USERNAME_PATTERN.test(username)) throw new DemoError('Use 3-20 letters, numbers or _ , starting with a letter.');
+    if (PEOPLE.some(p => p.name.toLowerCase() === username.toLowerCase())) throw new DemoError('That username is taken.', 409);
+    const changing = !!s.me.username && !s.me.needsUsername;
+    if (changing && username === s.me.username) return done({ username, name: s.me.name });
+    const next = changing ? nextUsernameChange(s.me.usernameChangedAt) : null;
+    if (next) throw new DemoError(`You can change your username again on ${longDate(next)}.`, 429);
+    s.me = { ...s.me, name: username, username, needsUsername: false, ...(changing ? { usernameChangedAt: new Date().toISOString() } : {}) };
+    return done({ username: s.me.username, name: s.me.name });
+  }
   if (a === 'me' && b === 'country') {
     const code = String(body.country);
     const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
@@ -839,7 +865,13 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     return done({ names: typing ? [person(next.memberId).name] : [] });
   }
   if (a === 'chat' && b && c === 'messages') {
-    if (method === 'POST') { const m = post(s, b, ME_ID, String(body.body), 'text', (body.markerId as string) ?? null, (body.replyTo as string) ?? null); return done(m); }
+    if (method === 'POST') {
+      const image = imageOf(body.image);
+      const text = String(body.body ?? '').trim();
+      if (!text && !image) throw new DemoError('Write a message or add a photo.');
+      const m = post(s, b, ME_ID, text, 'text', (body.markerId as string) ?? null, (body.replyTo as string) ?? null, image);
+      return done(m);
+    }
     const list = s.messages[b] ?? [];
     return done<ChatPage>({ messages: list.slice(-50).map(m => withReactions(s, m)), hasMore: false, pinned: s.pinned[b] ?? null });
   }
@@ -860,12 +892,13 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cult'}-${++s.next}`;
     const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
     const code = Array.from({ length: 6 }, (_, i) => letters[(hash(id) >> (i * 4)) % letters.length]).join('');
-    const clan: Clan = { id, name, inviteCode: `${code.slice(0, 3)}-${code.slice(3)}`, visibility: body.visibility === 'public' ? 'public' : 'private', isOwner: true, isAdmin: true, memberCount: 1, myPolicy: policy(false), autoFollow: false };
+    const image = imageOf(body.image);
+    const clan: Clan = { id, name, inviteCode: `${code.slice(0, 3)}-${code.slice(3)}`, visibility: body.visibility === 'public' ? 'public' : 'private', isOwner: true, isAdmin: true, memberCount: 1, myPolicy: policy(false), autoFollow: false, imageUrl: image };
     s.me.clans.push(clan);
     s.members[id] = [ME_ID];
-    s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: name.trim()[0]?.toUpperCase() ?? 'C', memberCount: 1, lastMessage: null });
+    s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: image ?? name.trim()[0]?.toUpperCase() ?? 'C', memberCount: 1, lastMessage: null });
     post(s, `cult:${id}`, ME_ID, 'created the cult', 'system');
-    if (clan.visibility === 'public') s.discover.push({ id, name, visibility: 'public', memberCount: 1, createdAt: new Date().toISOString(), joined: true });
+    if (clan.visibility === 'public') s.discover.push({ id, name, visibility: 'public', memberCount: 1, createdAt: new Date().toISOString(), joined: true, imageUrl: image });
     return done(clan);
   }
   if (a === 'cults' && b === 'join' && c === 'challenge') { const id = `ch-${++s.next}`; s.challenges[id] = body.policy as MirrorPolicy; return done({ message: 'Join cult', challengeId: id }); }
@@ -876,10 +909,10 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     if (existing) return done(existing);
     const id = target?.id ?? `invited-${code.toLowerCase()}`;
     const name = target?.name ?? `Cult ${code}`;
-    const clan: Clan = { id, name, inviteCode: code || 'INV-ITE', visibility: target ? 'public' : 'private', isOwner: false, isAdmin: false, memberCount: (target?.memberCount ?? 5) + 1, myPolicy: policy(false), autoFollow: false };
+    const clan: Clan = { id, name, inviteCode: code || 'INV-ITE', visibility: target ? 'public' : 'private', isOwner: false, isAdmin: false, memberCount: (target?.memberCount ?? 5) + 1, myPolicy: policy(false), autoFollow: false, imageUrl: target?.imageUrl ?? null };
     s.me.clans.push(clan);
     s.members[id] = [ME_ID, ...previewMembers(id)];
-    s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: name[0]!.toUpperCase(), memberCount: clan.memberCount, lastMessage: null });
+    s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: target?.imageUrl ?? name[0]!.toUpperCase(), memberCount: clan.memberCount, lastMessage: null });
     const leader = s.members[id]![1]!;
     s.seeds.push({ id: `mk-${++s.next}`, cultId: id, memberId: leader, symbol: 'ETH-PERP', origin: 'leader', side: 'long', entryRatio: 0.985, notional: 3000, leverage: 5, openedAgoMin: 200, tp: null, sl: null, suggestions: [] });
     post(s, `cult:${id}`, leader, 'opened ETH-PERP long 5x', 'system', `mk-${s.next}`);
@@ -899,6 +932,11 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     if (c === 'policy') { const p = s.challenges[String(body.challengeId)] ?? policy(true); clan.myPolicy = p; clan.autoFollow = p.enabled; return done(clan); }
     if (c === 'auto-follow') { clan.autoFollow = false; clan.myPolicy = clan.myPolicy && { ...clan.myPolicy, enabled: false }; return done(clan); }
     if (c === 'visibility') { clan.visibility = body.visibility === 'public' ? 'public' : 'private'; return done(clan); }
+    if (c === 'image' && method === 'POST') {
+      if (!clan.isAdmin) throw new DemoError('Only admins can change the cult picture.', 403);
+      setCultPicture(s, clan, imageOf(body.image));
+      return done(clan);
+    }
     if (c === 'leave') {
       s.me.clans = s.me.clans.filter(x => x.id !== b);
       s.me.rooms = s.me.rooms.filter(x => x.id !== `cult:${b}`);
