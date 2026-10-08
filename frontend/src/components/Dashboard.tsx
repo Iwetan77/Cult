@@ -365,7 +365,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     return () => observer.disconnect();
   }, [me, demo, authenticated]);
   // New members join their country's room straight away, from where they're
-  // connecting (Vercel's IP country). They can change it in Account.
+  // connecting (Vercel's IP country).
   const countryTried = useRef(false);
   useEffect(() => {
     if (!me || me.country || me.needsUsername || countryTried.current) return;
@@ -379,7 +379,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       if (!joined) return;
       const next = await getMe(accessToken).catch(() => null);
       if (next) setMe(next);
-      setNotice(`You're in the ${joined.country.name} room. Change it any time in Account.`);
+      setNotice(`You're in the ${joined.country.name} room.`);
     })();
   }, [me]);
   useEffect(() => {
@@ -1203,7 +1203,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
-        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onShareHolding={shareHolding} onMarket={openMarket} onCountrySaved={loadMe} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
+        : view === 'account' ? <AccountView id={profileId} holdings={holdings} onCloseHolding={closeTrade} onShareHolding={shareHolding} onMarket={openMarket} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
         : <div className="view two-col room-view">
           <section className="view-main room-main">
             <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => goUp({ view: 'groups' })}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm" onClick={() => setGroupPanelOpen(true)}><PanelRightOpen size={14} /> {activeRoom?.kind === 'cult' ? 'Positions' : 'Rankings'}</button></div>
