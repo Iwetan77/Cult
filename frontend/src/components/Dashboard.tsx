@@ -17,6 +17,7 @@ import type { BackendConfig, ChatMessage, ChartMarker, ChartSnapshot, Fill, Hold
 import { cachedList } from '@/lib/marketCache';
 import { dollars, price, shortAddress } from '@/lib/format';
 import { validateMirrorPolicy } from '@/lib/mirrorPolicy';
+import { tradeAudienceNotice } from '@/lib/tradeAudience';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
 import { ClanChat } from './ClanChat';
@@ -822,8 +823,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (clanId) await loadChart(clanId, target.id).catch(() => undefined);
     setHoldings((await getHoldings(await token())).positions);
     await loadMe();
-    const posted = cultIds?.length === 1 ? me?.clans.find(item => item.id === cultIds[0])?.name : null;
-    setNotice(cultIds?.length === 0 ? `Trade placed on ${target.symbol}. Only you see it.` : posted ? `Trade placed on ${target.symbol}, posted to ${posted}.` : `Trade placed on ${target.symbol}, posted to your cults.`);
+    setNotice(`Trade placed on ${target.symbol}. ${tradeAudienceNotice(me?.clans ?? [], cultIds)}`);
     if (levelsFailed) setError(`The trade is open, but TP/SL wasn't set: ${levelsFailed} Set it from the chart.`);
   });
   const trader = () => ({ name: me?.name ?? 'You', avatarUrl: me?.avatarUrl ?? null });
@@ -916,7 +916,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (!demo) void loadPredictionAccount().catch(() => undefined);
     await loadMe();
     setPredictionRev(value => value + 1);
-    const posted = order.cultIds?.length === 0 ? 'Only you see it.' : 'Posted to your cults.';
+    const posted = tradeAudienceNotice(me?.clans ?? [], order.cultIds);
     setNotice(`Bet placed: ${order.sideLabel} at ${Math.round(order.price * 100)}¢. ${posted}`);
   });
   // Selling a prediction asks first, with the card as it would close.
