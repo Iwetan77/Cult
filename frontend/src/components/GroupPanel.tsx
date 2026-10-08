@@ -6,6 +6,8 @@ import { ArrowRight, Copy, Globe2, Lock, ShieldCheck, X } from './icons';
 import { getLeaderboard } from '@/lib/api';
 import type { BackendConfig, ChartMarker, ChartSnapshot, ChatRoom, Clan, Leaderboard, MirrorPolicy } from '@/lib/contracts';
 import { dollars, percent, price, signedDollars } from '@/lib/format';
+import { candleResolution } from '@/lib/chartHistory';
+import { autoFollowDraft, mirrorPolicyFromDraft } from '@/lib/mirrorPolicy';
 import { SharedChart } from './SharedChart';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
@@ -18,6 +20,8 @@ type Props = {
   onGuideDrop: (marker: ChartMarker, kind: 'takeProfit' | 'stopLoss', price: number) => void;
   onInvite: () => void; onVisibility: (visibility: 'private' | 'public') => void;
   onLeave: () => Promise<void>; onProfile: (memberId: string) => void;
+  // Admins share trades with the cult and make other members admins.
+  meId?: string; onSetAdmin?: (memberId: string, admin: boolean) => Promise<void>;
 };
 
 function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: string; onProfile: (id: string) => void }) {
@@ -43,31 +47,30 @@ function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: str
   </div>;
 }
 
-export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile }: Props) {
+export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile, meId, onSetAdmin }: Props) {
   const [tab, setTab] = useState<'positions' | 'stats' | 'members' | 'settings'>('positions');
   const [followSheet, setFollowSheet] = useState(false);
   const [maxUsd, setMaxUsd] = useState('');
   const [balancePct, setBalancePct] = useState('');
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [adminBusy, setAdminBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const market = snapshot?.selectedMarket;
   const markers = snapshot?.markers.filter(item => item.marketId === market?.id) ?? [];
 
   const openFollowSheet = () => {
-    const current = cult?.myPolicy;
-    setMaxUsd(String(current?.enabled ? current.maxUsdPerTrade : config?.autoFollowDefaults.maxUsdPerTrade ?? 50));
-    setBalancePct(String(current?.enabled ? current.balancePercentCap : config?.autoFollowDefaults.balancePercentCap ?? 10));
+    const draft = autoFollowDraft(cult?.myPolicy, config?.autoFollowDefaults);
+    setMaxUsd(draft.maxUsd);
+    setBalancePct(draft.balancePct);
     setError(null);
     setFollowSheet(true);
   };
   const turnOn = async () => {
-    const policy: MirrorPolicy = { enabled: true, maxUsdPerTrade: Number(maxUsd), balancePercentCap: Number(balancePct) };
-    if (!Number.isFinite(policy.maxUsdPerTrade) || policy.maxUsdPerTrade < 1 || !Number.isFinite(policy.balancePercentCap) || policy.balancePercentCap <= 0 || policy.balancePercentCap > 100) {
-      setError('Enter valid Auto-follow limits.');
-      return;
-    }
-    try { await onFollowOn(policy); setFollowSheet(false); setError(null); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Auto-follow could not be enabled.'); }
+    setError(null);
+    try {
+      await onFollowOn(mirrorPolicyFromDraft(maxUsd, balancePct));
+      setFollowSheet(false);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Auto-follow limits could not be saved.'); }
   };
 
   if (room.kind !== 'cult' || !cult) return <aside className="group">
@@ -101,25 +104,29 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         <span><strong>Auto-follow</strong><small>{cult.autoFollow ? 'Trades from this cult copy into your wallet' : 'Copy this cult’s trades automatically'}</small></span>
         <input className="switch" type="checkbox" checked={cult.autoFollow} disabled={busy} onChange={event => { if (event.target.checked) openFollowSheet(); else void onFollowOff(); }} />
       </label>
-      {cult.autoFollow && policy && !followSheet && <div className="follow-alloc"><span>Allocation</span><b className="num">{dollars(policy.maxUsdPerTrade)} <small>/ trade</small></b><small>up to {policy.balancePercentCap}% of balance</small><button className="link" onClick={openFollowSheet}>Edit</button></div>}
+      {cult.autoFollow && policy && !followSheet && <div className="follow-alloc"><span>Your copy limits</span><b className="num">Up to {dollars(policy.maxUsdPerTrade)} <small>/ copy</small></b><small>Up to {policy.balancePercentCap}% of free balance</small><button className="link" disabled={busy} onClick={openFollowSheet}>Edit</button></div>}
       {cult.autoFollow && signerPrompt && <div className="follow-alert"><p>{signerPrompt}. Copies wait until your wallet confirms.</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onGrantSigner}><ShieldCheck size={14} /> Approve signer</button></div>}
-      {followSheet && <div className="follow-sheet">
-        <div className="follow-sheet-head"><strong>Set your limits</strong><button className="icon-btn icon-btn--sm" title="Close" onClick={() => setFollowSheet(false)}><X size={14} /></button></div>
-        <div className="follow-field"><div className="ticket-row"><span className="ticket-label">Max per trade</span><b className="num">${Number(maxUsd || 0).toLocaleString()}</b></div>
-          <input type="range" min={5} max={1000} step={5} value={Number(maxUsd) || 5} onChange={event => setMaxUsd(event.target.value)} aria-label="Max dollars per trade" style={{ '--fill': `${((Number(maxUsd) || 5) - 5) / 995 * 100}%` } as React.CSSProperties} /></div>
-        <div className="follow-field"><div className="ticket-row"><span className="ticket-label">Max of balance</span><b className="num">{balancePct || 0}%</b></div>
-          <input type="range" min={1} max={100} step={1} value={Number(balancePct) || 1} onChange={event => setBalancePct(event.target.value)} aria-label="Max percent of balance" style={{ '--fill': `${((Number(balancePct) || 1) - 1) / 99 * 100}%` } as React.CSSProperties} /></div>
-        <p className="fine">Your wallet signs these limits. Cult can never move more than this per copy.</p>
-        <button className="btn btn-primary btn-sm btn-block" disabled={busy} onClick={turnOn}><ShieldCheck size={15} /> {cult.autoFollow ? 'Save limits' : 'Turn on'}</button>
-        {error && <p className="notice-line">{error}</p>}
-      </div>}
+      {followSheet && <form className="follow-sheet" noValidate onSubmit={event => { event.preventDefault(); void turnOn(); }}>
+        <div className="follow-sheet-head"><strong>Your limits in this cult</strong><button type="button" className="icon-btn icon-btn--sm" title="Close limits" aria-label="Close limits" disabled={busy} onClick={() => setFollowSheet(false)}><X size={14} /></button></div>
+        <label className="field follow-field"><span className="field-top">Maximum copy value ($)</span>
+          <input type="number" inputMode="decimal" min={1} max={1_000_000} step="any" required autoFocus disabled={busy} value={maxUsd} onChange={event => setMaxUsd(event.target.value)} aria-describedby="copy-value-note" />
+          <small id="copy-value-note">Full position value including leverage for perps; amount spent for memes.</small>
+        </label>
+        <label className="field follow-field"><span className="field-top">Maximum free balance (%)</span>
+          <input type="number" inputMode="decimal" min={0} max={100} step="any" required disabled={busy} value={balancePct} onChange={event => setBalancePct(event.target.value)} aria-describedby="copy-balance-note" />
+          <small id="copy-balance-note">Limits margin for perps and spendable wallet funds for memes.</small>
+        </label>
+        <p className="fine">Copies follow the leader&apos;s balance share, up to your caps. Actual amounts can be smaller. Your signed limits apply to new copies and each add in this cult. Existing positions keep their size.</p>
+        <button type="submit" className="btn btn-primary btn-sm btn-block" disabled={busy}><ShieldCheck size={15} /> {cult.autoFollow ? 'Save limits' : 'Turn on'}</button>
+        {error && <p className="notice-line" role="alert">{error}</p>}
+      </form>}
     </section>
 
     <section className="card">
       <div className="tabs tabs--fill">{([['positions', 'Positions'], ['stats', 'Stats'], ['members', 'Members'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>{label}</button>)}</div>
       {tab === 'positions' ? <div className="group-pos">
         <div className="chips chips--scroll">{snapshot?.markets.map(item => <button key={`${item.venue}:${item.id}`} className={item.id === market?.id ? 'on' : ''} onClick={() => onMarket(item.id)}>{item.symbol.replace(/-PERP$/, '')}</button>)}</div>
-        <div className="mini-chart"><SharedChart candles={snapshot?.candles ?? []} markers={markers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null }} selectedId={selected?.id ?? null} onSelect={onMarker} onGuideDrop={onGuideDrop} guidesDisabled={busy} avatars={Object.fromEntries(members.map(x => [x.id, x.avatarUrl]))} /></div>
+        <div className="mini-chart"><SharedChart candles={snapshot?.candles ?? []} markers={markers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null }} selectedId={selected?.id ?? null} onSelect={onMarker} onGuideDrop={onGuideDrop} guidesDisabled={busy} avatars={Object.fromEntries(members.map(x => [x.id, x.avatarUrl]))} resolution={snapshot && snapshot.candles.length > 1 ? candleResolution(snapshot.candles) : undefined} /></div>
         <div className="feed feed--compact">{markers.length ? markers.map(marker => <button className={`feed-row ${selected?.id === marker.id ? 'on' : ''}`} key={marker.id} onClick={() => onMarker(marker)}>
           <Avatar name={marker.memberName} url={members.find(m => m.id === marker.memberId)?.avatarUrl} />
           <span className="feed-who"><strong>{marker.isMine ? 'You' : marker.memberName}</strong><small>{marker.origin === 'auto_mirror' ? 'Auto copy' : marker.origin === 'manual_stack' ? 'Stacked' : 'Own trade'} · {price(marker.entryPrice)}</small></span>
@@ -138,8 +145,15 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         </div>
         <div className="card-head sub"><h3>Ranking</h3></div>
         <RoomRanking room={room} cultId={cult.id} onProfile={onProfile} />
-      </div> : tab === 'members' ? <div className="mini-members">{members.length ? members.map(member => <button key={member.id} onClick={() => onProfile(member.id)}><Avatar name={member.name} url={member.avatarUrl} /><span><strong>{member.name}</strong><small>{member.verified ? `${member.tradeCount} trades · ${member.winRate == null ? '—' : percent(member.winRate * 100)} win` : 'Unverified'}</small></span><b className={`num ${(member.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{member.realizedPnlUsd == null ? '—' : signedDollars(member.realizedPnlUsd)}</b></button>) : <div className="empty compact"><span>Member records appear after the indexer syncs.</span></div>}</div>
+      </div> : tab === 'members' ? <div className="mini-members">{members.length ? members.map(member => <div key={member.id} className="mini-member">
+        <button className="mini-member-main" onClick={() => onProfile(member.id)}><Avatar name={member.name} url={member.avatarUrl} /><span><strong>{member.name}{member.admin && <i className="admin-tag">Admin</i>}</strong><small>{member.verified ? `${member.tradeCount} trades · ${member.winRate == null ? '—' : percent(member.winRate * 100)} win` : 'Unverified'}</small></span><b className={`num ${(member.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{member.realizedPnlUsd == null ? '—' : signedDollars(member.realizedPnlUsd)}</b></button>
+        {cult.isAdmin && onSetAdmin && member.id !== meId && <button className="btn btn-ghost btn-sm" disabled={busy || adminBusy === member.id} onClick={() => { setAdminBusy(member.id); void onSetAdmin(member.id, !member.admin).finally(() => setAdminBusy(null)); }}>{member.admin ? 'Remove admin' : 'Make admin'}</button>}
+      </div>) : <div className="empty compact"><span>Member records appear after the indexer syncs.</span></div>}</div>
       : <div className="group-settings">
+        <div className="setting"><div><strong>Your copy limits</strong><small>{cult.autoFollow ? 'Auto-follow on' : 'Auto-follow off'}{policy && ` · Up to ${dollars(policy.maxUsdPerTrade)} per copy · ${policy.balancePercentCap}% of free balance`}</small></div><button className="btn btn-ghost btn-sm" disabled={busy} onClick={openFollowSheet}>{cult.autoFollow ? 'Edit limits' : 'Set limits'}</button></div>
+        <div className="setting"><div><strong>{cult.isAdmin ? 'You’re an admin' : 'You’re a member'}</strong><small>{cult.isAdmin
+          ? 'Your trades are shared here and copied by members on Auto-follow. Make others admins from Members.'
+          : 'Only admins share trades here; yours stay yours. Turn on Auto-follow to copy them, or tap Copy on one in the chat.'}</small></div></div>
         <div className="setting"><div><strong>Invite link</strong><small>Code <b className="code">{cult.inviteCode}</b></small></div><button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Copy</button></div>
         {cult.isOwner && <div className="setting"><div><strong>Visibility</strong><small>{cult.visibility === 'public' ? 'Listed in Discover and public rankings.' : 'Invite only.'}</small></div><div className="seg seg--sm"><button className={cult.visibility === 'private' ? 'on' : ''} disabled={busy} onClick={() => onVisibility('private')}>Private</button><button className={cult.visibility === 'public' ? 'on' : ''} disabled={busy} onClick={() => onVisibility('public')}>Public</button></div></div>}
         <div className="setting danger"><div><strong>Leave cult</strong><small>Pending copies are cancelled. Open ones unwind when their leader exits.</small></div>{!confirmLeave ? <button className="btn btn-danger btn-sm" onClick={() => setConfirmLeave(true)}>Leave</button> : <div className="row-gap"><button className="btn btn-ghost btn-sm" onClick={() => setConfirmLeave(false)}>Cancel</button><button className="btn btn-danger btn-sm" disabled={busy} onClick={() => void onLeave()}>Confirm</button></div>}</div>

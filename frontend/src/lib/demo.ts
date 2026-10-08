@@ -180,6 +180,8 @@ type State = {
   messages: Record<string, ChatMessage[]>; pinned: Record<string, ChatPage['pinned']>;
   members: Record<string, string[]>; discover: DiscoverCult[]; challenges: Record<string, MirrorPolicy>; next: number;
   predictions?: PredictionPosition[]; predictionHistory?: PredictionClosed[];
+  // Cross-chain moves started in this demo (by deposit address).
+  swaps?: Record<string, { kind: 'deposit' | 'withdraw'; usd: number; at: number; sent: boolean; credited: boolean; symbol: string; receive: string; receiveSymbol: string; chainName: string }>;
   myClosed?: ClosedTrade[]; // trades you closed in this demo, newest first
   lastActivity?: number; // when a cult-mate last opened a trade on their own
   nextChat?: { room: string; memberId: string; body: string; at: number }; // what a cult-mate says next, and when
@@ -192,8 +194,8 @@ const policy = (enabled: boolean, cap = 10, usd = 50): MirrorPolicy => ({ enable
 
 function seedState(): State {
   const clans: Clan[] = [
-    { id: 'night-shift', name: 'Night Shift', inviteCode: 'NGT-SHF', visibility: 'private', isOwner: true, memberCount: 7, myPolicy: policy(true, 10, 50), autoFollow: true },
-    { id: 'lagos-degens', name: 'Lagos Degens', inviteCode: 'LAG-DGN', visibility: 'public', isOwner: false, memberCount: 24, myPolicy: policy(false), autoFollow: false },
+    { id: 'night-shift', name: 'Night Shift', inviteCode: 'NGT-SHF', visibility: 'private', isOwner: true, isAdmin: true, memberCount: 7, myPolicy: policy(true, 10, 50), autoFollow: true },
+    { id: 'lagos-degens', name: 'Lagos Degens', inviteCode: 'LAG-DGN', visibility: 'public', isOwner: false, isAdmin: false, memberCount: 24, myPolicy: policy(false), autoFollow: false },
   ];
   const members: Record<string, string[]> = {
     'night-shift': [ME_ID, 'm-krdnl', 'm-tandid', 'm-daddy', 'm-solstice', 'm-conscott', 'm-ada'],
@@ -470,7 +472,8 @@ async function snapshot(s: State, cultId: string, marketId: string | null, resol
   const candles = fromReal ? await realCandles(selected.id, resolution) ?? [] : f ? makeCandles(f, resolution) : [];
   return {
     clan, markets, selectedMarket: selected, candles, markers: seeds.map(seed => materialize(s, seed)),
-    members: (s.members[clan.id] ?? [ME_ID]).map(memberOf), asOf: new Date().toISOString(), autoMirrorOptOutWindowSeconds: 30,
+    // Demo cult-mates post trades, so they're admins; you are where you own the cult.
+    members: (s.members[clan.id] ?? [ME_ID]).map(id => ({ ...memberOf(id), admin: id === ME_ID ? !!clan.isAdmin : true })), asOf: new Date().toISOString(), autoMirrorOptOutWindowSeconds: 30,
   };
 }
 
@@ -689,6 +692,51 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
       return done({ bets });
     }
   }
+  // Cross-chain (Aurora Intents): sample networks, and transfers that settle
+  // about 20 seconds after they start (deposits credit wallet dollars).
+  if (a === 'intents') {
+    const swaps = (s.swaps ??= {});
+    const chains = DEMO_CHAINS;
+    const coin = (assetId: string) => chains.flatMap(c => c.tokens.map(t => ({ ...t, chain: c }))).find(t => t.assetId === assetId);
+    const address = (kind: string) => `${kind === 'deposit' ? 'demo' : 'out'}${Array.from({ length: 6 }, () => Math.floor(Math.random() * 2 ** 32).toString(36)).join('')}`.slice(0, 40);
+    if (b === 'chains') return done({ enabled: true, chains });
+    if (b === 'deposit' && method === 'POST') {
+      const t = coin(String(body.originAsset));
+      const amount = Number(body.amount);
+      if (!t) throw new DemoError('That coin is not supported for cross-chain transfers.', 404);
+      if (!(amount > 0)) throw new DemoError('Enter an amount.');
+      const usd = amount * (t.priceUsd ?? 1) * 0.997;
+      const depositAddress = address('deposit');
+      swaps[depositAddress] = { kind: 'deposit', usd, at: Date.now(), sent: true, credited: false, symbol: t.symbol, receive: usd.toFixed(2), receiveSymbol: 'USDC', chainName: t.chain.name };
+      return done({ depositAddress, depositMemo: null, kind: 'deposit', chain: t.chain.chain, chainName: t.chain.name, symbol: t.symbol, amountIn: String(amount), amountInUsd: amount * (t.priceUsd ?? 1), receive: usd.toFixed(2), receiveSymbol: 'USDC', receiveUsd: usd, minReceive: '0', seconds: 60, deadline: new Date(Date.now() + 2 * 3_600_000).toISOString(), status: 'PENDING_DEPOSIT' });
+    }
+    if (b === 'withdraw' && method === 'POST') {
+      const t = coin(String(body.destinationAsset));
+      const usd = Number(body.amountUsd);
+      if (!t) throw new DemoError('That coin is not supported for cross-chain transfers.', 404);
+      if (!(usd >= 5)) throw new DemoError('The smallest cross-chain withdrawal is $5.');
+      if (usd > s.me.balances!.walletUsd + 1e-9) throw new DemoError('More than you have available.');
+      const receive = (usd * 0.996 / (t.priceUsd ?? 1)).toPrecision(5);
+      const depositAddress = address('withdraw');
+      swaps[depositAddress] = { kind: 'withdraw', usd, at: Date.now(), sent: false, credited: false, symbol: 'USDC', receive, receiveSymbol: t.symbol, chainName: t.chain.name };
+      return done({ depositAddress, depositMemo: null, kind: 'withdraw', chain: t.chain.chain, chainName: t.chain.name, symbol: 'USDC', amountIn: usd.toFixed(2), amountInUsd: usd, receive, receiveSymbol: t.symbol, receiveUsd: usd * 0.996, minReceive: '0', seconds: 60, deadline: new Date(Date.now() + 3_600_000).toISOString(), status: 'PENDING_DEPOSIT', actions: [] });
+    }
+    if (b === 'submit' && method === 'POST') {
+      const sw = swaps[String(body.depositAddress)];
+      if (sw && !sw.sent) { sw.sent = true; sw.at = Date.now(); s.me.balances!.walletUsd = Math.max(0, s.me.balances!.walletUsd - sw.usd); }
+      return done(undefined);
+    }
+    if (b === 'status' && c) {
+      const sw = swaps[c];
+      if (!sw) throw new DemoError('Unknown transfer.', 404);
+      if (sw.kind === 'withdraw' && !sw.sent) { sw.sent = true; sw.at = Date.now(); s.me.balances!.walletUsd = Math.max(0, s.me.balances!.walletUsd - sw.usd); }
+      const age = Date.now() - sw.at;
+      const status = age < 8000 ? (sw.kind === 'deposit' ? 'PENDING_DEPOSIT' : 'KNOWN_DEPOSIT_TX') : age < 20000 ? 'PROCESSING' : 'SUCCESS';
+      if (status === 'SUCCESS' && sw.kind === 'deposit' && !sw.credited) { sw.credited = true; s.me.balances!.walletUsd += sw.usd; }
+      return done({ status, done: status === 'SUCCESS', received: status === 'SUCCESS' ? sw.receive : null, receivedUsd: status === 'SUCCESS' ? sw.usd : null, refunded: null, refundReason: null, txs: [] });
+    }
+    if (b === 'swaps') return done({ swaps: [] });
+  }
   if (a === 'wallet' && b === 'withdraw' && method === 'POST') {
     const bal = s.me.balances!;
     const amount = Number(body.amount), to = String(body.to ?? ''), symbol = body.symbol as WithdrawRequest['symbol'];
@@ -812,7 +860,7 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cult'}-${++s.next}`;
     const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
     const code = Array.from({ length: 6 }, (_, i) => letters[(hash(id) >> (i * 4)) % letters.length]).join('');
-    const clan: Clan = { id, name, inviteCode: `${code.slice(0, 3)}-${code.slice(3)}`, visibility: body.visibility === 'public' ? 'public' : 'private', isOwner: true, memberCount: 1, myPolicy: policy(false), autoFollow: false };
+    const clan: Clan = { id, name, inviteCode: `${code.slice(0, 3)}-${code.slice(3)}`, visibility: body.visibility === 'public' ? 'public' : 'private', isOwner: true, isAdmin: true, memberCount: 1, myPolicy: policy(false), autoFollow: false };
     s.me.clans.push(clan);
     s.members[id] = [ME_ID];
     s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: name.trim()[0]?.toUpperCase() ?? 'C', memberCount: 1, lastMessage: null });
@@ -828,7 +876,7 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     if (existing) return done(existing);
     const id = target?.id ?? `invited-${code.toLowerCase()}`;
     const name = target?.name ?? `Cult ${code}`;
-    const clan: Clan = { id, name, inviteCode: code || 'INV-ITE', visibility: target ? 'public' : 'private', isOwner: false, memberCount: (target?.memberCount ?? 5) + 1, myPolicy: policy(false), autoFollow: false };
+    const clan: Clan = { id, name, inviteCode: code || 'INV-ITE', visibility: target ? 'public' : 'private', isOwner: false, isAdmin: false, memberCount: (target?.memberCount ?? 5) + 1, myPolicy: policy(false), autoFollow: false };
     s.me.clans.push(clan);
     s.members[id] = [ME_ID, ...previewMembers(id)];
     s.me.rooms.push({ id: `cult:${id}`, kind: 'cult', name, icon: name[0]!.toUpperCase(), memberCount: clan.memberCount, lastMessage: null });
@@ -904,3 +952,15 @@ async function realCandles(marketId: string, resolution: number): Promise<Candle
 }
 
 export const demoListings = allListings;
+
+// Sample networks for the demo's cross-chain deposit/withdraw.
+const DEMO_CHAINS = [
+  { chain: 'btc', name: 'Bitcoin', evm: false, tokens: [{ assetId: 'nep141:btc.omft.near', symbol: 'BTC', decimals: 8, priceUsd: 62000 }] },
+  { chain: 'eth', name: 'Ethereum', evm: true, tokens: [{ assetId: 'nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near', symbol: 'USDC', decimals: 6, priceUsd: 1 }, { assetId: 'nep141:eth.omft.near', symbol: 'ETH', decimals: 18, priceUsd: 2700 }] },
+  { chain: 'sol', name: 'Solana', evm: false, tokens: [{ assetId: 'nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near', symbol: 'USDC', decimals: 6, priceUsd: 1 }, { assetId: 'nep141:sol.omft.near', symbol: 'SOL', decimals: 9, priceUsd: 150 }] },
+  { chain: 'base', name: 'Base', evm: true, tokens: [{ assetId: 'nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near', symbol: 'USDC', decimals: 6, priceUsd: 1 }, { assetId: 'nep141:base.omft.near', symbol: 'ETH', decimals: 18, priceUsd: 2700 }] },
+  { chain: 'tron', name: 'Tron', evm: false, tokens: [{ assetId: 'nep141:tron-d28a265909efecdcee7c5028585214ea0b96f015.omft.near', symbol: 'USDT', decimals: 6, priceUsd: 1 }] },
+  { chain: 'ton', name: 'TON', evm: false, tokens: [{ assetId: 'nep245:v2_1.omni.hot.tg:1117_3tsdfyziyc7EJbP2aULWSKU4toBaAcN4FdTgfm5W1mC4ouR', symbol: 'USDT', decimals: 6, priceUsd: 1 }] },
+  { chain: 'sui', name: 'Sui', evm: false, tokens: [{ assetId: 'nep141:sui.omft.near', symbol: 'SUI', decimals: 9, priceUsd: 2.4 }] },
+  { chain: 'near', name: 'NEAR', evm: false, tokens: [{ assetId: 'nep141:wrap.near', symbol: 'wNEAR', decimals: 24, priceUsd: 2.6 }] },
+];

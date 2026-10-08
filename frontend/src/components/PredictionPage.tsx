@@ -20,13 +20,16 @@ type Props = {
   onBack: () => void; onBuy: (order: PredictionOrder) => void; onSell: (position: PredictionPosition, price: number) => void;
   onShare: (position: PredictionPosition, price: number) => void;
   onDeposit: () => void; onProfile: (memberId: string) => void;
+  // Live accounts bet from their Polymarket balance (null = not set up yet);
+  // the demo leaves it undefined and bets from wallet dollars.
+  availableUsd?: number | null; onFund?: () => void; onAccountNeeded?: () => void;
 };
 
 const RANGES: { id: HistoryRange; label: string }[] = [{ id: '1d', label: '1D' }, { id: '1w', label: '1W' }, { id: '1m', label: '1M' }, { id: 'max', label: 'All' }];
 const priceOf = (o: PredictionOutcome, side: PredictionSide) => side === 'yes' ? o.yesPrice : o.noPrice;
 const nameOf = (event: PredictionEvent, o: PredictionOutcome) => event.multi ? o.label : event.title;
 
-export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults, onBack, onBuy, onSell, onShare, onDeposit, onProfile }: Props) {
+export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults, onBack, onBuy, onSell, onShare, onDeposit, onProfile, availableUsd, onFund, onAccountNeeded }: Props) {
   const [event, setEvent] = useState<PredictionEvent | null>(() => cachedEvent(slug));
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(pick?.outcomeId ?? null);
@@ -37,6 +40,8 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
   const [bets, setBets] = useState<PredictionBet[]>([]);
   const [positions, setPositions] = useState<PredictionPosition[]>([]);
   const ticketRef = useRef<HTMLElement>(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- once per market, and after each trade
+  useEffect(() => { onAccountNeeded?.(); }, [slug, revision]);
 
   // The event, refreshed for live odds.
   useEffect(() => {
@@ -174,15 +179,15 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
     <aside className="view-side">
       <section className="card ticket-card" ref={ticketRef}>
         <div className="card-head"><h2>Predict</h2><span className="count num">{chance(outcome.yesPrice)}</span></div>
-        <PredictionTicket key={`${outcome.id}`} event={event} outcome={outcome} side={side} onSide={setSide} me={me} canTrade={canTrade} busy={busy === 'predict'} cults={cults} onBuy={onBuy} onDeposit={onDeposit} />
+        <PredictionTicket key={`${outcome.id}`} event={event} outcome={outcome} side={side} onSide={setSide} me={me} canTrade={canTrade} busy={busy === 'predict'} cults={cults} onBuy={onBuy} onDeposit={onFund ?? onDeposit} availableUsd={availableUsd} />
       </section>
     </aside>
   </div>;
 }
 
-function PredictionTicket({ event, outcome, side, onSide, me, canTrade, busy, cults, onBuy, onDeposit }: {
+function PredictionTicket({ event, outcome, side, onSide, me, canTrade, busy, cults, onBuy, onDeposit, availableUsd }: {
   event: PredictionEvent; outcome: PredictionOutcome; side: PredictionSide; onSide: (side: PredictionSide) => void; me: Me; canTrade: boolean; busy: boolean;
-  cults: { id: string; name: string }[]; onBuy: (order: PredictionOrder) => void; onDeposit: () => void;
+  cults: { id: string; name: string }[]; onBuy: (order: PredictionOrder) => void; onDeposit: () => void; availableUsd?: number | null;
 }) {
   const [amountText, setAmountText] = useState('');
   const [postTo, setPostTo] = useState('all');
@@ -190,7 +195,10 @@ function PredictionTicket({ event, outcome, side, onSide, me, canTrade, busy, cu
   const sideLabel = side === 'yes' ? outcome.yesLabel : outcome.noLabel;
   const amount = Number(amountText) || 0;
   const shares = price > 0 ? amount / price : 0;
-  const available = me.balances?.walletUsd ?? null;
+  const live = availableUsd !== undefined;
+  // One balance: wallet dollars plus what's already in predictions (a bet
+  // moves the difference over by itself).
+  const available = live ? availableUsd : me.balances ? me.balances.walletUsd + (me.balances.predictionsUsd ?? 0) : null;
   const tooBig = available != null && amount > available + 1e-9;
   const tradable = price > 0.001 && price < 0.999;
   const valid = canTrade && tradable && amount >= 1 && !tooBig;
@@ -212,7 +220,7 @@ function PredictionTicket({ event, outcome, side, onSide, me, canTrade, busy, cu
     </div>
 
     <div className="ticket-amount">
-      <div className="ticket-row"><label className="ticket-label" htmlFor="pm-amount">Amount</label><span className="ticket-avail">Available <b className="num">{available == null ? '—' : dollars(available)}</b></span></div>
+      <div className="ticket-row"><label className="ticket-label" htmlFor="pm-amount">Amount</label><span className="ticket-avail">{live ? 'In predictions' : 'Available'} <b className="num">{available == null ? '—' : dollars(available)}</b>{live && <button type="button" className="link" onClick={onDeposit}>Add</button>}</span></div>
       <div className="ticket-input"><span className="ticket-prefix">$</span><input id="pm-amount" className="num" inputMode="decimal" placeholder="0" value={amountText} onChange={e => setAmountText(e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))} /></div>
       <div className="ticket-quick">{[5, 25, 100, 500].map(q => <button type="button" key={q} onClick={() => setAmountText(String(q))}>${q}</button>)}</div>
     </div>
@@ -222,7 +230,7 @@ function PredictionTicket({ event, outcome, side, onSide, me, canTrade, busy, cu
       <div><dt>Shares</dt><dd className="num">{shares > 0 ? shares.toFixed(1) : '—'}</dd></div>
       <div className="pm-win"><dt>To win</dt><dd className="num">{shares > 0 ? <>{dollars(shares)} <small className="up">({signedDollars(shares - amount)})</small></> : '—'}</dd></div>
     </dl>
-    {tooBig && <p className="ticket-warn">More than you have available.<button type="button" className="link" onClick={onDeposit}>Deposit</button></p>}
+    {tooBig && <p className="ticket-warn">More than you have {live ? 'in predictions' : 'available'}.<button type="button" className="link" onClick={onDeposit}>{live ? 'Add funds' : 'Deposit'}</button></p>}
     {!tradable && <p className="ticket-note">This outcome is all but decided, so it can&rsquo;t be bought.</p>}
 
     {cults.length > 0 && <label className="ticket-post">

@@ -68,13 +68,15 @@ function RealizedLine({ closed }: { closed: ClosedTrade[] }) {
 // The money side: one total, what it's made of, how closed trades have gone,
 // and a way to add more.
 export function PortfolioCard({ me, holdings, closed, onDeposit }: { me: Me; holdings: Holding[]; closed: ClosedTrade[] | null; onDeposit: () => void }) {
-  const cash = me.balances?.walletUsd ?? null;
+  // Dollars: AUSD plus deposited USDC (turned into AUSD by itself).
+  const cash = me.balances ? me.balances.walletUsd + (me.balances.usdcUsd ?? 0) : null;
   const margin = me.balances?.perplMarginUsd ?? 0;
+  const predictions = me.balances?.predictionsUsd ?? 0;
   const mon = me.balances?.monUsd ?? 0;
   const memes = holdings.filter(item => item.venue === 'nadfun').reduce((sum, item) => sum + item.valueAusd, 0);
   const openPnl = holdings.filter(item => item.venue === 'perpl').reduce((sum, item) => sum + (item.pnlAusd ?? 0), 0);
-  const total = cash == null ? null : cash + margin + mon + memes;
-  const parts = [{ label: 'Dollars', value: cash ?? 0, tone: 'a' }, { label: 'MON', value: mon, tone: 'b' }, { label: 'Perps margin', value: margin, tone: 'c' }, { label: 'Memes', value: memes, tone: 'd' }];
+  const total = cash == null ? null : cash + margin + predictions + mon + memes;
+  const parts = [{ label: 'Dollars', value: cash ?? 0, tone: 'a' }, { label: 'MON', value: mon, tone: 'b' }, { label: 'Perps margin', value: margin, tone: 'c' }, { label: 'Memes', value: memes, tone: 'd' }, ...(predictions > 0 ? [{ label: 'Predictions', value: predictions, tone: 'e' }] : [])];
   const sum = parts.reduce((s, p) => s + p.value, 0) || 1;
   return <section className="card portfolio">
     <div className="card-head"><h2>Portfolio</h2>{holdings.length > 0 && <span className={`portfolio-pnl num ${openPnl >= 0 ? 'up' : 'down'}`}>{signedDollars(openPnl)} open</span>}</div>
@@ -158,7 +160,7 @@ export function HomeView({ me, holdings, unread, mentioned, search, onMarket, on
   const cults = latestFirst(me.rooms.filter(room => room.kind === 'cult' && room.name.toLowerCase().includes(query)));
   const trending = useMemo(() => pickTrending(markets), [markets]);
 
-  const wallet = me.balances ? me.balances.walletUsd + (me.balances.perplMarginUsd ?? 0) : null;
+  const wallet = me.balances ? me.balances.walletUsd + (me.balances.usdcUsd ?? 0) + (me.balances.perplMarginUsd ?? 0) : null;
   const funded = (wallet ?? 0) + (me.balances?.monUsd ?? 0) > 0 || holdings.length > 0;
   const inCult = me.clans.length > 0;
   const traded = holdings.length > 0 || (closed?.length ?? 0) > 0;

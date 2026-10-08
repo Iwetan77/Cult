@@ -52,6 +52,7 @@ before(async () => {
   for (const u of ['A', 'B', 'C', 'D']) members.upsert(u, `0x${u.repeat(40).toLowerCase().slice(0, 40)}`);
   const clan = clans.create('t', 'A', { enabled: true, balancePercentCap: 50, maxUsdPerTrade: 1000 });
   clans.join(clan.id, 'B', { enabled: true, balancePercentCap: 50, maxUsdPerTrade: 1000 });
+  clans.setRole(clan.id, 'B', 'admin'); // B leads trades below: only admins share them
   clans.join(clan.id, 'C', { enabled: true, balancePercentCap: 5, maxUsdPerTrade: 15 });
   clans.join(clan.id, 'D', { enabled: false, balancePercentCap: 50, maxUsdPerTrade: 1000 });
   const venues = { perpl: fake('perpl', bal), nadfun: fake('nadfun', bal) } as any;

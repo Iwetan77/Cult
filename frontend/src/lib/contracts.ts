@@ -1,7 +1,11 @@
 export type Venue = 'perpl' | 'nadfun';
 export type MarkerOrigin = 'leader' | 'auto_mirror' | 'manual_stack';
 export type TradeSide = 'long' | 'short' | 'buy';
-export type MirrorPolicy = { enabled: boolean; balancePercentCap: number; maxUsdPerTrade: number };
+export type MirrorPolicy = {
+  enabled: boolean;
+  balancePercentCap: number; // (0, 100] of free venue balance: perp margin or meme spend.
+  maxUsdPerTrade: number; // [1, 1e6] dollar notional per copy/add, including perp leverage; not fixed spend.
+};
 export type Market = {
   venue: Venue; id: string; symbol: string; baseSymbol: string; quoteSymbol: 'USD';
   maxLeverage: number; makerFeeBps: number | null; takerFeeBps: number | null;
@@ -9,9 +13,10 @@ export type Market = {
 };
 export type NadMarket = Market & { name: string; graduated: boolean; priceAusd: number };
 export type Candle = { time: number; open: number; high: number; low: number; close: number };
-export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; memberCount: number; myPolicy: MirrorPolicy | null; autoFollow: boolean };
+// isAdmin: admins share their trades with the cult (the creator always is one).
+export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; isAdmin?: boolean; memberCount: number; myPolicy: MirrorPolicy | null; autoFollow: boolean };
 export type Member = {
-  id: string; name: string; avatarUrl: string | null; address: string; winRate: number | null;
+  id: string; name: string; avatarUrl: string | null; address: string; admin?: boolean; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
   stats: {
     verified: boolean; tradeCount: number; winRate: number | null;
@@ -58,12 +63,16 @@ export type ChartSnapshot = {
 export type BackendConfig = {
   chainId: number; venues: Venue[]; displayUnit: 'USD'; monPriceAusd: number | null;
   autoMirrorOptOutWindowSeconds: number; autoFollowDefaults: { balancePercentCap: number; maxUsdPerTrade: number }; mirrorPolicyBounds: unknown; markets: Market[];
+  // What the backend has switched on (older backends omit it: treat as off).
+  features?: { predictions: boolean; crossChain: boolean; gasTopUp?: boolean };
 };
 export type Me = {
-  id: string; address: `0x${string}`; name: string; username: string | null; needsUsername: boolean; avatarUrl: string | null; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
+  id: string; address: `0x${string}`; name: string; username: string | null; needsUsername: boolean; pinSet?: boolean; avatarUrl: string | null; country: { code: string; name: string } | null; rooms: ChatRoom[]; clans: Clan[];
   perpl: { accountId: string | null; keyEnrolled: boolean; forwarding: boolean };
   balances: {
     perplMarginUsd: number | null; walletUsd: number; mon: number; monUsd: number | null;
+    predictionsUsd?: number | null; // in the member's Polymarket account (counted in the one balance)
+    usdcUsd?: number | null; // USDC in the wallet (mainnet): dollars too, turned into AUSD by itself
     gasReserveMon: number; lowGas: boolean; memesPayWith: 'ausd' | 'mon';
   } | null;
   signer: { prepared: boolean; attached: boolean | null; policyCurrent: boolean | null };
@@ -151,5 +160,40 @@ export type PredictionBet = {
   memberId: string; memberName: string; avatarUrl: string | null; cultName: string;
   marketId: string; outcomeLabel: string; side: PredictionSide; sideLabel: string; shares: number; avgPrice: number;
 };
-export type WithdrawRequest = { symbol: DepositInfo['tokens'][number]['symbol']; amount: number; to: string };
+export type WithdrawRequest = { symbol: DepositInfo['tokens'][number]['symbol']; amount: number; to: string; pin?: string };
 export type WithdrawResult = WithdrawRequest & { tx: string };
+
+// Steps only the member's own wallet may sign (opening the Polymarket account,
+// a bet without a session key, moving money out) come back as a FlowStep:
+// sign `signature`, POST it, repeat until `done`. See CONTRACTS.md.
+export type SignatureRequest = {
+  challengeId: string; label: string; kind: 'typedData' | 'message';
+  typedData: { domain: Record<string, unknown>; types: Record<string, { name: string; type: string }[]>; primaryType: string; message: Record<string, unknown> } | null;
+  message: `0x${string}` | null; expiresAt: string;
+};
+export type FlowStep<T> =
+  | { status: 'needs_signature'; flowId: string; signature: SignatureRequest }
+  | { status: 'working'; flowId: string; label: string }
+  | { status: 'done'; flowId: string; result: T };
+export type GeoAccess = 'open' | 'close_only' | 'blocked';
+export type PredictionAccount = {
+  enabled: boolean; step: 'unavailable' | 'needs_setup' | 'needs_funds' | 'ready'; reason: string | null;
+  wallet: string | null; balanceUsd: number | null; signsEachBet: boolean;
+  funding: { from: 'AUSD'; minUsd: number; network: string } | null;
+  access?: { country: string | null; predictions: GeoAccess; perps: GeoAccess };
+};
+// amountUsd lands; sendUsd leaves the wallet (amountUsd plus the bridge's fee, feeUsd).
+export type PredictionFundPlan = { actions: WalletAction[]; depositAddress: string; amountUsd: number; sendUsd: number; feeUsd: number | null; receiveUsd: number | null; seconds: number | null };
+export type PredictionRedeem = { positionId: string; payoutUsd: number; tx: string | null };
+// A Monad send the member's wallet signs (the backend can't move funds).
+export type WithdrawPrepared = WithdrawRequest & { actions: WalletAction[] };
+// Cross-chain (Aurora Intents).
+export type IntentChain = { chain: string; name: string; evm: boolean; tokens: { assetId: string; symbol: string; decimals: number; priceUsd: number | null }[] };
+export type IntentSwapStatus = 'PENDING_DEPOSIT' | 'KNOWN_DEPOSIT_TX' | 'INCOMPLETE_DEPOSIT' | 'PROCESSING' | 'SUCCESS' | 'REFUNDED' | 'FAILED';
+export type IntentSwap = {
+  depositAddress: string; depositMemo: string | null; kind: 'deposit' | 'withdraw'; chain: string; chainName: string; symbol: string;
+  amountIn: string; amountInUsd: number | null; receive: string; receiveSymbol: string; receiveUsd: number | null; minReceive: string;
+  seconds: number; deadline: string; status: IntentSwapStatus;
+};
+export type IntentWithdraw = IntentSwap & { actions: WalletAction[] };
+export type IntentStatus = { status: IntentSwapStatus; done: boolean; received: string | null; receivedUsd: number | null; refunded: string | null; refundReason: string | null; txs: { hash: string; url: string | null }[] };

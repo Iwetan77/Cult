@@ -249,9 +249,11 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   // ---- shared pipeline ---------------------------------------------------------
 
   async leaderOpened(e: LeaderOpen): Promise<LeaderTrade | null> {
-    // Every cult the trader is in, or only the ones they posted this trade to.
+    // Every cult the trader is an admin of, or only the ones they posted this
+    // trade to. Only admins share trades with a cult; anyone else's trade is
+    // theirs alone (no chart, no notice, no copies).
     const picked = takeAudience(e.userId, e.venue, e.market);
-    const clanIds = tradeCults({ cultIds: picked ?? null }, clans.forUser(e.userId).map((c) => c.id));
+    const clanIds = tradeCults({ cultIds: picked ?? null }, clans.adminCultIds(e.userId));
     if (clanIds.length === 0) return null;
     const trade = trades.insert({
       id: randomUUID(),
@@ -267,7 +269,9 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       marginFraction: e.marginFraction,
       openTx: e.openTx ?? null,
       openedAt: Date.now(),
-      cultIds: picked ?? null,
+      // Stored explicitly: the cults it went to when it opened (a later
+      // admin change doesn't move it).
+      cultIds: clanIds,
     });
     this.emit('trade', trade);
 

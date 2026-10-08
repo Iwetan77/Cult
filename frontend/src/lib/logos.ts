@@ -8,6 +8,7 @@ const logoPaths: Record<string, string> = {
   PUMP: '/logos/pump.jpg',
   HYPE: '/logos/hype.jpg',
   VVV: '/logos/vvv.png',
+  NEAR: '/logos/near.jpg',
   AUSD: '/logos/ausd.png',
   USDC: '/logos/usdc.svg',
 };

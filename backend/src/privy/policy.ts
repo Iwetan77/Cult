@@ -334,6 +334,9 @@ export class PrivyPolicySigner implements WalletSigner {
   // One transaction at a time per wallet: the nonce comes from the pending
   // count, so a copy, a top-up and a USDC conversion sent at once would collide.
   async sendTransaction(t: TxRequest, opts: SendOptions = {}): Promise<string> {
+    // MON for the fee first, if the member has none (funding/gas.ts).
+    const { ensureGas } = await import('../funding/gas.js');
+    await ensureGas(this.address).catch((e) => console.warn(`[gas] top-up failed for ${this.address.slice(0, 8)}…: ${(e as Error).message}`));
     return inWalletLane(this.address, async () => broadcastSigned(await this.signTransactionOnly(t), opts));
   }
 

@@ -2,7 +2,7 @@ import { restFor, sessionFor } from '../accounts/lifecycle.js';
 import { getExchangeInfo, getMarket, getTicker, maxLeverageHundredths, scale } from '../perpl/context.js';
 import { members } from '../store/members.js';
 import { ensurePerplMargin, perplFreeAusd, walletSpendableAusd } from '../funding/margin.js';
-import { closePosition, openPosition, viewPositions } from '../trading/positions.js';
+import { checkLeverage, closePosition, openPosition, viewPositions } from '../trading/positions.js';
 import { readTpSl, type TpSl } from '../trading/tpsl.js';
 import type { CloseInput, Fill, Holding, OpenInput, VenueAdapter } from './types.js';
 
@@ -49,19 +49,20 @@ export const perpl: VenueAdapter = {
     if (i.side === 'buy') throw new Error('perpl sides are long/short');
     const accountId = accountOf(i.userId);
     const { m, px } = await mark(Number(i.market));
+    const leverage = checkLeverage(m, i.leverage ?? 1) / 100;
     const step = 10 ** m.config.size_decimals;
     const size = Math.floor((i.notionalAusd / px) * step) / step;
     if (size <= 0) throw new Error(`$${i.notionalAusd} rounds to 0 ${m.symbol}`);
     // Margin for this order plus a little for fees and price moves, moved in
     // from the wallet (AUSD, then MON via Kuru) if the Perpl account is short.
     const notional = size * px;
-    await ensurePerplMargin(i.userId, (notional / (i.leverage ?? 1)) * 1.02 + notional * 0.001);
+    await ensurePerplMargin(i.userId, (notional / leverage) * 1.02 + notional * 0.001);
     const order = await openPosition(await sessionFor(i.userId), {
       accountId,
       marketId: m.id,
       side: i.side,
       size,
-      leverage: i.leverage ?? 1,
+      leverage,
       onRq: (rq) => i.onRef?.({ rq, accountId }),
     });
     invalidatePerplReads(i.userId);
