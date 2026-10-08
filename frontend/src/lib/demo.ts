@@ -489,7 +489,7 @@ async function snapshot(s: State, cultId: string, marketId: string | null, resol
   return {
     clan, markets, selectedMarket: selected, candles, markers: seeds.map(seed => materialize(s, seed)),
     // Demo cult-mates post trades, so they're admins; you are where you own the cult.
-    members: (s.members[clan.id] ?? [ME_ID]).map(id => ({ ...memberOf(id), admin: id === ME_ID ? !!clan.isAdmin : true })), asOf: new Date().toISOString(), autoMirrorOptOutWindowSeconds: 30,
+    members: (s.members[clan.id] ?? [ME_ID]).map(id => ({ ...memberOf(id), admin: id === ME_ID ? !!clan.isAdmin : true, owner: id === (clan.isOwner ? ME_ID : s.members[clan.id]?.find(memberId => memberId !== ME_ID)) })), asOf: new Date().toISOString(), autoMirrorOptOutWindowSeconds: 30,
   };
 }
 

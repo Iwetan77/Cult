@@ -16,7 +16,7 @@ export type Candle = { time: number; open: number; high: number; low: number; cl
 // isAdmin: admins share their trades with the cult (the creator always is one).
 export type Clan = { id: string; name: string; inviteCode: string; visibility: 'private' | 'public'; isOwner: boolean; isAdmin?: boolean; memberCount: number; myPolicy: MirrorPolicy | null; autoFollow: boolean; imageUrl?: string | null };
 export type Member = {
-  id: string; name: string; avatarUrl: string | null; address: string; admin?: boolean; winRate: number | null;
+  id: string; name: string; avatarUrl: string | null; address: string; admin?: boolean; owner?: boolean; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
   stats: {
     verified: boolean; tradeCount: number; winRate: number | null;

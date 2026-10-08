@@ -610,20 +610,20 @@ export function createApp(engine: MirrorEngine) {
       const mine = new Set(clans.forUser(userId).map((cl) => cl.id));
       const notMine = body.cultIds.find((id) => !mine.has(id));
       if (notMine) throw bad(400, `you're not in cult ${notMine}`);
-      setAudience(userId, v, body.marketId, body.cultIds);
     }
     if (v === 'perpl') {
       if (!m.perplAccountId || !m.forwarding) throw bad(409, 'finish Perpl setup first');
       if (body.side === 'buy') throw bad(400, 'perpl side must be long or short');
       await getMarket(Number(body.marketId));
     } else if (body.side !== 'buy') throw bad(400, 'nad.fun side must be buy');
-    const fill = await venue(v)
-      .open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage })
-      .catch((e) => {
-        clearAudience(userId, v, body.marketId); // nothing opened: the pick mustn't apply to a later trade
-        throw e;
-      });
-    return c.json(fill);
+    if (body.cultIds) setAudience(userId, v, body.marketId, body.cultIds);
+    try {
+      const fill = await venue(v).open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage });
+      return c.json(fill);
+    } catch (error) {
+      clearAudience(userId, v, body.marketId);
+      throw error;
+    }
   });
 
   // TP/SL on your own Perpl position, as real Perpl trigger orders. A number
@@ -805,13 +805,13 @@ export function createApp(engine: MirrorEngine) {
     const { memberId, admin } = z.object({ memberId: z.string().min(1).max(200), admin: z.boolean() }).parse(await c.req.json());
     if (!clans.isAdmin(clan.id, c.get('userId'))) throw bad(403, 'only admins can change admins');
     if (!clans.membership(clan.id, memberId)) throw bad(404, 'not a member of this cult');
-    if (memberId === clan.createdBy && !admin) throw bad(400, 'the creator is always an admin');
+    if (memberId === clan.createdBy && !admin) throw bad(400, 'The cult owner cannot be demoted.');
     if (clans.isAdmin(clan.id, memberId) !== admin) {
       clans.setRole(clan.id, memberId, admin ? 'admin' : 'member');
       const who = members.get(memberId);
       postSystem(cultRoom(clan.id), c.get('userId'), `${admin ? 'made' : 'removed'} ${who ? displayName(who) : 'a member'} ${admin ? 'an admin' : 'as admin'}`);
     }
-    return c.json({ memberId, admin });
+    return c.json({ memberId, admin: clans.isAdmin(clan.id, memberId), owner: memberId === clan.createdBy });
   });
 
   // Admins set the cult's picture ({ image: data URL }) or take it off ({ image: null }).

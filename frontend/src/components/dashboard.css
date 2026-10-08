@@ -495,7 +495,8 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .my-pos-grid b, .about dd { margin: 0; font-size: 14px; font-weight: 500; }
 .ticket-card .card-head { margin-bottom: 19px; }
 .mini-members { display: flex; flex-direction: column; gap: 2px; margin: 0 -10px; }
-.mini-member { display: flex; align-items: center; gap: 8px; padding-right: 10px; border-radius: var(--r-ctl); }
+.mini-member { display: flex; flex-direction: column; align-items: stretch; gap: 0; border-radius: var(--r-ctl); }
+.mini-member > .btn { align-self: flex-end; min-height: 44px; margin: 0 10px 8px; }
 .mini-member:hover { background: var(--hover); }
 .mini-members .mini-member-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 11px 10px; border: 0; border-radius: var(--r-ctl); background: none; text-align: left; }
 .admin-tag { margin-left: 8px; padding: 2px 7px; border-radius: 99px; background: var(--accent-soft); color: var(--accent-text); font-size: 10.5px; font-style: normal; font-weight: 500; letter-spacing: 0.02em; vertical-align: 1px; }
@@ -503,7 +504,7 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .mini-members span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .mini-members strong { font-size: 14px; font-weight: 500; }
 .mini-members small { font-size: 13px; color: var(--dim); }
-.mini-members b { font-size: 14px; font-weight: 500; }
+.mini-members b { flex-shrink: 0; font-size: 14px; font-weight: 500; }
 
 /* chart internals */
 .chart-stage { position: absolute; inset: 0; }
