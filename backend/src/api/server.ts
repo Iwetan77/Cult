@@ -50,6 +50,7 @@ import { predictionRoutes } from './predictions.js';
 import { intentRoutes, withdrawActions, WithdrawError } from './intents.js';
 import { predictionsEnabled } from '../polymarket/client.js';
 import { intentsEnabled } from '../intents/aurora.js';
+import { PushError, enqueuePush, pushPublicKey, subscribePush, unsubscribePush } from '../notifications/push.js';
 
 type Vars = { Variables: { userId: string; wallet: string } };
 
@@ -113,6 +114,7 @@ export function createApp(engine: MirrorEngine) {
     if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
     if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
     if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
+    if (err instanceof PushError) return c.json({ message: err.message }, err.status);
     if (err instanceof LeaderboardError) return c.json({ message: err.message }, err.status);
     if (err instanceof ProfileError) return c.json({ message: err.message }, err.status);
     if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
@@ -331,6 +333,25 @@ export function createApp(engine: MirrorEngine) {
     if (!clan || !clans.membership(clan.id, c.get('userId'))) throw bad(404, 'cult not found');
     return clan;
   };
+  authed.get('/notifications/push', (c) => c.json({ publicKey: pushPublicKey() }));
+  authed.post('/notifications/push', async (c) => {
+    const subscription = z.object({ endpoint: z.string().max(4096), keys: z.object({ p256dh: z.string().max(128), auth: z.string().max(64) }) }).parse(await c.req.json());
+    subscribePush(c.get('userId'), subscription);
+    return c.body(null, 204);
+  });
+  authed.delete('/notifications/push', async (c) => {
+    const { endpoint } = z.object({ endpoint: z.string().max(4096) }).parse(await c.req.json());
+    unsubscribePush(c.get('userId'), endpoint);
+    return c.body(null, 204);
+  });
+  authed.post('/notifications/push/test', (c) => {
+    limited(c, `push-test:${c.get('userId')}`, { max: 1, windowMs: 60_000 });
+    const subscribed = getDb().prepare('SELECT id FROM push_subscriptions WHERE user_id = ? LIMIT 1').get(c.get('userId'));
+    if (!subscribed) throw bad(409, 'enable phone alerts on this device first');
+    const id = `test:${randomUUID()}`;
+    enqueuePush(id, [{ userId: c.get('userId') }], { title: 'Cult phone alerts are on', body: 'You can receive liquidation and new cult trade alerts.', url: '/settings', tag: id });
+    return c.body(null, 204);
+  });
   const clanView = (clanId: string, userId: string) => {
     const clan = clans.get(clanId)!;
     return {
