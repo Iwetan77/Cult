@@ -285,8 +285,8 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     for (const clanId of clanIds) {
       for (const m of clans.members(clanId)) {
         if (seen.has(m.userId)) continue; // one mirror per follower even across shared clans
-        seen.add(m.userId);
         if (!m.policy.enabled) continue;
+        seen.add(m.userId);
         const why = await this.cannotTrade(m.userId, e.venue);
         if (why) {
           // Tell the member why they weren't mirrored instead of silently skipping them.
@@ -307,7 +307,8 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   }
 
   // Why this member can't be mirrored on this venue right now (null = they can).
-  // Perpl: an enrolled key and account. Nad.fun: a signer the backend may use,
+  // Perpl: an enrolled key, account and order forwarding.
+  // Nad.fun: a signer the backend may use,
   // i.e. the backend's Privy signer attached to their wallet under their
   // current policy (or a registered test key). An injected venue (tests)
   // decides for itself.
@@ -315,7 +316,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     const m = members.get(userId);
     if (!m) return 'unknown member';
     if (this.deps.venue) return null;
-    if (v === 'perpl') return members.credentials(userId) && m.perplAccountId ? null : 'Perpl setup not finished';
+    if (v === 'perpl') {
+      if (!m.perplAccountId) return 'Perpl setup not finished: create your Perpl account';
+      if (!members.credentials(userId)) return 'Perpl setup not finished: enroll your trading key';
+      if (!m.forwarding) return 'Perpl setup not finished: enable order forwarding';
+      return null;
+    }
     if (hasSignerOverride(userId)) return null;
     if (!m.privyWalletId) return 'no Privy wallet on file';
     const st = await backendSignerStatus(userId).catch(() => null);
@@ -425,6 +431,13 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     };
     try {
       const adapter = this.venue(trade.venue);
+      if (a.kind === 'add') {
+        const why = await this.cannotTrade(m.userId, trade.venue);
+        if (why) {
+          this.attempts.delete(id);
+          return done('cancelled', { error: why });
+        }
+      }
       const held = (await adapter.holdings(m.userId, [trade.market]))[0];
       if (!held) {
         this.emit('mirror', mirrors.transition(m.id, 'open', 'closed', { error: 'member had already exited this position' })!);
@@ -710,6 +723,13 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       const adapter = this.venue(trade.venue);
       const membership = clans.membership(m.clanId, m.userId);
       if (!membership) throw new NotSized('member is no longer in the clan');
+      if (!membership.policy.enabled) throw new NotSized('mirroring is disabled by the member');
+      const why = await this.cannotTrade(m.userId, trade.venue);
+      if (why) {
+        this.attempts.delete(m.id);
+        this.emit('mirror', mirrors.transition(m.id, 'submitting', 'cancelled', { error: why })!);
+        return;
+      }
       const sizing = mirrorNotional(
         {
           // If the leader added or partly exited during the skip window, size to where they are now.

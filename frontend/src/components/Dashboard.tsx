@@ -18,6 +18,8 @@ import { cachedList } from '@/lib/marketCache';
 import { dollars, messageLine, price, shortAddress } from '@/lib/format';
 import { validateMirrorPolicy } from '@/lib/mirrorPolicy';
 import { tradeAudienceNotice } from '@/lib/tradeAudience';
+import { copyFailureFromEvent, perpsCopyReady, type CopyFailure } from '@/lib/copyStatus';
+import { availableTradeFunds } from '@/lib/tradeFunds';
 import { disablePhonePush } from '@/lib/phonePush';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
@@ -58,11 +60,14 @@ import './dashboard.css';
 
 const errorText = (error: unknown) => {
   const text = error instanceof Error ? error.message : 'Something went wrong.';
+  if (error instanceof ApiError) return text;
   // A wallet that can't pay a network fee: one plain line, not the raw wallet error.
   return /insufficient (balance|funds)/i.test(text) ? 'Top up MON for gas.' : text;
 };
 const PREDICTIONS_UNAVAILABLE = 'Predictions are being switched on. Check back soon.';
-const collateralMessage = (minimumRaw: string) => `Add MON, USDC or AUSD to your wallet to open your perps account (about ${dollars(Number(minimumRaw) / 1e6)}).`;
+const collateralMessage = (minimumRaw: string, chainId?: number) => chainId === 143
+  ? `Add MON, USDC or AUSD to your wallet to open your perps account (about ${dollars(Number(minimumRaw) / 1e6)}).`
+  : `Your perps account needs about ${dollars(Number(minimumRaw) / 1e6)} in testnet dollars. MON and testnet USDC cannot be converted to perps margin on testnet.`;
 const inviteFromInput = (input: string) => {
   try { return new URL(input).searchParams.get('invite') ?? input.trim(); }
   catch { return input.trim(); }
@@ -251,6 +256,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   const [name, setName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [liveMessage, setLiveMessage] = useState<ChatMessage | null>(null);
+  const [copyFailure, setCopyFailure] = useState<CopyFailure | null>(null);
   const [stackUsd, setStackUsd] = useState('50');
   const [busy, setBusy] = useState<string | null>(null);
   const [progressText, setProgressText] = useState<string | null>(null);
@@ -534,6 +540,10 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         setLiveConnected(true);
       },
       onmessage: message => {
+        if (message.event === 'mirror' || message.event === 'adjustment') {
+          const failure = copyFailureFromEvent(message.data, me?.id, clanId);
+          if (failure) { setCopyFailure(failure); setError(`Your copy did not run: ${failure.reason}`); }
+        }
         if (message.event === 'message') {
           try {
             const incoming = JSON.parse(message.data) as ChatMessage;
@@ -550,7 +560,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       },
     }).catch(error => { if (!controller.signal.aborted) { setLiveConnected(false); if (error instanceof RateLimitError) setError(error.message); } });
     return () => { controller.abort(); window.clearTimeout(refreshTimer); setLiveConnected(false); };
-  }, [demo, authenticated, clanId, marketId, loadChart, loadMe]);
+  }, [demo, authenticated, clanId, marketId, loadChart, loadMe, me?.id]);
   useEffect(() => {
     if (demo || !wallet || config?.chainId !== monadTestnet.id) return;
     let active = true;
@@ -768,8 +778,8 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     for (let attempt = 0; attempt < 8; attempt++) {
       const current = await getPerplSetup(auth);
       setSetup(current);
-      if (current.step === 'ready') { ready = true; setPerpsPrompt(false); setNotice(afterPerps.current ? 'Perps are enabled. Placing your trade…' : 'Perps are enabled.'); return; }
-      if (current.step === 'needs_collateral') throw new Error(collateralMessage(current.minAccountOpen));
+      if (current.step === 'ready') { await loadMe(); ready = true; setPerpsPrompt(false); setNotice(afterPerps.current ? 'Perps are enabled. Placing your trade…' : 'Perps are enabled for your trades and new copies.'); return; }
+      if (current.step === 'needs_collateral') throw new Error(collateralMessage(current.minAccountOpen, config.chainId));
       if (current.step === 'needs_key') {
         setProgressText('Authorize your perps trading key');
         await wallet.switchChain(config.chainId);
@@ -1241,6 +1251,9 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
           {activeRoom && <div className={`view-side room-side ${groupPanelOpen ? 'open' : ''}`}>
             <button className="sheet-close" onClick={() => setGroupPanelOpen(false)}><X size={16} /> Close</button>
             <GroupPanel key={activeRoom.id} room={activeRoom} cult={activeRoom.kind === 'cult' ? clan ?? null : null} config={config} snapshot={activeRoom.kind === 'cult' ? snapshot : null} selected={activeRoom.kind === 'cult' ? selected : null} busy={!!busy} signerPrompt={signerPrompt}
+              perpsReady={perpsCopyReady(me.perpl)} perpsFunded={(availableTradeFunds('perpl', me.balances, config?.monPriceAusd ?? null, config?.chainId) ?? 1) > 0}
+              copyFailure={copyFailure && copyFailure.clanId === clan?.id ? copyFailure.reason : null} onDismissCopyFailure={() => setCopyFailure(null)}
+              onEnablePerps={() => { void perform('prepare-perps', async () => { if (await ensurePerps()) { await loadMe(); setNotice('Perp copying is authorized.'); } }); }} onDeposit={() => setDepositOpen(true)}
               onGrantSigner={() => { void perform('grant-signer', async () => { const confirmed = await grantSigner(); setNotice(confirmed ? 'Trading signer is active.' : 'Signer approval is awaiting Privy verification.'); }); }}
               onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker}
               onOpenTrade={() => { if (market) { setMarketSolo(false); navigate({ view: 'markets', market: market.id }); } }} onGuideDrop={(marker, kind, level) => { void submitGuide(marker, kind, level); }}
@@ -1301,7 +1314,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     {withdrawOpen && <WithdrawSheet onClose={() => setWithdrawOpen(false)} onDone={() => { void loadMe(); }} predictionsUsd={demo ? null : me?.balances?.predictionsUsd ?? null} onBringBack={demo ? undefined : bringBackPredictions} gasReserveMon={me?.balances?.gasReserveMon ?? 0} onSend={transactAll} crossChain={!!demo || !!config?.features?.crossChain} />}
     {depositOpen && <DepositSheet crossChain={!!demo || !!config?.features?.crossChain} onClose={() => setDepositOpen(false)} signerReady={signerReady} permissionBusy={!!busy} onGrantPermission={() => { void perform('grant-signer', async () => { if (await grantSigner()) setNotice('Trading permission is active.'); }); }} />}
     {permissionOpen && <TradingPermissionDialog onDecision={decidePermission} />}
-    {perpsPrompt && <div className="modal-backdrop"><section className="dialog simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-btn dialog-close" title="Close" disabled={busy === 'enroll-perpl'} onClick={closePerpsPrompt}><X size={16} /></button><h2 className="display">Enable perps</h2><p className="dialog-sub">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p>{progressText && busy === 'enroll-perpl' && <p className="fine" role="status">{progressText}</p>}<button className="btn btn-primary btn-block btn-lg" disabled={!!busy} onClick={enroll}>Enable perps</button>{setup?.step === 'needs_collateral' && <><p className="fine">{collateralMessage(setup.minAccountOpen)}</p><button className="btn btn-ghost btn-block" onClick={() => { closePerpsPrompt(); setDepositOpen(true); }}>Deposit first</button></>}</section></div>}
+    {perpsPrompt && <div className="modal-backdrop"><section className="dialog simple-dialog" role="dialog" aria-modal="true" aria-label="Enable perps"><button className="icon-btn dialog-close" title="Close" disabled={busy === 'enroll-perpl'} onClick={closePerpsPrompt}><X size={16} /></button><h2 className="display">Enable perps</h2><p className="dialog-sub">Your wallet signs the account and trading authorization once. You stay in control of your funds.</p>{progressText && busy === 'enroll-perpl' && <p className="fine" role="status">{progressText}</p>}<button className="btn btn-primary btn-block btn-lg" disabled={!!busy} onClick={enroll}>Enable perps</button>{setup?.step === 'needs_collateral' && <><p className="fine">{collateralMessage(setup.minAccountOpen, config?.chainId)}</p><button className="btn btn-ghost btn-block" onClick={() => { closePerpsPrompt(); setDepositOpen(true); }}>Deposit first</button></>}</section></div>}
     {tradeSheetTarget && <TradeSheet target={tradeSheetTarget} onClose={() => setTradeSheetTarget(null)} onProfile={openAccount} onChart={openTradeChart} />}
     {busy && !permissionOpen && <div className="busy" role="status"><i /><span>{progressText ?? (busy === 'stack' ? 'Authorizing your trade…' : busy === 'open' ? 'Placing your trade…' : 'Working…')}</span></div>}
   </div>;
