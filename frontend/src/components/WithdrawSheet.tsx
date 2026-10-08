@@ -22,7 +22,7 @@ type Props = { onClose: () => void; onDone: () => void; gasReserveMon: number; o
 type Symbol = WithdrawRequest['symbol'];
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-const tokenAmount = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(value);
+const tokenAmount = (value: number | null) => value == null ? 'Unavailable' : new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(value);
 const shortHash = (value: string) => `${value.slice(0, 8)}…${value.slice(-6)}`;
 
 export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossChain = false, predictionsUsd = null, onBringBack }: Props) {
@@ -59,7 +59,7 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
     }).then(value => {
       if (!active) return;
       setInfo(value); setError(null);
-      setSymbol(current => current ?? value.tokens.find(token => token.balance > 0)?.symbol ?? null);
+      setSymbol(current => current ?? value.tokens.find(token => token.depositSupported !== false && token.balance != null && token.balance > 0)?.symbol ?? null);
     }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Wallet details unavailable.'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -71,11 +71,11 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
 
-  const token = info?.tokens.find(item => item.symbol === symbol) ?? null;
+  const token = info?.tokens.find(item => item.symbol === symbol && item.depositSupported !== false) ?? null;
   // MON pays gas, so a little always stays behind.
-  const available = token ? Math.max(0, token.symbol === 'MON' ? token.balance - gasReserveMon : token.balance) : 0;
+  const available = token?.balance != null ? Math.max(0, token.symbol === 'MON' ? token.balance - gasReserveMon : token.balance) : 0;
   const amount = Number(amountText);
-  const unitUsd = token && token.balance > 0 && token.balanceUsd != null ? token.balanceUsd / token.balance : null;
+  const unitUsd = token?.balance != null && token.balance > 0 && token.balanceUsd != null ? token.balanceUsd / token.balance : null;
   const amountUsd = unitUsd != null && amount > 0 ? amount * unitUsd : null;
   const ownAddress = !!info && to.trim().toLowerCase() === info.address.toLowerCase();
   const amountError = !amountText ? null : !(amount > 0) ? 'Enter an amount above zero.' : amount > available + 1e-9 ? 'More than you have available.' : null;
@@ -150,12 +150,12 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
             <span>{bringing === 'sent' ? `${dollars(inPredictions)} is on its way to your wallet (about 30s).` : `${dollars(inPredictions)} is in predictions.`}</span>
             {bringing !== 'sent' && <button type="button" className="link" disabled={bringing === 'busy'} onClick={() => void bringBack()}>{bringing === 'busy' ? 'Bringing it back…' : 'Bring it to your wallet'}</button>}
           </div>}
-          {network === 'other' && onSend ? <CrossChainWithdraw walletUsd={(info.tokens.find(t => t.symbol === 'AUSD')?.balance ?? 0) + (info.tokens.find(t => t.symbol === 'USDC')?.balance ?? 0)} onSend={onSend} onDone={onDone} /> : <>
+          {network === 'other' && onSend ? <CrossChainWithdraw walletUsd={info.tokens.filter(t => t.depositSupported !== false && (t.symbol === 'AUSD' || t.symbol === 'USDC')).reduce((total, t) => total + (t.balance ?? 0), 0)} onSend={onSend} onDone={onDone} /> : <>
           <div className="field">
             <span className="field-label">Token</span>
-            <div className="deposit-tokens">{info.tokens.map(item => <button key={item.symbol} type="button" className={`deposit-token withdraw-token ${symbol === item.symbol ? 'on' : ''}`} disabled={item.balance <= 0} onClick={() => { setSymbol(item.symbol); setAmountText(''); }}>
+            <div className="deposit-tokens">{info.tokens.filter(item => item.depositSupported !== false).map(item => <button key={item.symbol} type="button" className={`deposit-token withdraw-token ${symbol === item.symbol ? 'on' : ''}`} disabled={item.balance == null || item.balance <= 0} onClick={() => { setSymbol(item.symbol); setAmountText(''); }}>
               <TokenLogo symbol={item.symbol} className="deposit-token-icon" />
-              <span className="deposit-token-name"><strong>{item.name}</strong><small>{item.balance > 0 ? item.what : 'Nothing to withdraw'}</small></span>
+              <span className="deposit-token-name"><strong>{item.name}</strong><small>{item.balance == null ? 'Balance unavailable' : item.balance > 0 ? item.what : 'Nothing to withdraw'}</small></span>
               <span className="deposit-token-balance"><strong>{tokenAmount(item.balance)} {item.symbol}</strong><small>{dollars(item.balanceUsd)}</small></span>
             </button>)}</div>
           </div>

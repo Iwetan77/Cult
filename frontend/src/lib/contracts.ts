@@ -146,7 +146,7 @@ export type Profile = { id: string; name: string; username: string | null; avata
 
 export type MarketListing = { venue: Venue; id: string; symbol: string; name: string; priceUsd: number | null; change24hPct: number | null; volume24hUsd: number | null; imageUri: string | null; maxLeverage: number };
 export type MarketDetail = { market: MarketListing; candles: Candle[]; resolution: number };
-export type DepositInfo = { address: string; network: { name: string; chainId: number }; tokens: { symbol: 'MON' | 'USDC' | 'AUSD'; name: string; what: string; balance: number; balanceUsd: number | null }[]; tradingAccountUsd: number | null; totalUsd: number | null };
+export type DepositInfo = { address: string; network: { name: string; chainId: number }; tokens: { symbol: 'MON' | 'USDC' | 'AUSD'; name: string; what: string; balance: number | null; balanceUsd: number | null; depositSupported?: boolean }[]; tradingAccountUsd: number | null; totalUsd: number | null };
 // Prediction markets (Polymarket). Demo-only trading for now.
 export type PredictionSide = 'yes' | 'no';
 export type PredictionPosition = {
