@@ -18,6 +18,16 @@ export function avatarUrl(m: Member | null | undefined): string | null {
 
 export const avatarOf = (userId: string) => avatarUrl(members.get(userId));
 
+// After the first pick, a username can be changed once every this many months.
+export const USERNAME_CHANGE_MONTHS = 3;
+// When this member may change their username next (ms), or null if now.
+export function nextUsernameChange(m: Member, now = Date.now()): number | null {
+  if (!m.usernameChangedAt) return null;
+  const next = new Date(m.usernameChangedAt);
+  next.setUTCMonth(next.getUTCMonth() + USERNAME_CHANGE_MONTHS);
+  return next.getTime() > now ? next.getTime() : null;
+}
+
 // Usernames: 3-20 letters, digits or underscores, starting with a letter;
 // unique ignoring case. A few words are kept for the app itself.
 const RESERVED = new Set(['admin', 'administrator', 'cult', 'cults', 'support', 'global', 'system', 'root', 'moderator', 'mod', 'staff', 'team', 'help', 'me', 'official']);

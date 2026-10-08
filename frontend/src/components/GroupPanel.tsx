@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
-import { ArrowRight, Copy, Globe2, Lock, ShieldCheck, X } from './icons';
+import { ArrowRight, Camera, Copy, Globe2, Lock, ShieldCheck, X } from './icons';
 import { getLeaderboard } from '@/lib/api';
 import type { BackendConfig, ChartMarker, ChartSnapshot, ChatRoom, Clan, Leaderboard, MirrorPolicy } from '@/lib/contracts';
 import { dollars, percent, price, signedDollars } from '@/lib/format';
 import { candleResolution } from '@/lib/chartHistory';
 import { autoFollowDraft, mirrorPolicyFromDraft } from '@/lib/mirrorPolicy';
+import { squareImage } from '@/lib/image';
 import { SharedChart } from './SharedChart';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
@@ -22,6 +23,8 @@ type Props = {
   onLeave: () => Promise<void>; onProfile: (memberId: string) => void;
   // Admins share trades with the cult and make other members admins.
   meId?: string; onSetAdmin?: (memberId: string, admin: boolean) => Promise<void>;
+  // Admins change the cult's picture (a resized data URL) or take it off (null).
+  onImage?: (image: string | null) => void;
 };
 
 function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: string; onProfile: (id: string) => void }) {
@@ -47,7 +50,8 @@ function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: str
   </div>;
 }
 
-export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile, meId, onSetAdmin }: Props) {
+export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile, meId, onSetAdmin, onImage }: Props) {
+  const imageInput = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<'positions' | 'stats' | 'members' | 'settings'>('positions');
   const [followSheet, setFollowSheet] = useState(false);
   const [maxUsd, setMaxUsd] = useState('');
@@ -94,7 +98,8 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
 
   return <aside className="group">
     <section className="card group-hero">
-      <RoomBadge icon={room.icon} kind="cult" size="lg" />
+      {cult.isAdmin && onImage ? <button type="button" className="cult-image-pick" title="Change the cult picture" aria-label="Change the cult picture" disabled={busy} onClick={() => imageInput.current?.click()}><RoomBadge icon={room.icon} kind="cult" size="lg" /><span className="cult-image-cam"><Camera size={12} /></span></button> : <RoomBadge icon={room.icon} kind="cult" size="lg" />}
+      {cult.isAdmin && onImage && <input ref={imageInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void squareImage(file).then(onImage, reason => setError(reason instanceof Error ? reason.message : 'That picture could not be used.')); }} />}
       <div><h2>{cult.name}</h2><small className="group-hero-meta">{cult.visibility === 'public' ? <Globe2 size={12} /> : <Lock size={12} />}{cult.visibility === 'public' ? 'Public' : 'Private'} · {cult.memberCount} {cult.memberCount === 1 ? 'member' : 'members'} · {openPositions} open</small></div>
       <button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Invite</button>
     </section>
@@ -154,6 +159,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         <div className="setting"><div><strong>{cult.isAdmin ? 'You’re an admin' : 'You’re a member'}</strong><small>{cult.isAdmin
           ? 'Your trades are shared here and copied by members on Auto-follow. Make others admins from Members.'
           : 'Only admins share trades here; yours stay yours. Turn on Auto-follow to copy them, or tap Copy on one in the chat.'}</small></div></div>
+        {cult.isAdmin && onImage && <div className="setting"><div><strong>Cult picture</strong><small>Shown on the cult everywhere, and in Discover when it&apos;s public.</small></div><div className="row-gap">{cult.imageUrl && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onImage(null)}>Remove</button>}<button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => imageInput.current?.click()}><Camera size={14} /> {cult.imageUrl ? 'Change' : 'Add'}</button></div></div>}
         <div className="setting"><div><strong>Invite link</strong><small>Code <b className="code">{cult.inviteCode}</b></small></div><button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Copy</button></div>
         {cult.isOwner && <div className="setting"><div><strong>Visibility</strong><small>{cult.visibility === 'public' ? 'Listed in Discover and public rankings.' : 'Invite only.'}</small></div><div className="seg seg--sm"><button className={cult.visibility === 'private' ? 'on' : ''} disabled={busy} onClick={() => onVisibility('private')}>Private</button><button className={cult.visibility === 'public' ? 'on' : ''} disabled={busy} onClick={() => onVisibility('public')}>Public</button></div></div>}
         <div className="setting danger"><div><strong>Leave cult</strong><small>Pending copies are cancelled. Open ones unwind when their leader exits.</small></div>{!confirmLeave ? <button className="btn btn-danger btn-sm" onClick={() => setConfirmLeave(true)}>Leave</button> : <div className="row-gap"><button className="btn btn-ghost btn-sm" onClick={() => setConfirmLeave(false)}>Cancel</button><button className="btn btn-danger btn-sm" disabled={busy} onClick={() => void onLeave()}>Confirm</button></div>}</div>

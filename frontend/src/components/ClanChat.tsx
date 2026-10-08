@@ -5,7 +5,7 @@ import { getAccessToken } from '@/lib/auth';
 import { isDemo } from '@/lib/demo';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { ArrowDown, ArrowRight, CandlestickChart, ImagePlus, Link2, Pin, Reply, RotateCcw, Send, SmilePlus, X } from './icons';
-import { getRoomEventUrl, getRoomMessages, getTyping, hasSocialExtras, pinRoomMessage, reactToMessage, sendRoomMessage } from '@/lib/api';
+import { getRoomEventUrl, getRoomMessages, getTyping, hasTyping, mediaUrl, pinRoomMessage, reactToMessage, sendRoomMessage } from '@/lib/api';
 import type { ChatMessage, ChatPage, ChatRoom, ChartMarker, Reaction } from '@/lib/contracts';
 import { mentions } from '@/lib/prefs';
 import { dollars, signedDollars } from '@/lib/format';
@@ -54,9 +54,11 @@ const messageError = (error: unknown) => error instanceof Error ? error.message 
 const GROUP_MS = 5 * 60_000;
 // A reply's quote, or a pinned line, for a message that may be just a photo.
 const preview = (message: { body: string; imageUrl?: string | null }) => message.body || (message.imageUrl ? 'Photo' : '');
-// Phones: how far a message is swiped right before letting go starts a reply.
+// Phones: how far a message is swiped right before letting go starts a reply,
+// and how long it's held before its reactions open.
 const SWIPE_REPLY = 56;
 const SWIPE_MAX = 96;
+const HOLD_MS = 450;
 const dayLabel = (iso: string) => {
   const d = new Date(iso);
   const today = new Date();
@@ -115,9 +117,8 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
   const [photoBusy, setPhotoBusy] = useState(false);
   const [viewing, setViewing] = useState<string | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
-  // Reactions, typing and photos come from the demo for now; live rooms show
-  // them once the backend stores them (lib/api hasSocialExtras).
-  const social = hasSocialExtras();
+  // Who's typing comes from the demo for now (lib/api hasTyping).
+  const typingShown = hasTyping();
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const stickToBottom = useRef(true);
@@ -158,16 +159,16 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
-  // Demo: every few seconds, pick up new messages, reaction counts and who's typing.
+  // Every few seconds, pick up others' reactions (and any message the live
+  // stream missed); the demo also says who's typing.
   useEffect(() => {
-    if (!social) return;
     let active = true;
     const tick = async () => {
       const token = await getAccessToken();
       if (!token || !active || document.visibilityState !== 'visible') return;
-      const [page, who] = await Promise.all([getRoomMessages(token, room.id), getTyping(token, room.id)]);
+      const [page, who] = await Promise.all([getRoomMessages(token, room.id), typingShown ? getTyping(token, room.id) : null]);
       if (!active) return;
-      setTyping(who.names.filter(name => name !== meName));
+      if (who) setTyping(who.names.filter(name => name !== meName));
       const known = messagesRef.current;
       const latest = known.filter(item => !item.local).at(-1)?.createdAt;
       setMessages(current => current.map(item => {
@@ -176,9 +177,9 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
       }));
       page.messages.filter(item => !known.some(x => x.id === item.id) && (!latest || item.createdAt > latest)).forEach(item => receiveRef.current(item));
     };
-    const timer = window.setInterval(() => { void tick().catch(() => { /* next tick */ }); }, 3000);
+    const timer = window.setInterval(() => { void tick().catch(() => { /* next tick */ }); }, typingShown ? 3000 : 10_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [room.id, social, meName]);
+  }, [room.id, typingShown, meName]);
 
   // Close the reaction picker on a tap anywhere else.
   useEffect(() => {
@@ -215,42 +216,46 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
       setError(messageError(reason));
     }
   };
-  const reactionRow = (message: Shown) => social && !!message.reactions?.length && <div className="chat-reactions">
+  const reactionRow = (message: Shown) => !!message.reactions?.length && <div className="chat-reactions">
     {message.reactions.map(r => <button key={r.emoji} type="button" className={`reaction ${r.mine ? 'mine' : ''}`} aria-pressed={r.mine} title={r.mine ? 'Take back your reaction' : `React ${r.emoji}`} onClick={() => void react(message, r.emoji)}><span>{r.emoji}</span>{r.count}</button>)}
   </div>;
   const reactionPicker = (message: Shown) => picker === message.id && <div className="reaction-picker" role="menu" aria-label="React" data-picker>
     {REACTIONS.map(emoji => <button key={emoji} type="button" role="menuitem" aria-label={`React ${emoji}`} onClick={() => void react(message, emoji)}>{emoji}</button>)}
   </div>;
-  const reactButton = (message: Shown) => social && <button title="React" data-picker aria-expanded={picker === message.id} onClick={() => setPicker(open => open === message.id ? null : message.id)}><SmilePlus size={13} /></button>;
-  // Phones have no hover actions: tapping a message or a trade opens its
-  // reactions (its own buttons, links and photos still do their thing).
-  const tapToReact = (message: Shown) => (event: MouseEvent) => {
-    if (!social || message.local || !window.matchMedia('(hover: none)').matches) return;
-    if ((event.target as Element).closest('button, a, input, label')) return;
-    setPicker(open => open === message.id ? null : message.id);
-  };
+  const reactButton = (message: Shown) => <button title="React" data-picker aria-expanded={picker === message.id} onClick={() => setPicker(open => open === message.id ? null : message.id)}><SmilePlus size={13} /></button>;
   const startReply = (message: Shown) => { setReplyTo(message); inputRef.current?.focus(); };
 
-  // Phones: swipe a message to the right to reply to it. The row follows the
-  // finger (with a reply arrow fading in behind it) and springs back.
-  const swipe = useRef<{ id: string; x: number; y: number; dx: number; axis: 'x' | 'y' | null; row: HTMLElement } | null>(null);
+  // Phones have no hover actions. Hold a message (or a trade) to react to it;
+  // swipe it to the right to reply. While swiping, the row follows the finger
+  // (with a reply arrow fading in behind it) and springs back.
+  const touch = useRef<{ id: string; x: number; y: number; dx: number; axis: 'x' | 'y' | null; row: HTMLElement; hold: number; held: boolean } | null>(null);
   const settle = (row: HTMLElement) => {
     row.style.transition = 'transform 0.2s ease';
     row.style.transform = '';
     row.style.removeProperty('--swipe');
     window.setTimeout(() => { row.style.transition = ''; }, 220);
   };
-  const swipeToReply = (message: Shown) => message.local ? {} : {
+  const touchGestures = (message: Shown) => message.local ? {} : {
     onTouchStart: (event: TouchEvent<HTMLElement>) => {
-      const touch = event.touches[0];
-      swipe.current = touch && event.touches.length === 1 ? { id: message.id, x: touch.clientX, y: touch.clientY, dx: 0, axis: null, row: event.currentTarget } : null;
+      const finger = event.touches[0];
+      if (touch.current) window.clearTimeout(touch.current.hold);
+      if (!finger || event.touches.length !== 1) { touch.current = null; return; }
+      const state: NonNullable<typeof touch.current> = { id: message.id, x: finger.clientX, y: finger.clientY, dx: 0, axis: null, row: event.currentTarget, hold: 0, held: false };
+      state.hold = window.setTimeout(() => {
+        if (touch.current !== state || state.axis) return;
+        state.held = true;
+        navigator.vibrate?.(10);
+        setPicker(message.id);
+      }, HOLD_MS);
+      touch.current = state;
     },
     onTouchMove: (event: TouchEvent<HTMLElement>) => {
-      const s = swipe.current, touch = event.touches[0];
-      if (!s || s.id !== message.id || !touch) return;
-      const dx = touch.clientX - s.x, dy = touch.clientY - s.y;
+      const s = touch.current, finger = event.touches[0];
+      if (!s || s.id !== message.id || !finger || s.held) return;
+      const dx = finger.clientX - s.x, dy = finger.clientY - s.y;
       if (!s.axis) {
         if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        window.clearTimeout(s.hold); // moving isn't holding
         s.axis = dx > 0 && Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'; // scrolling up or down wins
       }
       if (s.axis !== 'x') return;
@@ -260,14 +265,19 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
       s.row.style.transform = `translateX(${pull < SWIPE_REPLY ? pull : SWIPE_REPLY + (pull - SWIPE_REPLY) * 0.35}px)`;
       s.row.style.setProperty('--swipe', String(Math.min(1, pull / SWIPE_REPLY)));
     },
-    onTouchEnd: () => {
-      const s = swipe.current;
-      swipe.current = null;
+    onTouchEnd: (event: TouchEvent<HTMLElement>) => {
+      const s = touch.current;
+      touch.current = null;
       if (!s || s.id !== message.id) return;
+      window.clearTimeout(s.hold);
+      // A hold opened the reactions: the lift mustn't also tap whatever was under the finger.
+      if (s.held) { event.preventDefault(); return; }
       settle(s.row);
       if (s.axis === 'x' && s.dx >= SWIPE_REPLY) startReply(message);
     },
-    onTouchCancel: () => { const s = swipe.current; swipe.current = null; if (s) settle(s.row); },
+    onTouchCancel: () => { const s = touch.current; touch.current = null; if (s) { window.clearTimeout(s.hold); settle(s.row); } },
+    // Android's long-press menu (copy, select) would cover the reactions.
+    onContextMenu: (event: MouseEvent) => { if (window.matchMedia('(hover: none)').matches) event.preventDefault(); },
   };
   const swipeArrow = <span className="chat-swipe-reply" aria-hidden="true"><Reply size={15} /></span>;
 
@@ -415,7 +425,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     finally { setPhotoBusy(false); if (photoInput.current) photoInput.current.value = ''; }
   };
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const file = social ? [...event.clipboardData.files].find(item => item.type.startsWith('image/')) : undefined;
+    const file = [...event.clipboardData.files].find(item => item.type.startsWith('image/'));
     if (!file) return;
     event.preventDefault();
     void pickPhoto(file);
@@ -472,9 +482,9 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
   const tradeCard = (message: Shown) => {
     const trade = readTrade(message.body);
     const live = message.markerId ? markers.find(item => item.id === message.markerId) : undefined;
-    const tools = social && <div className="chat-trade-react" data-picker>{reactButton(message)}{reactionPicker(message)}</div>;
+    const tools = <div className="chat-trade-react" data-picker>{reactButton(message)}{reactionPicker(message)}</div>;
     if (!trade) return <div className="chat-notice" key={message.id}><span><strong>{message.memberName}</strong> {message.body}</span><time>{time(message.createdAt)}</time></div>;
-    return <div className="chat-trade" key={message.id} data-picker={social || undefined} onClick={tapToReact(message)} {...swipeToReply(message)}>
+    return <div className="chat-trade" key={message.id} {...touchGestures(message)}>
       {swipeArrow}
       <TokenLogo symbol={trade.symbol} />
       <div className="chat-trade-main">
@@ -521,17 +531,17 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
           const quoted = message.replyTo ? messages.find(item => item.id === message.replyTo) : null;
           const forMe = !mine && !!meName && mentions(message.body, meName);
           const chart = sharedChartOf(message.markerId);
-          return <Fragment key={message.id}>{separator}<div className={`chat-row ${mine ? 'mine' : ''} ${grouped ? 'grouped' : ''}`} id={'chat-message-' + message.id} {...swipeToReply(message)}>
+          return <Fragment key={message.id}>{separator}<div className={`chat-row ${mine ? 'mine' : ''} ${grouped ? 'grouped' : ''}`} id={'chat-message-' + message.id} {...touchGestures(message)}>
             {swipeArrow}
             {!mine && (grouped ? <span className="chat-avatar-space" /> : <button className="chat-avatar" onClick={() => onMember(message.memberId)} title={message.memberName}><Avatar name={message.memberName} url={message.memberAvatarUrl} /></button>)}
             <div className="chat-bubble-wrap">
               {!mine && !grouped && <button className="chat-name" onClick={() => onMember(message.memberId)}>{message.memberName}</button>}
-              <div className={`chat-bubble ${message.local ?? ''} ${forMe ? 'mentioned' : ''}${message.imageUrl ? ' has-photo' : ''}${chart ? ' has-chart' : ''}`} data-picker onClick={tapToReact(message)}>
+              <div className={`chat-bubble ${message.local ?? ''} ${forMe ? 'mentioned' : ''}${message.imageUrl ? ' has-photo' : ''}${chart ? ' has-chart' : ''}`}>
                 {quoted && <div className="chat-quote"><Reply size={11} /> <strong>{quoted.memberName}</strong> {preview(quoted).slice(0, 80)}</div>}
-                {message.imageUrl && <button type="button" className="chat-photo" title="Open photo" onClick={() => setViewing(message.imageUrl!)}>
+                {message.imageUrl && <button type="button" className="chat-photo" title="Open photo" onClick={() => setViewing(mediaUrl(message.imageUrl))}>
                   {/* Chat photos are data URLs or our API's; next/image adds nothing here. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={message.imageUrl} alt={message.body ? `Photo: ${message.body}` : `Photo from ${message.memberName}`} loading="lazy" />
+                  <img src={mediaUrl(message.imageUrl) ?? undefined} alt={message.body ? `Photo: ${message.body}` : `Photo from ${message.memberName}`} loading="lazy" />
                 </button>}
                 {(() => {
                   if (chart) return <ChartShareCard marketId={chart} onOpen={id => onOpenMarket?.(id)} />;
@@ -572,8 +582,8 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
         {photo && <button type="button" className="icon-btn icon-btn--sm" title="Remove photo" onClick={() => setPhoto(null)}><X size={13} /></button>}
       </div>}
       <div className="chat-compose-row">
-        {social && <><button className="icon-btn chat-attach" type="button" title="Send a photo" aria-label="Send a photo" disabled={photoBusy} onClick={() => photoInput.current?.click()}><ImagePlus size={17} /></button>
-          <input ref={photoInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; if (file) void pickPhoto(file); }} /></>}
+        <><button className="icon-btn chat-attach" type="button" title="Send a photo" aria-label="Send a photo" disabled={photoBusy} onClick={() => photoInput.current?.click()}><ImagePlus size={17} /></button>
+          <input ref={photoInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; if (file) void pickPhoto(file); }} /></>
         {room.kind === 'cult' && selectedMarker && !markerId && <button className="icon-btn chat-attach" type="button" title="Link the selected trade" onClick={() => setMarkerId(selectedMarker.id)}><Link2 size={16} /></button>}
         <textarea ref={inputRef} value={draft} onChange={event => { setDraft(event.target.value); setCaret(event.target.selectionStart); setMentionHidden(false); setMentionIndex(0); }} onSelect={event => setCaret(event.currentTarget.selectionStart)} onKeyDown={onKey} onPaste={onPaste} maxLength={1000} rows={1} placeholder={photo ? 'Add a caption' : `Message ${room.name}`} aria-label={`Message ${room.name}`} />
         <button className="chat-send" type="submit" title="Send" disabled={(!draft.trim() && !photo) || photoBusy}><Send size={16} /></button>
