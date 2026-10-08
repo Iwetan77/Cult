@@ -1,5 +1,6 @@
 import { recordsFor, type ClosedTrade, type MemberStats } from '../indexer/stats.js';
 import { getDb } from '../store/db.js';
+import { cultImages } from '../store/media.js';
 import { clans } from '../store/clans.js';
 import { members, type Member } from '../store/members.js';
 import { countryName } from './countries.js';
@@ -76,7 +77,7 @@ export interface Profile {
   record: MemberStats;
   openTrades: { tradeId: string; markerId: string; venue: string; market: string; symbol: string; side: string; leverage: number; openedAt: number }[];
   closedTrades: Shown[]; // newest first, own and copied (flagged), up to 50
-  cults: { id: string; name: string; visibility: string }[]; // public ones, plus any shared with the viewer
+  cults: { id: string; name: string; visibility: string; imageUrl: string | null }[]; // public ones, plus any shared with the viewer
 }
 
 export async function profile(idOrWallet: string, viewerId: string): Promise<Profile> {
@@ -111,7 +112,7 @@ export async function profile(idOrWallet: string, viewerId: string): Promise<Pro
     cults: clans
       .forUser(m.userId)
       .filter((c) => c.visibility === 'public' || !!clans.membership(c.id, viewerId))
-      .map((c) => ({ id: c.id, name: c.name, visibility: c.visibility })),
+      .map((c) => ({ id: c.id, name: c.name, visibility: c.visibility, imageUrl: cultImages.url(c.id) })),
   };
 }
 

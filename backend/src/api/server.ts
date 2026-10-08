@@ -22,6 +22,7 @@ import { AuthError, identify, privyLastSignIn } from '../privy/auth.js';
 import { backendSignerStatus, forgetSignerStatus, memberSignerGrant } from '../privy/policy.js';
 import { clans, MirrorPolicySchema, type MirrorPolicy, AUTO_FOLLOW_DEFAULTS } from '../store/clans.js';
 import { getDb } from '../store/db.js';
+import { CULT_IMAGE_MAX_BYTES, chatImages, cultImages, decodeImage, ImageError } from '../store/media.js';
 import { members } from '../store/members.js';
 import { PinError, pins } from '../store/pins.js';
 import { ensureGas, gasToppingOn } from '../funding/gas.js';
@@ -31,9 +32,9 @@ import { UpstreamError } from '../http.js';
 import { balancesFor, depositInfo } from './balances.js';
 import { createShare, getShare, ShareError } from './shares.js';
 import { addSuggestion, clanBus, type TpSlSuggestion } from './suggestions.js';
-import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, postSystem, roomsFor, setPin, type ChatMessage } from './chat.js';
+import { ChatError, cultRoom, listMessages, MAX_MESSAGE_CHARS, openRoom, postMessage, postSystem, react, roomsFor, setPin, type ChatMessage } from './chat.js';
 import { countryName } from './countries.js';
-import { avatarUrl, displayName, usernameProblem } from './names.js';
+import { avatarUrl, displayName, nextUsernameChange, usernameProblem } from './names.js';
 import { countryBoard, cultBoard, cultsBoard, globalBoard, LeaderboardError, parsePeriod } from './leaderboards.js';
 import { home, profile, ProfileError, tradeView } from './profiles.js';
 import { listMarkets, marketDetail, MarketError } from './markets.js';
@@ -162,6 +163,20 @@ export function createApp(engine: MirrorEngine) {
     const a = members.avatar(c.req.param('userId'));
     if (!a) return c.json({ message: 'no photo' }, 404);
     return c.body(new Uint8Array(a.bytes), 200, { 'Content-Type': a.mime, 'Cache-Control': 'public, max-age=31536000, immutable' });
+  });
+
+  // Cult pictures, public like profile photos (they show in Discover too).
+  app.get('/v1/cult-images/:clanId', (c) => {
+    const image = cultImages.get(c.req.param('clanId'));
+    if (!image) return c.json({ message: 'no picture' }, 404);
+    return c.body(new Uint8Array(image.bytes), 200, { 'Content-Type': image.mime, 'Cache-Control': 'public, max-age=31536000, immutable' });
+  });
+  // Photos sent in chat. Each has a random id that only reaches people who can
+  // read the message it was sent with; a photo never changes, so it caches forever.
+  app.get('/v1/chat-images/:id', (c) => {
+    const image = chatImages.get(c.req.param('id'));
+    if (!image) return c.json({ message: 'no photo' }, 404);
+    return c.body(new Uint8Array(image.bytes), 200, { 'Content-Type': image.mime, 'Cache-Control': 'private, max-age=31536000, immutable' });
   });
 
   app.get('/v1/config', async (c) => {
@@ -352,6 +367,22 @@ export function createApp(engine: MirrorEngine) {
     enqueuePush(id, [{ userId: c.get('userId') }], { title: 'Cult phone alerts are on', body: 'You can receive liquidation and new cult trade alerts.', url: '/settings', tag: id });
     return c.body(null, 204);
   });
+  // A posted message: text, a photo (data URL, the body is then its caption), or both.
+  const MessageInput = z.object({
+    body: z.string().max(MAX_MESSAGE_CHARS * 2).default(''),
+    replyTo: z.string().max(64).nullish(),
+    markerId: z.string().max(128).nullish(),
+    image: z.string().max(2_200_000).nullish(),
+  });
+  // An uploaded picture, checked, or a 400 saying what's wrong with it.
+  const imageOrBad = (dataUrl: string, maxBytes: number) => {
+    try {
+      return decodeImage(dataUrl, maxBytes);
+    } catch (e) {
+      throw bad(400, e instanceof ImageError ? e.message : 'that image could not be read');
+    }
+  };
+
   const clanView = (clanId: string, userId: string) => {
     const clan = clans.get(clanId)!;
     return {
@@ -364,6 +395,7 @@ export function createApp(engine: MirrorEngine) {
       memberCount: clans.members(clan.id).length,
       myPolicy: clans.membership(clan.id, userId)?.policy ?? null,
       autoFollow: clans.membership(clan.id, userId)?.policy.enabled ?? false,
+      imageUrl: cultImages.url(clan.id),
     };
   };
 
@@ -376,6 +408,7 @@ export function createApp(engine: MirrorEngine) {
       name: displayName(m),
       username: m.username,
       needsUsername: !m.username, // first sign-in: ask for one before anything else
+      usernameChangedAt: m.usernameChangedAt ? new Date(m.usernameChangedAt).toISOString() : null, // next change 3 months after
       pinSet: pins.isSet(m.userId), // then a 4-digit PIN (store/pins.ts)
       avatarUrl: avatarUrl(m),
       country: m.country ? { code: m.country, name: countryName(m.country) } : null,
@@ -408,15 +441,20 @@ export function createApp(engine: MirrorEngine) {
     return c.json({ pinSet: true });
   });
 
-  // Username: asked once at first sign-in (/v1/me.needsUsername), changeable later.
+  // Username: asked once at first sign-in (/v1/me.needsUsername), then changeable
+  // once every USERNAME_CHANGE_MONTHS.
   authed.post('/me/username', async (c) => {
     const { username } = z.object({ username: z.string().trim() }).parse(await c.req.json());
     const problem = usernameProblem(username);
     if (problem) throw bad(400, problem);
     const taken = members.byUsername(username);
     if (taken && taken.userId !== c.get('userId')) throw bad(409, 'that username is taken');
+    const me = members.get(c.get('userId'))!;
+    const changing = !!me.username && me.username !== username; // the first pick is free
+    const next = changing ? nextUsernameChange(me) : null;
+    if (next) throw bad(409, `you can change your username again on ${new Date(next).toISOString().slice(0, 10)}`);
     try {
-      members.setUsername(c.get('userId'), username);
+      members.setUsername(c.get('userId'), username, changing);
     } catch {
       throw bad(409, 'that username is taken'); // lost a race for it
     }
@@ -428,17 +466,8 @@ export function createApp(engine: MirrorEngine) {
   // browser first (256x256 is plenty). PNG, JPEG or WebP, up to 512 KB.
   authed.post('/me/avatar', async (c) => {
     const { image } = z.object({ image: z.string().max(800_000) }).parse(await c.req.json());
-    const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(image);
-    if (!m) throw bad(400, 'send a PNG, JPEG or WebP as a data URL');
-    const bytes = Buffer.from(m[2]!, 'base64');
-    if (bytes.length > 512 * 1024) throw bad(400, 'photo is over 512 KB; resize it first');
-    const sniff = bytes.subarray(0, 12);
-    const isPng = sniff[0] === 0x89 && sniff[1] === 0x50 && sniff[2] === 0x4e && sniff[3] === 0x47;
-    const isJpeg = sniff[0] === 0xff && sniff[1] === 0xd8 && sniff[2] === 0xff;
-    const isWebp = sniff.subarray(0, 4).toString('ascii') === 'RIFF' && sniff.subarray(8, 12).toString('ascii') === 'WEBP';
-    const mime = isPng ? 'image/png' : isJpeg ? 'image/jpeg' : isWebp ? 'image/webp' : null;
-    if (!mime || mime !== m[1]) throw bad(400, "that file isn't the image type it says it is");
-    members.setAvatar(c.get('userId'), mime, bytes);
+    const photo = imageOrBad(image, 512 * 1024);
+    members.setAvatar(c.get('userId'), photo.mime, photo.bytes);
     return c.json({ avatarUrl: avatarUrl(members.get(c.get('userId'))) });
   });
   authed.delete('/me/avatar', (c) => {
@@ -479,13 +508,11 @@ export function createApp(engine: MirrorEngine) {
   authed.get('/chat/:room/messages', (c) => {
     const { room } = openRoom(c.req.param('room'), c.get('userId'));
     const limit = c.req.query('limit');
-    return c.json(listMessages(room, { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
+    return c.json(listMessages(room, { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined, viewerId: c.get('userId') }));
   });
   authed.post('/chat/:room/messages', async (c) => {
     const { room } = openRoom(c.req.param('room'), c.get('userId'));
-    const body = z
-      .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
-      .parse(await c.req.json());
+    const body = MessageInput.parse(await c.req.json());
     // A shared cult ("cult:<id>") must be a public cult the sender is in. Trade
     // links only go in cult rooms: Global and country rooms are for finding
     // cults, not for following strangers' trades.
@@ -494,6 +521,12 @@ export function createApp(engine: MirrorEngine) {
       if (!shared || shared.visibility !== 'public' || !clans.membership(shared.id, c.get('userId'))) throw bad(400, 'only a public cult you are in can be shared');
     } else if (body.markerId && !room.startsWith('cult:')) throw bad(400, 'trades are shared in cults');
     return c.json(postMessage(room, c.get('userId'), body), 201);
+  });
+  // React to a message ({ emoji }); the same emoji again takes it back.
+  authed.post('/chat/:room/messages/:messageId/reactions', async (c) => {
+    const { room } = openRoom(c.req.param('room'), c.get('userId'));
+    const { emoji } = z.object({ emoji: z.string().min(1).max(16) }).parse(await c.req.json());
+    return c.json({ reactions: react(room, c.get('userId'), c.req.param('messageId'), emoji) });
   });
   // The cult owner pins a message ({ messageId }) or clears it ({ messageId: null }).
   authed.post('/chat/:room/pin', async (c) => {
@@ -638,9 +671,11 @@ export function createApp(engine: MirrorEngine) {
 
   cultRoutes.post('/', async (c) => {
     const body = z
-      .object({ name: z.string().trim().min(1).max(48), policy: MirrorPolicySchema.optional(), visibility: z.enum(['private', 'public']).default('private') })
+      .object({ name: z.string().trim().min(1).max(48), policy: MirrorPolicySchema.optional(), visibility: z.enum(['private', 'public']).default('private'), image: z.string().max(800_000).nullish() })
       .parse(await c.req.json());
+    const picture = body.image ? imageOrBad(body.image, CULT_IMAGE_MAX_BYTES) : null; // checked before the cult exists
     const clan = clans.create(body.name, c.get('userId'), body.policy, body.visibility);
+    if (picture) cultImages.set(clan.id, picture);
     postSystem(cultRoom(clan.id), c.get('userId'), 'created the cult');
     await engine.watch(c.get('userId')).catch(() => undefined);
     return c.json(clanView(clan.id, c.get('userId')), 201);
@@ -750,6 +785,7 @@ export function createApp(engine: MirrorEngine) {
       memberCount: clans.members(cl.id).length,
       createdAt: cl.createdAt,
       joined: !!clans.membership(cl.id, userId),
+      imageUrl: cultImages.url(cl.id),
     }));
     list.sort((a, b) => b.memberCount - a.memberCount || b.createdAt - a.createdAt);
     return c.json({ cults: list.slice(0, limit) });
@@ -776,6 +812,16 @@ export function createApp(engine: MirrorEngine) {
       postSystem(cultRoom(clan.id), c.get('userId'), `${admin ? 'made' : 'removed'} ${who ? displayName(who) : 'a member'} ${admin ? 'an admin' : 'as admin'}`);
     }
     return c.json({ memberId, admin });
+  });
+
+  // Admins set the cult's picture ({ image: data URL }) or take it off ({ image: null }).
+  cultRoutes.post('/:clanId/image', async (c) => {
+    const clan = clanFor(c);
+    if (!clans.isAdmin(clan.id, c.get('userId'))) throw bad(403, 'only admins can change the cult picture');
+    const { image } = z.object({ image: z.string().max(800_000).nullable() }).parse(await c.req.json());
+    if (image) cultImages.set(clan.id, imageOrBad(image, CULT_IMAGE_MAX_BYTES));
+    else cultImages.clear(clan.id);
+    return c.json(clanView(clan.id, c.get('userId')));
   });
 
   // The owner makes their cult public (listed, joinable without the code) or private again.
@@ -846,14 +892,12 @@ export function createApp(engine: MirrorEngine) {
   cultRoutes.get('/:clanId/messages', (c) => {
     const clan = clanFor(c);
     const limit = c.req.query('limit');
-    return c.json(listMessages(cultRoom(clan.id), { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined }));
+    return c.json(listMessages(cultRoom(clan.id), { before: c.req.query('before') || undefined, limit: limit ? Number(limit) : undefined, viewerId: c.get('userId') }));
   });
 
   cultRoutes.post('/:clanId/messages', async (c) => {
     const clan = clanFor(c);
-    const body = z
-      .object({ body: z.string().max(MAX_MESSAGE_CHARS * 2), replyTo: z.string().max(64).nullish(), markerId: z.string().max(128).nullish() })
-      .parse(await c.req.json());
+    const body = MessageInput.parse(await c.req.json());
     return c.json(postMessage(cultRoom(clan.id), c.get('userId'), body), 201);
   });
 
