@@ -80,12 +80,12 @@ const toClan = (r: ClanRow): Clan => ({
   createdAt: r.created_at,
   visibility: r.visibility === 'public' ? 'public' : 'private',
 });
-const toMembership = (r: MemberRow): ClanMembership => ({
+const toMembership = (r: MemberRow, createdBy?: string): ClanMembership => ({
   clanId: r.clan_id,
   userId: r.user_id,
   policy: { enabled: r.mirror_enabled === 1, balancePercentCap: r.balance_percent_cap, maxUsdPerTrade: r.max_usd_per_trade },
   joinedAt: r.joined_at,
-  role: r.role === 'admin' ? 'admin' : 'member',
+  role: r.user_id === createdBy || r.role === 'admin' ? 'admin' : 'member',
 });
 
 export const clans = {
@@ -122,6 +122,9 @@ export const clans = {
   },
 
   setRole(clanId: string, userId: string, role: CultRole) {
+    if (role !== 'admin' && this.get(clanId)?.createdBy === userId) {
+      throw new Error('The cult owner cannot be demoted.');
+    }
     getDb().prepare('UPDATE clan_members SET role = ? WHERE clan_id = ? AND user_id = ?').run(role, clanId, userId);
   },
 
@@ -154,13 +157,14 @@ export const clans = {
   // Policy is written once here. There's deliberately no per-trade prompt.
   join(clanId: string, userId: string, policy: MirrorPolicy = COPY_OFF) {
     const p = MirrorPolicySchema.parse(policy);
+    const role: CultRole = this.get(clanId)?.createdBy === userId ? 'admin' : 'member';
     getDb()
       .prepare(
-        `INSERT INTO clan_members (clan_id, user_id, mirror_enabled, balance_percent_cap, max_usd_per_trade, joined_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO clan_members (clan_id, user_id, mirror_enabled, balance_percent_cap, max_usd_per_trade, joined_at, role)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(clan_id, user_id) DO NOTHING`,
       )
-      .run(clanId, userId, p.enabled ? 1 : 0, p.balancePercentCap, p.maxUsdPerTrade, Date.now());
+      .run(clanId, userId, p.enabled ? 1 : 0, p.balancePercentCap, p.maxUsdPerTrade, Date.now(), role);
   },
 
   // Replaces the member's policy (after they've signed a fresh consent).
@@ -176,8 +180,9 @@ export const clans = {
   },
 
   members(clanId: string): ClanMembership[] {
+    const createdBy = this.get(clanId)?.createdBy;
     return (getDb().prepare('SELECT * FROM clan_members WHERE clan_id = ? ORDER BY joined_at').all(clanId) as unknown as MemberRow[]).map(
-      toMembership,
+      (r) => toMembership(r, createdBy),
     );
   },
 
@@ -185,7 +190,7 @@ export const clans = {
     const r = getDb().prepare('SELECT * FROM clan_members WHERE clan_id = ? AND user_id = ?').get(clanId, userId) as
       | MemberRow
       | undefined;
-    return r ? toMembership(r) : null;
+    return r ? toMembership(r, this.get(clanId)?.createdBy) : null;
   },
 
   forUser(userId: string): Clan[] {
