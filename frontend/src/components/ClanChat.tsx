@@ -1,15 +1,17 @@
 'use client';
 
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type TouchEvent } from 'react';
 import { getAccessToken } from '@/lib/auth';
 import { isDemo } from '@/lib/demo';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { ArrowDown, ArrowRight, CandlestickChart, Link2, Pin, Reply, RotateCcw, Send, SmilePlus, X } from './icons';
-import { getRoomEventUrl, getRoomMessages, getTyping, pinRoomMessage, reactToMessage, sendRoomMessage } from '@/lib/api';
+import { ArrowDown, ArrowRight, CandlestickChart, ImagePlus, Link2, Pin, Reply, RotateCcw, Send, SmilePlus, X } from './icons';
+import { getRoomEventUrl, getRoomMessages, getTyping, hasSocialExtras, pinRoomMessage, reactToMessage, sendRoomMessage } from '@/lib/api';
 import type { ChatMessage, ChatPage, ChatRoom, ChartMarker, Reaction } from '@/lib/contracts';
 import { mentions } from '@/lib/prefs';
 import { dollars, signedDollars } from '@/lib/format';
+import { fittedImage } from '@/lib/image';
 import { Avatar } from './Avatar';
+import { ChartShareCard, sharedChartOf } from './ChartShareCard';
 import { RoomBadge } from './RoomBadge';
 import { TokenLogo } from './TokenLogo';
 
@@ -37,6 +39,8 @@ type Props = {
   // amount, opened in your own account).
   copyable?: boolean; copyUsd?: number;
   onCopyTrade?: (markerId: string, symbol: string, usd: number) => void;
+  // A market chart sent to the cult opens that market.
+  onOpenMarket?: (marketId: string) => void;
 };
 
 const CULT_SHARE = 'Join my cult ';
@@ -48,6 +52,11 @@ type Shown = ChatMessage & { local?: 'sending' | 'failed' };
 
 const messageError = (error: unknown) => error instanceof Error ? error.message : 'Messages are unavailable.';
 const GROUP_MS = 5 * 60_000;
+// A reply's quote, or a pinned line, for a message that may be just a photo.
+const preview = (message: { body: string; imageUrl?: string | null }) => message.body || (message.imageUrl ? 'Photo' : '');
+// Phones: how far a message is swiped right before letting go starts a reply.
+const SWIPE_REPLY = 56;
+const SWIPE_MAX = 96;
 const dayLabel = (iso: string) => {
   const d = new Date(iso);
   const today = new Date();
@@ -82,7 +91,7 @@ function readTrade(body: string): { symbol: string; tone: 'long' | 'short' | 'bu
   return { symbol, tone: 'buy' };
 }
 
-export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false, meId, meName, markers = [], onTrade, headerExtra, shareCults, myCultIds = [], onJoinCult, onOpenRoom, copyable = false, copyUsd = 50, onCopyTrade }: Props) {
+export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMember, onActivity, onInvite, canPin = false, meId, meName, markers = [], onTrade, headerExtra, shareCults, myCultIds = [], onJoinCult, onOpenRoom, copyable = false, copyUsd = 50, onCopyTrade, onOpenMarket }: Props) {
   const [sharePick, setSharePick] = useState(false);
   const [copying, setCopying] = useState<{ id: string; usd: string } | null>(null);
   const [messages, setMessages] = useState<Shown[]>([]);
@@ -101,9 +110,14 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionHidden, setMentionHidden] = useState(false);
   const pendingCaret = useRef<number | null>(null);
-  // Reactions and typing come from the demo for now; live rooms show them once
-  // the backend stores reactions and sends typing events.
-  const social = isDemo();
+  // A photo picked for the next message (resized), and one opened full screen.
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
+  // Reactions, typing and photos come from the demo for now; live rooms show
+  // them once the backend stores them (lib/api hasSocialExtras).
+  const social = hasSocialExtras();
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const stickToBottom = useRef(true);
@@ -117,6 +131,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     setLoading(true);
     setReplyTo(null);
     setMarkerId(null);
+    setPhoto(null);
     setUnread(0);
     stickToBottom.current = true;
     getAccessToken().then(accessToken => {
@@ -174,6 +189,18 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     document.addEventListener('keydown', escape);
     return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', escape); };
   }, [picker]);
+  // The picker opens under its message: on the latest ones that's below the
+  // fold (behind the composer), so bring it into view.
+  useEffect(() => {
+    if (picker) listRef.current?.querySelector('.reaction-picker')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [picker]);
+  // The full-screen photo closes with Escape too.
+  useEffect(() => {
+    if (!viewing) return;
+    const escape = (event: globalThis.KeyboardEvent) => { if (event.key === 'Escape') setViewing(null); };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [viewing]);
 
   const react = async (message: Shown, emoji: string) => {
     setPicker(null);
@@ -195,8 +222,54 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     {REACTIONS.map(emoji => <button key={emoji} type="button" role="menuitem" aria-label={`React ${emoji}`} onClick={() => void react(message, emoji)}>{emoji}</button>)}
   </div>;
   const reactButton = (message: Shown) => social && <button title="React" data-picker aria-expanded={picker === message.id} onClick={() => setPicker(open => open === message.id ? null : message.id)}><SmilePlus size={13} /></button>;
-  // Phones have no hover actions: tapping a message opens its reactions.
-  const tapToReact = (message: Shown) => () => { if (social && !message.local && window.matchMedia('(hover: none)').matches) setPicker(open => open === message.id ? null : message.id); };
+  // Phones have no hover actions: tapping a message or a trade opens its
+  // reactions (its own buttons, links and photos still do their thing).
+  const tapToReact = (message: Shown) => (event: MouseEvent) => {
+    if (!social || message.local || !window.matchMedia('(hover: none)').matches) return;
+    if ((event.target as Element).closest('button, a, input, label')) return;
+    setPicker(open => open === message.id ? null : message.id);
+  };
+  const startReply = (message: Shown) => { setReplyTo(message); inputRef.current?.focus(); };
+
+  // Phones: swipe a message to the right to reply to it. The row follows the
+  // finger (with a reply arrow fading in behind it) and springs back.
+  const swipe = useRef<{ id: string; x: number; y: number; dx: number; axis: 'x' | 'y' | null; row: HTMLElement } | null>(null);
+  const settle = (row: HTMLElement) => {
+    row.style.transition = 'transform 0.2s ease';
+    row.style.transform = '';
+    row.style.removeProperty('--swipe');
+    window.setTimeout(() => { row.style.transition = ''; }, 220);
+  };
+  const swipeToReply = (message: Shown) => message.local ? {} : {
+    onTouchStart: (event: TouchEvent<HTMLElement>) => {
+      const touch = event.touches[0];
+      swipe.current = touch && event.touches.length === 1 ? { id: message.id, x: touch.clientX, y: touch.clientY, dx: 0, axis: null, row: event.currentTarget } : null;
+    },
+    onTouchMove: (event: TouchEvent<HTMLElement>) => {
+      const s = swipe.current, touch = event.touches[0];
+      if (!s || s.id !== message.id || !touch) return;
+      const dx = touch.clientX - s.x, dy = touch.clientY - s.y;
+      if (!s.axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        s.axis = dx > 0 && Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'; // scrolling up or down wins
+      }
+      if (s.axis !== 'x') return;
+      const pull = Math.max(0, Math.min(dx, SWIPE_MAX));
+      if (s.dx < SWIPE_REPLY && pull >= SWIPE_REPLY) navigator.vibrate?.(8);
+      s.dx = pull;
+      s.row.style.transform = `translateX(${pull < SWIPE_REPLY ? pull : SWIPE_REPLY + (pull - SWIPE_REPLY) * 0.35}px)`;
+      s.row.style.setProperty('--swipe', String(Math.min(1, pull / SWIPE_REPLY)));
+    },
+    onTouchEnd: () => {
+      const s = swipe.current;
+      swipe.current = null;
+      if (!s || s.id !== message.id) return;
+      settle(s.row);
+      if (s.axis === 'x' && s.dx >= SWIPE_REPLY) startReply(message);
+    },
+    onTouchCancel: () => { const s = swipe.current; swipe.current = null; if (s) settle(s.row); },
+  };
+  const swipeArrow = <span className="chat-swipe-reply" aria-hidden="true"><Reply size={15} /></span>;
 
   const withMentions = (text: string): ReactNode => text.split(MENTION).map((part, i) => i % 2
     ? <span key={i} className={`chat-mention ${meName && part.slice(1).toLowerCase() === meName.toLowerCase() ? 'me' : ''}`}>{part}</span>
@@ -290,7 +363,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     try {
       const accessToken = await getAccessToken();
       if (!accessToken) throw new Error('Sign in again to send a message.');
-      const sent = await sendRoomMessage(accessToken, room.id, local.body, local.replyTo ?? undefined, local.markerId ?? undefined);
+      const sent = await sendRoomMessage(accessToken, room.id, local.body, local.replyTo ?? undefined, local.markerId ?? undefined, local.imageUrl ?? undefined);
       setMessages(current => {
         const withoutLocal = current.filter(item => item.id !== local.id);
         return withoutLocal.some(item => item.id === sent.id) ? withoutLocal : [...withoutLocal, sent];
@@ -317,20 +390,35 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
   const send = (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     const body = draft.trim();
-    if (!body || body.length > 1000) return;
+    if ((!body && !photo) || body.length > 1000 || photoBusy) return;
     const local: Shown = {
       id: `local:${Date.now()}`, room: room.id, kind: 'text', clanId: null, memberId: meId ?? 'me', memberName: 'You', memberAvatarUrl: null,
-      body, text: body, replyTo: replyTo?.id ?? null, markerId, createdAt: new Date().toISOString(), local: 'sending',
+      body, text: body, replyTo: replyTo?.id ?? null, markerId, createdAt: new Date().toISOString(), local: 'sending', ...(photo ? { imageUrl: photo } : {}),
     };
     stickToBottom.current = true;
     setMessages(current => [...current, local]);
     setDraft('');
+    setPhoto(null);
     setReplyTo(null);
     setMarkerId(null);
     setUnread(0);
     setError(null);
     void deliver(local);
     inputRef.current?.focus();
+  };
+  // A photo for the next message: picked, or pasted into the composer.
+  const pickPhoto = async (file: File) => {
+    setPhotoBusy(true);
+    setError(null);
+    try { setPhoto((await fittedImage(file)).dataUrl); inputRef.current?.focus(); }
+    catch (reason) { setError(messageError(reason)); }
+    finally { setPhotoBusy(false); if (photoInput.current) photoInput.current.value = ''; }
+  };
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const file = social ? [...event.clipboardData.files].find(item => item.type.startsWith('image/')) : undefined;
+    if (!file) return;
+    event.preventDefault();
+    void pickPhoto(file);
   };
   const retry = (message: Shown) => {
     setMessages(current => current.map(item => item.id === message.id ? { ...item, local: 'sending' } : item));
@@ -372,7 +460,9 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
 
   // A new trade by someone else, in a cult, while your Auto-follow is off.
   const canCopy = (message: Shown) => room.kind === 'cult' && copyable && !!onCopyTrade && !!message.markerId
-    && !message.markerId.startsWith('cult:') && message.memberId !== meId && /^(opened|bought)\b/.test(message.body);
+    && !message.markerId.startsWith('cult:') && !sharedChartOf(message.markerId) && message.memberId !== meId && /^(opened|bought)\b/.test(message.body);
+  // A trade's marker opens on the cult chart; shared cults and charts are cards of their own.
+  const tradeLink = (message: Shown) => !!message.markerId && !message.markerId.startsWith('cult:') && !sharedChartOf(message.markerId);
   const copyNow = (message: Shown, symbol: string) => {
     const usd = Number(copying?.usd);
     if (!(usd > 0) || !message.markerId) return;
@@ -384,7 +474,8 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
     const live = message.markerId ? markers.find(item => item.id === message.markerId) : undefined;
     const tools = social && <div className="chat-trade-react" data-picker>{reactButton(message)}{reactionPicker(message)}</div>;
     if (!trade) return <div className="chat-notice" key={message.id}><span><strong>{message.memberName}</strong> {message.body}</span><time>{time(message.createdAt)}</time></div>;
-    return <div className="chat-trade" key={message.id}>
+    return <div className="chat-trade" key={message.id} data-picker={social || undefined} onClick={tapToReact(message)} {...swipeToReply(message)}>
+      {swipeArrow}
       <TokenLogo symbol={trade.symbol} />
       <div className="chat-trade-main">
         <span><button className="chat-name" onClick={() => onMember(message.memberId)}>{message.memberId === meId ? 'You' : message.memberName}</button> {message.body}</span>
@@ -401,7 +492,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
           <button type="button" className="icon-btn icon-btn--sm" title="Cancel" onClick={() => setCopying(null)}><X size={13} /></button>
         </span>
         : <button type="button" className="btn btn-primary btn-sm chat-trade-copy" onClick={() => setCopying({ id: message.id, usd: String(copyUsd) })}>Copy</button>)}
-      {message.markerId && <button className="chat-trade-open" onClick={() => onOpenMarker(message.markerId!)}>View on chart <ArrowRight size={13} /></button>}
+      {tradeLink(message) && <button className="chat-trade-open" onClick={() => onOpenMarker(message.markerId!)}>View on chart <ArrowRight size={13} /></button>}
     </div>;
   };
 
@@ -411,7 +502,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
       <div><h2>{room.name}</h2><small>{room.memberCount} {room.memberCount === 1 ? 'member' : 'members'}{room.kind === 'cult' ? ' · trades post here' : ''}</small></div>
       <div className="chat-head-tools">{headerExtra}{room.kind === 'cult' && onInvite && <button className="btn btn-ghost btn-sm" onClick={onInvite}><Link2 size={14} /> Invite</button>}</div>
     </div>
-    {pinned && <div className="chat-pinned"><Pin size={14} /><span><strong>{pinned.memberName}</strong> {pinned.body}</span>{canPin && <button className="icon-btn icon-btn--sm" title="Unpin message" onClick={() => void togglePin(null)}><X size={13} /></button>}</div>}
+    {pinned && <div className="chat-pinned"><Pin size={14} /><span><strong>{pinned.memberName}</strong> {pinned.body || 'Photo'}</span>{canPin && <button className="icon-btn icon-btn--sm" title="Unpin message" onClick={() => void togglePin(null)}><X size={13} /></button>}</div>}
     <div className="chat-log" ref={listRef} onScroll={event => {
       const list = event.currentTarget;
       stickToBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
@@ -429,15 +520,23 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
           const grouped = !newDay && prev && prev.kind === 'text' && prev.memberId === message.memberId && Date.parse(message.createdAt) - Date.parse(prev.createdAt) < GROUP_MS;
           const quoted = message.replyTo ? messages.find(item => item.id === message.replyTo) : null;
           const forMe = !mine && !!meName && mentions(message.body, meName);
-          return <Fragment key={message.id}>{separator}<div className={`chat-row ${mine ? 'mine' : ''} ${grouped ? 'grouped' : ''}`} id={'chat-message-' + message.id}>
+          const chart = sharedChartOf(message.markerId);
+          return <Fragment key={message.id}>{separator}<div className={`chat-row ${mine ? 'mine' : ''} ${grouped ? 'grouped' : ''}`} id={'chat-message-' + message.id} {...swipeToReply(message)}>
+            {swipeArrow}
             {!mine && (grouped ? <span className="chat-avatar-space" /> : <button className="chat-avatar" onClick={() => onMember(message.memberId)} title={message.memberName}><Avatar name={message.memberName} url={message.memberAvatarUrl} /></button>)}
             <div className="chat-bubble-wrap">
               {!mine && !grouped && <button className="chat-name" onClick={() => onMember(message.memberId)}>{message.memberName}</button>}
-              <div className={`chat-bubble ${message.local ?? ''} ${forMe ? 'mentioned' : ''}`} data-picker onClick={tapToReact(message)}>
-                {quoted && <div className="chat-quote"><Reply size={11} /> <strong>{quoted.memberName}</strong> {quoted.body.slice(0, 80)}</div>}
+              <div className={`chat-bubble ${message.local ?? ''} ${forMe ? 'mentioned' : ''}${message.imageUrl ? ' has-photo' : ''}${chart ? ' has-chart' : ''}`} data-picker onClick={tapToReact(message)}>
+                {quoted && <div className="chat-quote"><Reply size={11} /> <strong>{quoted.memberName}</strong> {preview(quoted).slice(0, 80)}</div>}
+                {message.imageUrl && <button type="button" className="chat-photo" title="Open photo" onClick={() => setViewing(message.imageUrl!)}>
+                  {/* Chat photos are data URLs or our API's; next/image adds nothing here. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={message.imageUrl} alt={message.body ? `Photo: ${message.body}` : `Photo from ${message.memberName}`} loading="lazy" />
+                </button>}
                 {(() => {
+                  if (chart) return <ChartShareCard marketId={chart} onOpen={id => onOpenMarket?.(id)} />;
                   const cult = sharedCultOf(message);
-                  if (!cult) return <p>{withMentions(message.text)}</p>;
+                  if (!cult) return message.text ? <p>{withMentions(message.text)}</p> : null;
                   const joined = myCultIds.includes(cult.id);
                   return <div className="chat-cult-share">
                     <RoomBadge icon={cult.name.trim()[0]?.toUpperCase() ?? 'C'} kind="cult" size="sm" />
@@ -450,7 +549,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
               </div>
               {reactionRow(message)}
               {reactionPicker(message)}
-              {!message.local && <div className="chat-actions" data-picker>{reactButton(message)}<button title="Reply" onClick={() => { setReplyTo(message); inputRef.current?.focus(); }}><Reply size={13} /></button>{message.markerId && !message.markerId.startsWith('cult:') && <button title="View trade on chart" onClick={() => onOpenMarker(message.markerId!)}><Link2 size={13} /></button>}{canPin && <button title="Pin message" onClick={() => void togglePin(message.id)}><Pin size={13} /></button>}</div>}
+              {!message.local && <div className="chat-actions" data-picker>{reactButton(message)}<button title="Reply" onClick={() => startReply(message)}><Reply size={13} /></button>{tradeLink(message) && <button title="View trade on chart" onClick={() => onOpenMarker(message.markerId!)}><Link2 size={13} /></button>}{canPin && <button title="Pin message" onClick={() => void togglePin(message.id)}><Pin size={13} /></button>}</div>}
             </div>
           </div></Fragment>;
         })}
@@ -466,10 +565,18 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
         {replyTo && <div className="chat-context"><Reply size={13} /> Replying to {replyTo.memberName}<button type="button" title="Cancel reply" onClick={() => setReplyTo(null)}><X size={13} /></button></div>}
         {markerId && <div className="chat-context"><Link2 size={13} /> Linked trade<button type="button" title="Remove trade link" onClick={() => setMarkerId(null)}><X size={13} /></button></div>}
       </div>}
+      {(photo || photoBusy) && <div className="chat-photo-draft">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {photo ? <img src={photo} alt="Photo to send" /> : <span className="skel" />}
+        <span>{photo ? 'Photo ready. Add a caption or send it as it is.' : 'Preparing photo…'}</span>
+        {photo && <button type="button" className="icon-btn icon-btn--sm" title="Remove photo" onClick={() => setPhoto(null)}><X size={13} /></button>}
+      </div>}
       <div className="chat-compose-row">
+        {social && <><button className="icon-btn chat-attach" type="button" title="Send a photo" aria-label="Send a photo" disabled={photoBusy} onClick={() => photoInput.current?.click()}><ImagePlus size={17} /></button>
+          <input ref={photoInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; if (file) void pickPhoto(file); }} /></>}
         {room.kind === 'cult' && selectedMarker && !markerId && <button className="icon-btn chat-attach" type="button" title="Link the selected trade" onClick={() => setMarkerId(selectedMarker.id)}><Link2 size={16} /></button>}
-        <textarea ref={inputRef} value={draft} onChange={event => { setDraft(event.target.value); setCaret(event.target.selectionStart); setMentionHidden(false); setMentionIndex(0); }} onSelect={event => setCaret(event.currentTarget.selectionStart)} onKeyDown={onKey} maxLength={1000} rows={1} placeholder={`Message ${room.name}`} aria-label={`Message ${room.name}`} />
-        <button className="chat-send" type="submit" title="Send" disabled={!draft.trim()}><Send size={16} /></button>
+        <textarea ref={inputRef} value={draft} onChange={event => { setDraft(event.target.value); setCaret(event.target.selectionStart); setMentionHidden(false); setMentionIndex(0); }} onSelect={event => setCaret(event.currentTarget.selectionStart)} onKeyDown={onKey} onPaste={onPaste} maxLength={1000} rows={1} placeholder={photo ? 'Add a caption' : `Message ${room.name}`} aria-label={`Message ${room.name}`} />
+        <button className="chat-send" type="submit" title="Send" disabled={(!draft.trim() && !photo) || photoBusy}><Send size={16} /></button>
       </div>
       {sharePick && shareCults && <div className="chat-share-pick">
         {shareCults.length ? shareCults.map(cult => <button key={cult.id} type="button" onClick={() => shareCult(cult)}><RoomBadge icon={cult.name.trim()[0]?.toUpperCase() ?? 'C'} kind="cult" size="sm" /> {cult.name}</button>)
@@ -482,5 +589,10 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
         <span className="chat-hint">Enter to send · Shift+Enter for a new line</span>
       </div>}
     </form>
+    {viewing && <div className="photo-viewer" role="dialog" aria-modal="true" aria-label="Photo" onClick={() => setViewing(null)}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={viewing} alt="" onClick={event => event.stopPropagation()} />
+      <button type="button" className="icon-btn photo-viewer-close" title="Close photo" aria-label="Close photo" autoFocus onClick={() => setViewing(null)}><X size={18} /></button>
+    </div>}
   </div>;
 }

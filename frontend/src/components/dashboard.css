@@ -1672,3 +1672,38 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 
 /* Account > Open: Share is labelled; phones show just the icon. */
 @media (max-width: 760px) { .ttable-share span { display: none; } .ttable-share { padding: 0 10px; } }
+
+/* Phones: swipe a message right to reply. The arrow waits behind the row and
+   fades in as it's pulled (--swipe 0 to 1, set while dragging). */
+.chat-row, .chat-trade { position: relative; touch-action: pan-y; }
+.chat-swipe-reply { position: absolute; top: 50%; left: -34px; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--s3); color: var(--accent-text); opacity: var(--swipe, 0); transform: translateY(-50%) scale(calc(0.6 + var(--swipe, 0) * 0.4)); pointer-events: none; }
+
+/* Photos in chat: in the bubble, being added in the composer, and full screen. */
+.chat-bubble.has-photo { padding-top: 5px; }
+.chat-bubble.has-photo .chat-quote { margin-top: 7px; }
+.chat-photo { display: block; margin: 0 -12px 7px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--s2); cursor: zoom-in; }
+.chat-photo img { display: block; width: auto; max-width: min(320px, 100%); max-height: 360px; object-fit: cover; }
+.chat-bubble.has-photo:not(:has(p)) .chat-photo { margin-bottom: 4px; }
+.chat-photo-draft { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; padding: 7px 7px 7px 7px; border-radius: var(--r-inner); background: var(--s2); font-size: 13px; color: var(--muted); }
+.chat-photo-draft img, .chat-photo-draft .skel { flex: none; width: 48px; height: 48px; border-radius: 8px; object-fit: cover; }
+.chat-photo-draft span:not(.skel) { flex: 1; min-width: 0; }
+.photo-viewer { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 56px 16px 24px; background: rgba(0, 0, 0, 0.88); cursor: zoom-out; animation: fade 0.15s ease both; }
+.photo-viewer img { max-width: 100%; max-height: 100%; border-radius: var(--r-inner); object-fit: contain; cursor: default; }
+.photo-viewer-close { position: absolute; top: 12px; right: 12px; background: var(--s3); }
+
+/* A market chart sent to the cult. */
+.chat-bubble.has-chart { padding-top: 12px; }
+.chart-share { display: flex; flex-direction: column; gap: 12px; width: min(320px, 100%); min-width: 240px; }
+.chart-share-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.chart-share-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.chart-share-name strong { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-share-name small { font-size: 12px; color: var(--dim); }
+.chart-share-price { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.chart-share-price b { font-size: 15px; font-weight: 500; }
+.chart-share-price small { font-size: 12px; }
+.chart-share-line { display: block; width: 100%; height: 64px; overflow: visible; }
+.chart-share-line polyline { fill: none; stroke: var(--accent-text); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-share-line polygon { fill: rgba(147, 51, 234, 0.16); stroke: none; }
+.chart-share-line--empty { border-radius: 8px; background: var(--s2); }
+.chart-share-open { align-self: flex-start; }
+@media (max-width: 760px) { .chart-share { min-width: 0; } }

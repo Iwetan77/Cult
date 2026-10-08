@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from 'react';
 import { LogOut, Plus, Settings } from './icons';
 import type { ChatRoom, Me } from '@/lib/contracts';
-import { timeAgo } from '@/lib/format';
+import { messageLine, timeAgo } from '@/lib/format';
 import { RoomBadge } from './RoomBadge';
 import { UnreadBubble, latestFirst } from './HomeView';
 
@@ -27,7 +27,7 @@ type Props = {
 const preview = (room: ChatRoom) => {
   const last = room.lastMessage;
   if (!last) return `${room.memberCount.toLocaleString()} ${room.memberCount === 1 ? 'member' : 'members'}`;
-  return last.kind === 'system' ? last.text : `${last.memberName}: ${last.body}`;
+  return last.kind === 'system' ? last.text : `${last.memberName}: ${messageLine(last)}`;
 };
 
 export function SideRail({ me, nav, activeRoom, unread, mentioned, onRoom, onCreate, settingsActive, onSettings, onSignOut }: Props) {
