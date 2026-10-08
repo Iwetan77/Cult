@@ -8,7 +8,7 @@ import { rpc } from '../chain/signer.js';
 import { NadWatcher, type NadTradeEvent } from '../nadfun/watcher.js';
 import { getExchangeInfo } from '../perpl/context.js';
 import type { TradingSession } from '../perpl/session.js';
-import { PositionSide, type Position } from '../perpl/types.js';
+import { PositionSide, PositionStatus, type Position } from '../perpl/types.js';
 import { monPriceAusd } from '../prices.js';
 import { clans } from '../store/clans.js';
 import { members } from '../store/members.js';
@@ -47,6 +47,7 @@ export interface MirrorEngineEvents {
   trade: [LeaderTrade];
   tradeChanged: [LeaderTrade, number]; // the leader added or partly exited; size after / before
   tradeClosed: [LeaderTrade];
+  liquidation: [string, Position];
   mirror: [Mirror];
   adjustment: [Adjustment];
 }
@@ -100,7 +101,8 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   }
 
   async start() {
-    for (const userId of clans.allMemberUserIds()) await this.watch(userId).catch((e) => this.log(`watch ${userId}`, e));
+    const watched = new Set([...clans.allMemberUserIds(), ...members.all().filter(member => member.apiKey).map(member => member.userId)]);
+    for (const userId of watched) await this.watch(userId).catch((e) => this.log(`watch ${userId}`, e));
     await this.nad?.start();
     await this.recover();
   }
@@ -174,6 +176,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   }
 
   private async onPerplClosed(userId: string, p: Position) {
+    if (p.st === PositionStatus.Liquidated) this.emit('liquidation', userId, p);
     this.perplSeen.delete(`${p.acc}:${p.pid}`);
     const trade = trades.byPosition(p.acc, p.pid) ?? trades.openFor(userId, 'perpl', String(p.mkt));
     if (trade && !trade.closedAt) await this.closeTrade(trade);

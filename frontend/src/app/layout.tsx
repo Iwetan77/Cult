@@ -24,7 +24,7 @@ const aeonik = localFont({
   display: 'swap',
 });
 
-export const metadata: Metadata = { title: 'Cult | Trade with your cult', description: 'Trading cults on Monad.' };
+export const metadata: Metadata = { title: 'Cult | Trade with your cult', description: 'Trading cults on Monad.', appleWebApp: { capable: true, title: 'Cult', statusBarStyle: 'black-translucent' }, icons: { apple: '/push-icon-192.png' } };
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // Extensions such as Grammarly add attributes to <html>/<body> before React
   // hydrates; ignore those (this only covers these two tags' own attributes).

@@ -116,6 +116,10 @@ export const ensureGas = (token: string) => api<{ mon: number; topped: boolean; 
 export const resetPin = (token: string, pin: string) => api<{ pinSet: true }>('/v1/me/pin/reset', token, { method: 'POST', body: json({ pin }) });
 export const uploadAvatar = (token: string, image: string) => api<{ avatarUrl: string }>('/v1/me/avatar', token, { method: 'POST', body: json({ image }) });
 export const deleteAvatar = (token: string) => api<void>('/v1/me/avatar', token, { method: 'DELETE' });
+export const getPushConfig = (token: string) => api<{ publicKey: string }>('/v1/notifications/push', token);
+export const savePushSubscription = (token: string, subscription: PushSubscriptionJSON) => api<void>('/v1/notifications/push', token, { method: 'POST', body: json(subscription) });
+export const deletePushSubscription = (token: string, endpoint: string) => api<void>('/v1/notifications/push', token, { method: 'DELETE', body: json({ endpoint }) });
+export const testPhonePush = (token: string) => api<void>('/v1/notifications/push/test', token, { method: 'POST' });
 // Prediction markets: market data comes straight from Polymarket
 // (lib/polymarket.ts); bets go through the backend (Polymarket account per
 // member). The demo answers locally. Steps the member's wallet must sign come
