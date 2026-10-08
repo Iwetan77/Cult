@@ -7,6 +7,7 @@ import { Copy, RefreshCw, X } from './icons';
 import { getDeposit } from '@/lib/api';
 import type { DepositInfo } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
+import { depositInstruction, testnetDepositWarning } from '@/lib/deposit';
 import { TokenLogo } from './TokenLogo';
 import { CrossChainDeposit } from './CrossChain';
 
@@ -47,7 +48,7 @@ export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPerm
   return <div className="modal-backdrop deposit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="deposit-sheet" role="dialog" aria-modal="true" aria-label="Deposit">
       <div className="trade-sheet-head"><h2>Deposit</h2><button className="icon-btn" title="Close deposit" onClick={onClose}><X size={18} /></button></div>
-      {!signerReady && <div className="deposit-permission"><strong>Allow Cult to place your trades</strong><p className="field-note">Needed to convert USDC and fund trades automatically</p><button className="btn btn-ghost btn-block" disabled={permissionBusy} onClick={onGrantPermission}>Allow</button></div>}
+      {!signerReady && <div className="deposit-permission"><strong>Allow Cult to place your trades</strong><p className="field-note">{info?.tokens.some(token => token.symbol === 'USDC') ? 'Needed to convert USDC and fund trades automatically' : 'Needed to fund trades automatically'}</p><button className="btn btn-ghost btn-block" disabled={permissionBusy} onClick={onGrantPermission}>Allow</button></div>}
       {crossChain && <div className="seg seg--sm" role="tablist">
         <button role="tab" aria-selected={network === 'monad'} className={network === 'monad' ? 'on' : ''} onClick={() => setNetwork('monad')}>Monad</button>
         <button role="tab" aria-selected={network === 'other'} className={network === 'other' ? 'on' : ''} onClick={() => setNetwork('other')}>Another chain</button>
@@ -56,7 +57,8 @@ export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPerm
         <div className="deposit-qr"><QRCodeSVG value={info.address} size={184} level="M" bgColor="#ffffff" fgColor="#151820" /></div>
         <div className="deposit-address-large">{info.address}</div>
         <button className="btn btn-ghost btn-block" onClick={copy}><Copy size={15} /> {copied ? 'Copied' : 'Copy address'}</button>
-        <p className="deposit-instruction">Send MON, USDC or AUSD on {info.network.name} to this address.</p>
+        <p className="deposit-instruction">{depositInstruction(info)}</p>
+        {info.network.chainId === 10143 && <p className="notice-line" role="note">{testnetDepositWarning}</p>}
         <div className="deposit-tokens">{info.tokens.map(token => <div className="deposit-token" key={token.symbol}><TokenLogo symbol={token.symbol} className="deposit-token-icon" /><span className="deposit-token-name"><strong>{token.name}</strong><small>{token.what}</small></span><span className="deposit-token-balance"><strong>{new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(token.balance)} {token.symbol}</strong><small>{dollars(token.balanceUsd)}</small></span></div>)}</div>
         {info.tradingAccountUsd != null && <div className="deposit-total"><span>Trading account</span><strong>{dollars(info.tradingAccountUsd)}</strong></div>}
         <div className="deposit-total grand"><span>Total</span><strong>{dollars(info.totalUsd)}</strong></div>
