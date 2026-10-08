@@ -577,20 +577,20 @@ export function createApp(engine: MirrorEngine) {
       const mine = new Set(clans.forUser(userId).map((cl) => cl.id));
       const notMine = body.cultIds.find((id) => !mine.has(id));
       if (notMine) throw bad(400, `you're not in cult ${notMine}`);
-      setAudience(userId, v, body.marketId, body.cultIds);
     }
     if (v === 'perpl') {
       if (!m.perplAccountId || !m.forwarding) throw bad(409, 'finish Perpl setup first');
       if (body.side === 'buy') throw bad(400, 'perpl side must be long or short');
       await getMarket(Number(body.marketId));
     } else if (body.side !== 'buy') throw bad(400, 'nad.fun side must be buy');
-    const fill = await venue(v)
-      .open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage })
-      .catch((e) => {
-        clearAudience(userId, v, body.marketId); // nothing opened: the pick mustn't apply to a later trade
-        throw e;
-      });
-    return c.json(fill);
+    if (body.cultIds) setAudience(userId, v, body.marketId, body.cultIds);
+    try {
+      const fill = await venue(v).open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage });
+      return c.json(fill);
+    } catch (error) {
+      clearAudience(userId, v, body.marketId);
+      throw error;
+    }
   });
 
   // TP/SL on your own Perpl position, as real Perpl trigger orders. A number

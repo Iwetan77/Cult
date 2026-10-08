@@ -18,6 +18,8 @@ import { cachedList } from '@/lib/marketCache';
 import { dollars, messageLine, price, shortAddress } from '@/lib/format';
 import { validateMirrorPolicy } from '@/lib/mirrorPolicy';
 import { tradeAudienceNotice } from '@/lib/tradeAudience';
+import { copyFailureFromEvent, perpsCopyReady, type CopyFailure } from '@/lib/copyStatus';
+import { availableTradeFunds } from '@/lib/tradeFunds';
 import { disablePhonePush } from '@/lib/phonePush';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
@@ -249,6 +251,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   const [name, setName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [liveMessage, setLiveMessage] = useState<ChatMessage | null>(null);
+  const [copyFailure, setCopyFailure] = useState<CopyFailure | null>(null);
   const [stackUsd, setStackUsd] = useState('50');
   const [busy, setBusy] = useState<string | null>(null);
   const [progressText, setProgressText] = useState<string | null>(null);
@@ -532,6 +535,10 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         setLiveConnected(true);
       },
       onmessage: message => {
+        if (message.event === 'mirror' || message.event === 'adjustment') {
+          const failure = copyFailureFromEvent(message.data, me?.id, clanId);
+          if (failure) { setCopyFailure(failure); setError(`Your copy did not run: ${failure.reason}`); }
+        }
         if (message.event === 'message') {
           try {
             const incoming = JSON.parse(message.data) as ChatMessage;
@@ -548,7 +555,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       },
     }).catch(error => { if (!controller.signal.aborted) { setLiveConnected(false); if (error instanceof RateLimitError) setError(error.message); } });
     return () => { controller.abort(); window.clearTimeout(refreshTimer); setLiveConnected(false); };
-  }, [demo, authenticated, clanId, marketId, loadChart, loadMe]);
+  }, [demo, authenticated, clanId, marketId, loadChart, loadMe, me?.id]);
   useEffect(() => {
     if (demo || !wallet || config?.chainId !== monadTestnet.id) return;
     let active = true;
@@ -749,7 +756,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     for (let attempt = 0; attempt < 8; attempt++) {
       const current = await getPerplSetup(auth);
       setSetup(current);
-      if (current.step === 'ready') { ready = true; setPerpsPrompt(false); setNotice(afterPerps.current ? 'Perps are enabled. Placing your trade…' : 'Perps are enabled.'); return; }
+      if (current.step === 'ready') { await loadMe(); ready = true; setPerpsPrompt(false); setNotice(afterPerps.current ? 'Perps are enabled. Placing your trade…' : 'Perps are enabled for your trades and new copies.'); return; }
       if (current.step === 'needs_collateral') throw new Error(collateralMessage(current.minAccountOpen, config.chainId));
       if (current.step === 'needs_key') {
         setProgressText('Authorize your perps trading key');
@@ -1221,6 +1228,9 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
           {activeRoom && <div className={`view-side room-side ${groupPanelOpen ? 'open' : ''}`}>
             <button className="sheet-close" onClick={() => setGroupPanelOpen(false)}><X size={16} /> Close</button>
             <GroupPanel key={activeRoom.id} room={activeRoom} cult={activeRoom.kind === 'cult' ? clan ?? null : null} config={config} snapshot={activeRoom.kind === 'cult' ? snapshot : null} selected={activeRoom.kind === 'cult' ? selected : null} busy={!!busy} signerPrompt={signerPrompt}
+              perpsReady={perpsCopyReady(me.perpl)} perpsFunded={(availableTradeFunds('perpl', me.balances, config?.monPriceAusd ?? null, config?.chainId) ?? 1) > 0}
+              copyFailure={copyFailure && copyFailure.clanId === clan?.id ? copyFailure.reason : null} onDismissCopyFailure={() => setCopyFailure(null)}
+              onEnablePerps={() => { void perform('prepare-perps', async () => { if (await ensurePerps()) { await loadMe(); setNotice('Perp copying is authorized.'); } }); }} onDeposit={() => setDepositOpen(true)}
               onGrantSigner={() => { void perform('grant-signer', async () => { const confirmed = await grantSigner(); setNotice(confirmed ? 'Trading signer is active.' : 'Signer approval is awaiting Privy verification.'); }); }}
               onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker}
               onOpenTrade={() => { if (market) { setMarketSolo(false); navigate({ view: 'markets', market: market.id }); } }} onGuideDrop={(marker, kind, level) => { void submitGuide(marker, kind, level); }}
