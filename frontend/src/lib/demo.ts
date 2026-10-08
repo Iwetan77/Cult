@@ -778,8 +778,8 @@ export async function demoApi<T>(path: string, options: RequestInit, real: () =>
     const bal = s.me.balances!;
     const info: DepositInfo = { address: DEMO_ADDRESS, network: { name: 'Monad Testnet', chainId: 10143 }, tokens: [
       { symbol: 'MON', name: 'Monad', what: 'Gas and meme buys', balance: bal.mon, balanceUsd: bal.mon * 0.42 },
-      { symbol: 'USDC', name: 'USD Coin', what: 'Converted to AUSD automatically', balance: 0, balanceUsd: 0 },
-      { symbol: 'AUSD', name: 'Agora Dollar', what: 'Dollars you trade with', balance: bal.walletUsd, balanceUsd: bal.walletUsd },
+      { symbol: 'USDC', name: 'USD Coin (testnet)', what: 'Held in your wallet, but cannot be converted into trading dollars on testnet.', balance: 0, balanceUsd: null, depositSupported: false },
+      { symbol: 'AUSD', name: 'Dollars (AUSD)', what: 'Dollars you trade with', balance: bal.walletUsd, balanceUsd: bal.walletUsd },
     ], tradingAccountUsd: bal.perplMarginUsd, totalUsd: bal.walletUsd + (bal.perplMarginUsd ?? 0) + bal.mon * 0.42 };
     return done(info);
   }
