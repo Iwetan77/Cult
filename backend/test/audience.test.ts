@@ -67,7 +67,7 @@ test('posted to nobody: kept to themselves', async () => {
 });
 
 // Only admins share trades with a cult. The creator always is one; others
-// become admins when an admin makes them one.
+// become admins when the owner makes them one.
 test('a member who is not an admin: their trade stays theirs alone', async () => {
   const t = await engine.leaderOpened({ venue: 'perpl', userId: 'F', market: '64', side: 'long', sizeRaw: '100', entryPriceAusd: 1, leverageHundredths: 200, marginFraction: 0.1 });
   assert.equal(t, null);
