@@ -798,12 +798,12 @@ export function createApp(engine: MirrorEngine) {
     return c.json(await cultBoard(clan, c.get('userId'), boardLimit(c), parsePeriod(c.req.query('period'))));
   });
 
-  // Admins make another member an admin (they then share trades with the cult
-  // too) or take it back. The creator always stays one.
+  // Only the owner grants or removes admin roles. Admins share trades;
+  // the creator always stays an admin.
   cultRoutes.post('/:clanId/admins', async (c) => {
     const clan = clanFor(c);
+    if (clan.createdBy !== c.get('userId')) throw bad(403, 'only the cult owner can change admins');
     const { memberId, admin } = z.object({ memberId: z.string().min(1).max(200), admin: z.boolean() }).parse(await c.req.json());
-    if (!clans.isAdmin(clan.id, c.get('userId'))) throw bad(403, 'only admins can change admins');
     if (!clans.membership(clan.id, memberId)) throw bad(404, 'not a member of this cult');
     if (memberId === clan.createdBy && !admin) throw bad(400, 'The cult owner cannot be demoted.');
     if (clans.isAdmin(clan.id, memberId) !== admin) {

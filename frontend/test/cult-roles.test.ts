@@ -12,12 +12,17 @@ test('admins never get a remove-admin action for the owner', () => {
   assert.equal(canManageCultMember({ isOwner: true, isAdmin: true }, { id: 'creator', owner: true, admin: true }, 'creator'), false);
 });
 
-test('ordinary role controls remain available only to admins and owners', () => {
+test('only owners get promotion and demotion controls for other members', () => {
   const member = { id: 'member', owner: false, admin: false };
-  assert.equal(canManageCultMember({ isOwner: false, isAdmin: false }, member, 'viewer'), false);
-  assert.equal(canManageCultMember({ isOwner: false, isAdmin: true }, member, 'admin'), true);
-  assert.equal(canManageCultMember({ isOwner: true }, member, 'creator'), true);
-  assert.equal(canManageCultMember({ isOwner: false, isAdmin: true }, member, 'member'), false);
+  for (const admin of [false, true]) {
+    const target = { ...member, admin };
+    assert.equal(canManageCultMember({ isOwner: false, isAdmin: false }, target, 'viewer'), false);
+    assert.equal(canManageCultMember({ isOwner: false, isAdmin: true }, target, 'admin'), false);
+    assert.equal(canManageCultMember({ isOwner: true }, target, 'creator'), true);
+    assert.equal(canManageCultMember({ isOwner: true, isAdmin: false }, target, 'creator'), true);
+    assert.equal(canManageCultMember({ isOwner: true }, target, undefined), false);
+    assert.equal(canManageCultMember({ isOwner: false, isAdmin: true }, target, 'member'), false);
+  }
   assert.equal(cultMemberRole(member, { isOwner: false }, 'viewer'), 'member');
   assert.equal(cultMemberRole({ ...member, admin: true }, { isOwner: false }, 'viewer'), 'admin');
 });
