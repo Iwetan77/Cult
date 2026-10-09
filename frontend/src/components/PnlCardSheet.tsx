@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Download, Link2, Shuffle, Share2, X } from './icons';
 import { drawPnlCard, encodePnlGif, prepareCard, roiText, type CardRenderer, type TradeResult } from '@/lib/pnlCard';
-import { giphyEnabled, moodOf, pickGif, type GifPick } from '@/lib/giphy';
+import { GifError, giphyEnabled, moodOf, pickGif, type GifPick } from '@/lib/giphy';
 import { loadGifFrames, type GifFrames } from '@/lib/gifFrames';
 import { dollars, signedDollars } from '@/lib/format';
 
@@ -51,12 +51,16 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
     let active = true;
     setGifLoading(true); setNote(null);
     pickGif(mood, shown.current).then(async pick => {
-      if (!pick) throw new Error('No GIF this time.');
-      const frames = await loadGifFrames(pick.url);
+      if (!pick) throw new GifError('No GIF matched this time');
+      const frames = await loadGifFrames(pick.url).catch(() => { throw new GifError('The GIF didn’t download'); });
       if (!active) return;
       shown.current = [...shown.current, pick.id];
       setGif({ pick, frames });
-    }).catch(() => { if (active) setNote(current => current ?? 'Couldn’t load a GIF, so this card is a still image.'); })
+    }).catch(reason => {
+      // Say why (a busy or refused GIF search, a failed download), so it can be fixed.
+      const why = reason instanceof GifError ? reason.message : 'Something went wrong';
+      if (active) setNote(current => current ?? `${why}, so this card is a still image. Tap New GIF to try again.`);
+    })
       .finally(() => { if (active) setGifLoading(false); });
     return () => { active = false; };
   }, [mood, reroll]);

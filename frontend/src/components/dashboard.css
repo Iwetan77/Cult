@@ -139,12 +139,14 @@
 .chips button.on { background: var(--accent-soft); color: var(--accent-text); }
 .chips--scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
 .chips--scroll::-webkit-scrollbar { display: none; }
-.tabs { display: flex; align-items: center; gap: 26px; margin: -7px 0 17px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+/* Scrolls sideways only: overflow-y hidden, or the row also drags up and down under a finger.
+   The rule under it is drawn inside the row (a shadow, not a border) so nothing is clipped. */
+.tabs { display: flex; align-items: center; gap: 26px; margin: -7px 0 17px; box-shadow: inset 0 -1px 0 var(--line); overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap; }
 .tabs button:hover { color: var(--text); }
 .tabs button.on { color: var(--text); }
-.tabs button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+.tabs button.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; border-radius: 2px; background: var(--accent); }
 .tabs button b { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--s3); color: var(--muted); font-size: 11px; font-weight: 500; display: inline-grid; place-items: center; }
 .tabs--fill { gap: 0; }
 .tabs--fill button { flex: 1; justify-content: center; }
@@ -164,7 +166,7 @@
    mint-tinted step up. */
 :is(.mkt-card, .trade-card, .cult-card, .card, .block, .stat-strip, .highlight, .chat, .podium-card, .profile-banner, .pm-card, .cpv-card) { --s1: var(--panel); --s2: var(--recess); --hover: var(--panel-hover); --control: #1f1b2d; }
 .card > .card-head:first-child { margin: -22px -22px 8px; padding: 14px 22px; min-height: 52px; background: var(--band); border-radius: var(--r-card) var(--r-card) 0 0; }
-.card > .tabs:first-child { margin: -22px -22px 19px; padding: 0 22px; background: var(--band); border-bottom-color: transparent; border-radius: var(--r-card) var(--r-card) 0 0; }
+.card > .tabs:first-child { margin: -22px -22px 19px; padding: 0 22px; background: var(--band); box-shadow: none; border-radius: var(--r-card) var(--r-card) 0 0; }
 .card.flush > .table-tools:first-child, .card.flush > :first-child > :is(.ltable-head, .ctable-head, .mtable-head):first-child { background: var(--band); }
 .card.flush > .table-tools:first-child { min-height: 52px; padding-top: 10px; padding-bottom: 10px; border-radius: var(--r-card) var(--r-card) 0 0; }
 .block { gap: 0; border-radius: var(--r-card); background: var(--panel); }
