@@ -111,16 +111,14 @@ test('store preserves promotion, demotion and leaving for ordinary members', () 
 });
 
 for (const base of ['/v1/cults', '/v1/clans']) {
-  test(`${base}: admins and the creator cannot strip creator admin, including a legacy bad row`, async () => {
+  test(`${base}: the creator cannot strip owner admin, including a legacy bad row`, async () => {
     const { clan, request, notices } = fixture();
     for (const role of ['admin', 'member']) {
       getDb().prepare('UPDATE clan_members SET role = ? WHERE clan_id = ? AND user_id = ?').run(role, clan.id, 'owner');
-      for (const actor of ['admin', 'owner']) {
-        const response = await request(`${base}/${clan.id}/admins`, actor, { memberId: 'owner', admin: false });
-        assert.equal(response.status, 400);
-        assert.deepEqual(await response.json(), { message: 'The cult owner cannot be demoted.' });
-      }
-      const response = await request(`${base}/${clan.id}/admins`, 'admin', { memberId: 'owner', admin: true });
+      const denied = await request(`${base}/${clan.id}/admins`, 'owner', { memberId: 'owner', admin: false });
+      assert.equal(denied.status, 400);
+      assert.deepEqual(await denied.json(), { message: 'The cult owner cannot be demoted.' });
+      const response = await request(`${base}/${clan.id}/admins`, 'owner', { memberId: 'owner', admin: true });
       assert.equal(response.status, 200);
       assert.deepEqual(await response.json(), { memberId: 'owner', admin: true, owner: true });
       assert.equal(clans.membership(clan.id, 'owner')?.role, 'admin');
@@ -129,25 +127,40 @@ for (const base of ['/v1/cults', '/v1/clans']) {
     assert.equal(clans.get(clan.id)?.createdBy, 'owner');
   });
 
-  test(`${base}: legitimate admin changes and self-demotion still work, with notices only on changes`, async () => {
+  test(`${base}: only the owner changes admin roles, with notices only on changes`, async () => {
     const { clan, request, notices } = fixture();
     const path = `${base}/${clan.id}/admins`;
-    for (const actor of ['owner', 'admin']) {
-      for (const admin of [true, true, false, false]) {
-        const response = await request(path, actor, { memberId: 'member', admin });
-        assert.equal(response.status, 200);
-        assert.deepEqual(await response.json(), { memberId: 'member', admin, owner: false });
-        assert.equal(clans.isAdmin(clan.id, 'member'), admin);
-      }
+    for (const admin of [true, true, false, false]) {
+      const response = await request(path, 'owner', { memberId: 'member', admin });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { memberId: 'member', admin, owner: false });
+      assert.equal(clans.isAdmin(clan.id, 'member'), admin);
     }
-    assert.equal(notices(), 4);
-    assert.equal((await request(path, 'admin', { memberId: 'admin', admin: false })).status, 200);
+    assert.equal(notices(), 2);
+    assert.equal((await request(path, 'owner', { memberId: 'admin', admin: false })).status, 200);
     assert.equal(clans.isAdmin(clan.id, 'admin'), false);
     assert.equal((await request(path, 'admin', { memberId: 'member', admin: true })).status, 403);
-    assert.equal(notices(), 5);
+    assert.equal(notices(), 3);
   });
 
-  test(`${base}: non-admins and outsiders cannot manage roles or inject ownership`, async () => {
+  test(`${base}: admins cannot promote, demote, self-demote or spoof ownership`, async () => {
+    const { clan, request, notices } = fixture();
+    const path = `${base}/${clan.id}/admins`;
+    for (const memberId of ['member', 'admin', 'owner']) {
+      for (const admin of [true, false]) {
+        const response = await request(path, 'admin', { memberId, admin, owner: true, createdBy: 'admin' });
+        assert.equal(response.status, 403);
+        assert.deepEqual(await response.json(), { message: 'only the cult owner can change admins' });
+      }
+    }
+    assert.equal(clans.membership(clan.id, 'member')?.role, 'member');
+    assert.equal(clans.membership(clan.id, 'admin')?.role, 'admin');
+    assert.equal(clans.membership(clan.id, 'owner')?.role, 'admin');
+    assert.equal(clans.get(clan.id)?.createdBy, 'owner');
+    assert.equal(notices(), 0);
+  });
+
+  test(`${base}: members and outsiders cannot manage roles; owner requests are validated`, async () => {
     const { clan, app, request, notices } = fixture();
     const path = `${base}/${clan.id}/admins`;
     assert.equal((await app.request(path, { method: 'POST', body: '{}' })).status, 401);
@@ -155,8 +168,9 @@ for (const base of ['/v1/cults', '/v1/clans']) {
       assert.equal((await request(path, 'member', { memberId, admin: true, owner: true, createdBy: 'member' })).status, 403);
       assert.equal((await request(path, 'outsider', { memberId, admin: true })).status, 404);
     }
-    assert.equal((await request(path, 'admin', { memberId: 'outsider', admin: true })).status, 404);
-    assert.equal((await request(path, 'admin', { memberId: 'member', admin: 'false' })).status, 400);
+    assert.equal((await request(path, 'owner', { memberId: 'outsider', admin: true })).status, 404);
+    assert.equal((await request(path, 'owner', { memberId: 'member', admin: 'false' })).status, 400);
+    assert.equal((await request(path, 'admin', { memberId: 'member', admin: 'false' })).status, 403);
     assert.equal(clans.isAdmin(clan.id, 'member'), false);
     assert.equal(clans.get(clan.id)?.createdBy, 'owner');
     assert.equal(notices(), 0);

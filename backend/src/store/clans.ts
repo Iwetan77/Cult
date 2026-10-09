@@ -113,8 +113,8 @@ export const clans = {
     return this.get(id)!;
   },
 
-  // Admins share their trades with the cult (chart, chat, copies) and can make
-  // other members admins. The creator always is one.
+  // Admins share their trades with the cult (chart, chat, copies).
+  // Only the owner manages admin roles; the creator always is an admin.
   isAdmin(clanId: string, userId: string): boolean {
     const c = this.get(clanId);
     if (!c) return false;

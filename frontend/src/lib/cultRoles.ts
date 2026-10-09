@@ -6,5 +6,5 @@ export function cultMemberRole(member: Pick<Member, 'id' | 'owner' | 'admin'>, c
 }
 
 export function canManageCultMember(cult: Pick<Clan, 'isOwner' | 'isAdmin'>, member: Pick<Member, 'id' | 'owner' | 'admin'>, viewerId: string | undefined): boolean {
-  return !!viewerId && !!(cult.isOwner || cult.isAdmin) && member.id !== viewerId && cultMemberRole(member, cult, viewerId) !== 'owner';
+  return !!viewerId && cult.isOwner && member.id !== viewerId && cultMemberRole(member, cult, viewerId) !== 'owner';
 }
