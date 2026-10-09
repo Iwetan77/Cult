@@ -40,28 +40,64 @@ function rendition(gif: GiphyGif): GifPick | null {
   return null;
 }
 
+// Why no GIF came back, said plainly on the card (so a screenshot tells us).
+export class GifError extends Error {}
+
+// Search results are kept on the device for a while, per mood: one search
+// gives 25 GIFs, so most cards need no request at all. That keeps a shared
+// GIPHY key well under its hourly limit (a beta key allows ~100 searches).
+const POOL_KEY = (mood: GifMood) => `cult:pnl-gifs:pool:${mood}`;
+const POOL_MS = 12 * 3_600_000;
+type Pool = { at: number; picks: GifPick[] };
+const cachedPool = (mood: GifMood): GifPick[] => {
+  try {
+    const pool = JSON.parse(localStorage.getItem(POOL_KEY(mood)) ?? 'null') as Pool | null;
+    return pool && Date.now() - pool.at < POOL_MS ? pool.picks : [];
+  } catch { return []; }
+};
+const keepPool = (mood: GifMood, picks: GifPick[]) => {
+  const merged = [...new Map([...cachedPool(mood), ...picks].map(p => [p.id, p])).values()].slice(-150);
+  try { localStorage.setItem(POOL_KEY(mood), JSON.stringify({ at: Date.now(), picks: merged })); } catch { /* private mode: search each time */ }
+};
+
+// Wide GIFs suit the card's wide window: the zoom that crops corner logos
+// then only trims a thin strip, so bottom captions stay in view.
+function choose(picks: GifPick[], avoid: Set<string>, skip: string[]): GifPick | null {
+  const wide = picks.filter(p => p.width / p.height >= 1.25);
+  const fresh = (wide.length ? wide : picks).filter(p => !avoid.has(p.id));
+  const pool = fresh.length ? fresh : picks.filter(p => !skip.includes(p.id));
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)]! : null;
+}
+
 export async function pickGif(mood: GifMood, skip: string[] = []): Promise<GifPick | null> {
   if (!KEY) return null;
   const queries = QUERIES[mood];
   const avoid = new Set([...recent(), ...skip]);
+  // One not seen lately from what's kept on this device, when there's one.
+  const kept = cachedPool(mood).filter(p => !avoid.has(p.id));
+  if (kept.length) {
+    const pick = choose(kept, avoid, skip);
+    if (pick) { remember(pick.id); return pick; }
+  }
   // Two tries: a random query at a random depth, then any query from the top.
+  let failure: string | null = null;
   for (const attempt of [0, 1]) {
     const q = queries[Math.floor(Math.random() * queries.length)]!;
     const offset = attempt === 0 ? Math.floor(Math.random() * 40) : 0;
     const params = new URLSearchParams({ api_key: KEY, q, limit: '25', offset: String(offset), rating: 'pg-13', lang: 'en', bundle: 'messaging_non_clips' });
     const response = await fetch(`https://api.giphy.com/v1/gifs/search?${params}`).catch(() => null);
-    if (!response?.ok) continue;
+    if (!response) { failure = 'GIF search couldn’t be reached'; continue; }
+    if (response.status === 429) throw new GifError('GIF search is busy right now (too many requests)');
+    if (response.status === 401 || response.status === 403) throw new GifError('GIF search turned this app’s key down');
+    if (!response.ok) { failure = `GIF search failed (${response.status})`; continue; }
     const body = await response.json().catch(() => null) as { data?: GiphyGif[] } | null;
     const picks = (body?.data ?? []).map(rendition).filter((p): p is GifPick => !!p);
-    // Wide GIFs suit the card's wide window: the zoom that crops corner logos
-    // then only trims a thin strip, so bottom captions stay in view.
-    const wide = picks.filter(p => p.width / p.height >= 1.25);
-    const fresh = (wide.length ? wide : picks).filter(p => !avoid.has(p.id));
-    const pool = fresh.length ? fresh : picks.filter(p => !skip.includes(p.id));
-    if (!pool.length) continue;
-    const pick = pool[Math.floor(Math.random() * pool.length)]!;
+    if (picks.length) keepPool(mood, picks);
+    const pick = choose(picks, avoid, skip);
+    if (!pick) continue;
     remember(pick.id);
     return pick;
   }
+  if (failure) throw new GifError(failure);
   return null;
 }
