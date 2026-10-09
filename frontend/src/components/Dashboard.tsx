@@ -1001,9 +1001,10 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     await loadMe();
     setNotice(`Copied ${symbol} with ${dollars(usd)}, in your own account.`);
   });
-  // An admin makes a member an admin, or takes it back.
+  // Only the owner grants or removes an admin role.
   const setAdmin = async (cultId: string, memberId: string, admin: boolean) => {
     try {
+      if (!me?.clans.find(cult => cult.id === cultId)?.isOwner) throw new Error('Only the cult owner can change admins.');
       await setCultAdmin(await token(), cultId, memberId, admin);
       await loadChart(cultId, marketId ?? undefined).catch(() => undefined);
       setNotice(admin ? 'They’re an admin now: their trades are shared here.' : 'Admin removed.');

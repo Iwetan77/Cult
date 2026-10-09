@@ -24,7 +24,7 @@ type Props = {
   onGuideDrop: (marker: ChartMarker, kind: 'takeProfit' | 'stopLoss', price: number) => void;
   onInvite: () => void; onVisibility: (visibility: 'private' | 'public') => void;
   onLeave: () => Promise<void>; onProfile: (memberId: string) => void;
-  // Admins share trades with the cult and make other members admins.
+  // Admins share trades; only the owner manages admin roles.
   meId?: string; onSetAdmin?: (memberId: string, admin: boolean) => Promise<void>;
   // Admins change the cult's picture (a resized data URL) or take it off (null).
   onImage?: (image: string | null) => void;
@@ -162,8 +162,9 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
       </div>) : <div className="empty compact"><span>Member records appear after the indexer syncs.</span></div>}</div>
       : <div className="group-settings">
         <div className="setting"><div><strong>Your copy limits</strong><small>{cult.autoFollow ? 'Auto-follow on' : 'Auto-follow off'}{policy && ` · Up to ${dollars(policy.maxUsdPerTrade)} per copy · ${policy.balancePercentCap}% of free balance`}</small></div><button className="btn btn-ghost btn-sm" disabled={busy} onClick={openFollowSheet}>{cult.autoFollow ? 'Edit limits' : 'Set limits'}</button></div>
-        <div className="setting"><div><strong>{cult.isOwner ? 'You’re the owner' : cult.isAdmin ? 'You’re an admin' : 'You’re a member'}</strong><small>{cult.isAdmin || cult.isOwner
-          ? 'Your trades are shared here and copied by members on Auto-follow. Make others admins from Members.'
+        <div className="setting"><div><strong>{cult.isOwner ? 'You’re the owner' : cult.isAdmin ? 'You’re an admin' : 'You’re a member'}</strong><small>{cult.isOwner
+          ? 'Your trades are shared here and copied by members on Auto-follow. Add or remove admins from Members.'
+          : cult.isAdmin ? 'Your trades are shared here and copied by members on Auto-follow. Only the owner can add or remove admins.'
           : 'Only admins share trades here; yours stay yours. Turn on Auto-follow to copy them, or tap Copy on one in the chat.'}</small></div></div>
         {cult.isAdmin && onImage && <div className="setting"><div><strong>Cult picture</strong><small>Shown on the cult everywhere, and in Discover when it&apos;s public.</small></div><div className="row-gap">{cult.imageUrl && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onImage(null)}>Remove</button>}<button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => imageInput.current?.click()}><Camera size={14} /> {cult.imageUrl ? 'Change' : 'Add'}</button></div></div>}
         <div className="setting"><div><strong>Invite link</strong><small>Code <b className="code">{cult.inviteCode}</b></small></div><button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Copy</button></div>
