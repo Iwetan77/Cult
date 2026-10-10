@@ -54,8 +54,67 @@ export const getNadMarkets = (token: string) => api<{ markets: NadMarket[] }>('/
 export const getHoldings = (token: string) => api<{ positions: Holding[] }>('/v1/positions', token);
 // cultIds is "Post to": omitted = all your cults, [] = just you.
 export const openPosition = (token: string, marketId: string, side: 'long' | 'short' | 'buy', marginUsd: number, leverage?: number, cultIds?: string[]) => api<Fill>('/v1/positions/open', token, { method: 'POST', body: json({ marketId, side, marginUsd, ...(leverage ? { leverage } : {}), ...(cultIds ? { cultIds } : {}) }) });
-// sizeRaw closes part of the position (raw size units, from Holding.sizeRaw); omitted closes it all.
-export const closePosition = (token: string, marketId: string, sizeRaw?: string) => api<Fill>('/v1/positions/close', token, { method: 'POST', body: json(sizeRaw ? { marketId, sizeRaw } : { marketId }) });
+// Omitting markerId closes the whole net market; callers must explicitly choose Close all.
+export function positionCloseBody(marketId: string, sizeRaw?: string, markerId?: string) {
+  if (sizeRaw !== undefined && (!/^\d+$/.test(sizeRaw) || BigInt(sizeRaw) <= BigInt(0))) throw new Error('The close amount is too small. Choose a larger amount.');
+  if (markerId !== undefined && !markerId.trim()) throw new Error('This trade has no lot identifier. Refresh positions.');
+  return { marketId, ...(sizeRaw !== undefined ? { sizeRaw } : {}), ...(markerId !== undefined ? { markerId } : {}) };
+}
+export const closePosition = async (token: string, marketId: string, sizeRaw?: string, markerId?: string) => api<Fill>('/v1/positions/close', token, { method: 'POST', body: json(positionCloseBody(marketId, sizeRaw, markerId)) });
+
+export const holdingIdentity = (holding: Holding): string => `${holding.venue}:${holding.market.toLowerCase()}:${holding.markerId ?? holding.tradeId ?? 'net'}`;
+
+export function holdingForTrade(holdings: readonly Holding[], trade: { tradeId: string; market: string; venue: string }): Holding | undefined {
+  return holdings.find(holding => holding.tradeId === trade.tradeId && holding.venue === trade.venue && holding.market.toLowerCase() === trade.market.toLowerCase());
+}
+
+export function holdingForMarker(holdings: readonly Holding[], marker: { id: string; marketId: string; venue: Venue }): Holding | undefined {
+  return holdings.find(holding => holding.markerId === marker.id && holding.venue === marker.venue && holding.market.toLowerCase() === marker.marketId.toLowerCase());
+}
+
+export function combinedMarketHolding(holdings: readonly Holding[], market: string, venue: Venue): Holding | undefined {
+  const lots = holdings.filter(holding => holding.venue === venue && holding.market.toLowerCase() === market.toLowerCase());
+  const first = lots[0];
+  if (!first) return undefined;
+  const sign = (holding: Holding) => holding.side === 'short' ? -1 : 1;
+  const netRaw = lots.reduce((total, holding) => total + BigInt(holding.sizeRaw) * BigInt(sign(holding)), BigInt(0));
+  if (netRaw === BigInt(0)) return undefined;
+  const size = Math.abs(lots.reduce((total, holding) => total + holding.size * sign(holding), 0));
+  const sameSide = lots.every(holding => holding.side === first.side);
+  const knownEntry = sameSide && lots.every(holding => holding.entryPriceAusd != null);
+  return {
+    venue, market: first.market, symbol: first.symbol, side: venue === 'nadfun' ? 'buy' : netRaw < BigInt(0) ? 'short' : 'long',
+    sizeRaw: (netRaw < BigInt(0) ? -netRaw : netRaw).toString(), size,
+    entryPriceAusd: knownEntry && size > 0 ? lots.reduce((total, holding) => total + holding.entryPriceAusd! * holding.size, 0) / size : null,
+    markPriceAusd: first.markPriceAusd, valueAusd: Math.abs(lots.reduce((total, holding) => total + holding.valueAusd * sign(holding), 0)),
+    pnlAusd: lots.every(holding => holding.pnlAusd != null) ? lots.reduce((total, holding) => total + holding.pnlAusd!, 0) : null,
+    leverage: first.leverage, isNetted: true,
+  };
+}
+
+export function positionCloseSizeRaw(holding: Holding, share: number): string | undefined {
+  if (!Number.isFinite(share) || share <= 0 || share > 1) throw new Error('Choose a close amount between 0% and 100%.');
+  if (!/^\d+$/.test(holding.sizeRaw) || BigInt(holding.sizeRaw) <= BigInt(0)) throw new Error('This position has no remaining size. Refresh positions.');
+  if (share === 1) return undefined;
+  const raw = BigInt(holding.sizeRaw) * BigInt(Math.floor(share * 1_000_000)) / BigInt(1_000_000);
+  if (raw <= BigInt(0)) throw new Error('The close amount is too small. Choose a larger amount.');
+  return raw.toString();
+}
+
+export function holdingClosedByFill(holding: Holding, fill: Fill): Holding | undefined {
+  if (!Number.isFinite(fill.size) || fill.size <= 0 || !Number.isFinite(fill.priceAusd) || fill.priceAusd <= 0) return undefined;
+  if (/^\d+$/.test(fill.sizeRaw) && BigInt(fill.sizeRaw) === BigInt(0)) return undefined;
+  const entry = holding.entryPriceAusd;
+  const knownEntry = entry != null && Number.isFinite(entry) && entry > 0;
+  // Estimate realized PnL from the actual exit and quantity, before fees.
+  const pnlAusd = knownEntry ? (holding.side === 'short' ? -1 : 1) * (fill.priceAusd - entry) * fill.size : null;
+  return {
+    ...holding, sizeRaw: fill.sizeRaw, size: fill.size, entryPriceAusd: knownEntry ? entry : null,
+    markPriceAusd: fill.priceAusd,
+    valueAusd: Number.isFinite(fill.notionalAusd) && fill.notionalAusd > 0 ? fill.notionalAusd : fill.priceAusd * fill.size,
+    pnlAusd,
+  };
+}
 // image: the cult's picture as a data URL (lib/image squareImage), optional.
 export const createClan = (token: string, name: string, visibility: 'private' | 'public', image?: string) => api<Clan>('/v1/cults', token, { method: 'POST', body: json({ name, visibility, ...(image ? { image } : {}) }) });
 // An admin changes the cult's picture; null takes it off (back to the letter).

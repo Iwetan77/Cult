@@ -7,6 +7,7 @@ import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { ArrowDown, ArrowRight, CandlestickChart, ImagePlus, Link2, Pin, Reply, RotateCcw, Send, SmilePlus, X } from './icons';
 import { getRoomEventUrl, getRoomMessages, getTyping, hasTyping, mediaUrl, pinRoomMessage, reactToMessage, sendRoomMessage } from '@/lib/api';
 import type { ChatMessage, ChatPage, ChatRoom, ChartMarker, Reaction } from '@/lib/contracts';
+import { isLeaderTradeMarker } from '@/lib/contracts';
 import { mentions } from '@/lib/prefs';
 import { dollars, signedDollars } from '@/lib/format';
 import { fittedImage } from '@/lib/image';
@@ -470,7 +471,7 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
 
   // A new trade by someone else, in a cult, while your Auto-follow is off.
   const canCopy = (message: Shown) => room.kind === 'cult' && copyable && !!onCopyTrade && !!message.markerId
-    && !message.markerId.startsWith('cult:') && !sharedChartOf(message.markerId) && message.memberId !== meId && /^(opened|bought)\b/.test(message.body);
+    && isLeaderTradeMarker(message.markerId) && message.memberId !== meId && /^(opened|bought)\b/.test(message.body);
   // A trade's marker opens on the cult chart; shared cults and charts are cards of their own.
   const tradeLink = (message: Shown) => !!message.markerId && !message.markerId.startsWith('cult:') && !sharedChartOf(message.markerId);
   const copyNow = (message: Shown, symbol: string) => {
