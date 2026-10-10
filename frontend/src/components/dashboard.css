@@ -614,7 +614,42 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .ticket-note, .ticket-foot { font-size: 13px; line-height: 1.45; color: var(--dim); }
 .ticket-foot { text-align: center; }
 .ticket-post { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.ticket-post select, .country-picker select { min-width: 0; height: 34px; padding: 0 36px 0 12px; border: 0; border-radius: var(--r-ctl); background: var(--s2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239a94aa' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 11px center; color: var(--text); font-size: 14px; -webkit-appearance: none; appearance: none; }
+.country-picker select { min-width: 0; height: 34px; padding: 0 36px 0 12px; border: 0; border-radius: var(--r-ctl); background: var(--s2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239a94aa' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 11px center; color: var(--text); font-size: 14px; -webkit-appearance: none; appearance: none; }
+.trade-audience { min-width: 0; }
+.trade-audience > .ticket-label { flex: none; }
+.trade-audience-trigger { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line2); border-radius: var(--r-ctl); background: var(--s2); color: var(--text); font-size: 14px; letter-spacing: 0; text-align: left; transition: background-color 0.15s, border-color 0.15s; }
+.trade-audience-trigger:hover, .trade-audience-trigger.is-open { background: var(--s3); border-color: var(--accent-text); }
+.trade-audience-trigger > span:not(.room-badge) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trade-audience-trigger > svg, .trade-audience-trigger > small { flex: none; color: var(--muted); }
+.trade-audience-trigger > small { font-size: 12px; }
+.trade-audience-chevron { transition: transform 0.15s; }
+.trade-audience-trigger.is-open .trade-audience-chevron { transform: rotate(180deg); }
+.trade-audience-popover { position: fixed; inset: auto; margin: 0; max-width: calc(100vw - 24px); max-height: min(520px, calc(100dvh - 24px)); padding: 8px; border: 1px solid var(--edge); border-radius: var(--r-inner); background: var(--pop); color: var(--text); box-shadow: 0 18px 44px rgba(0, 0, 0, 0.6); font-family: var(--body); font-size: 14px; letter-spacing: 0; overflow: hidden; }
+.trade-audience-popover:popover-open { display: flex; flex-direction: column; }
+.trade-audience-head { flex: none; display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding-left: 10px; }
+.trade-audience-head h3 { margin: 0; font-size: 15px; font-weight: 500; }
+.trade-audience-close { flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--r-ctl); background: none; color: var(--muted); }
+.trade-audience-close:hover { background: var(--s3); color: var(--text); }
+.trade-audience-modes { flex: none; display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line2); }
+.trade-audience-option { flex: none; display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 48px; padding: 10px; border: 0; border-radius: var(--r-ctl); background: none; color: var(--text); text-align: left; }
+.trade-audience-option:hover { background: var(--s3); }
+.trade-audience-option.is-selected { background: var(--accent-soft); }
+.trade-audience-symbol { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl); background: var(--s2); color: var(--muted); }
+.trade-audience-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.trade-audience-copy strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.trade-audience-copy small { color: var(--muted); font-size: 12px; }
+.trade-audience-check { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--line2); border-radius: 6px; color: var(--accent-ink); }
+.trade-audience-option.is-selected .trade-audience-check { border-color: var(--accent); background: var(--accent); }
+.trade-audience-label { flex: none; margin: 0; padding: 14px 10px 8px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.trade-audience-cults { min-height: 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overscroll-behavior: contain; }
+.trade-audience-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 2px 0 10px; margin-top: 8px; border-top: 1px solid var(--line2); }
+.trade-audience-foot > span { min-width: 0; color: var(--muted); font-size: 12px; }
+.trade-audience-done { flex: none; min-height: 44px; padding: 0 20px; border: 0; border-radius: var(--r-ctl); background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 500; }
+.trade-audience-done:hover { filter: brightness(1.1); }
+@media (max-width: 600px) {
+  .trade-audience-popover { top: auto !important; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px !important; width: calc(100% - 24px) !important; max-height: min(640px, calc(100dvh - 24px - env(safe-area-inset-bottom))); }
+  .trade-audience-popover::backdrop { background: rgba(0, 0, 0, 0.6); }
+}
 .ticket-submit { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 44px; border: 0; border-radius: 99px; font-size: 15px; font-weight: 500; letter-spacing: -0.01em; transition: filter 0.15s; }
 .ticket-submit small { font-size: 13px; font-weight: 500; opacity: 0.7; }
 /* Long (and Buy, Yes) in the gain green; Short in red. */
@@ -1468,7 +1503,7 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
   .ticket-submit { height: 50px; font-size: 16px; }
   .ticket-submit--stack { height: 56px; }
   .pm-outcome-btns button { height: 40px; }
-  .friends-pick, .ticket-post select, .country-picker select { height: 40px; }
+  .friends-pick, .country-picker select { height: 40px; }
   .chat-tool { height: 36px; padding: 0 14px; }
   .chat-send { width: 40px; height: 40px; }
   .sheet-close { height: 36px; padding: 0 14px; }

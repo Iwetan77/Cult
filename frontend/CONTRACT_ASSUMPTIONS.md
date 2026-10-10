@@ -1,5 +1,11 @@
 # Frontend-only assumptions
 
+Trading allocations (2026-10-10): `/v1/positions` now exposes optional `markerId`, `tradeId`, `origin`, `cultIds`, and `isNetted` on each holding. `/v1/positions/open` returns its confirmed entry's identifiers. `/v1/positions/close` accepts `markerId` to close only that member-owned entry; omitting it explicitly closes the whole market. These additive shapes are implemented in the focused backend changes shipped with this frontend, not speculative fields.
+
+- Each app entry retains its own selected cults, confirmed quantity, and entry price, including private entries. API requests are correlated to fills by the member's request ID or transaction hash; cumulative websocket and HTTP reports are deduplicated.
+- Perpl still nets one position per account and market. Same-direction entries can be shared separately, but liquidation, leverage, and TP/SL are market-wide. Opposite-side opens are refused while a position remains open; there is no independent hedge mode. A scoped exit reduces only its booked quantity; an external venue-wide reduction is attributed proportionally.
+- Closing releases Perpl margin into the member's trading balance; it is not a wallet withdrawal. Only confirmed filled quantity is removed. Failed or partially filled exits do not claim the remaining size is closed. Live and close-card price PnL is before fees and funding; per-entry verified closed results remain pending rather than borrowing the indexer's entire net-position round trip.
+
 Status (2026-09-28): I reconciled the mainnet funding and trading changes against `origin/backend:CONTRACTS.md` at `e69df06`. This file records only frontend choices and remaining gaps. Dollar values render with `$`; deposit token names and wallet setup action labels come from the backend.
 
 - Direct AUSD deposit means sending AUSD on the configured Monad chain to the member's own embedded-wallet address, then continuing the member-signed Perpl setup. The backend has no separate direct-deposit endpoint. The UI shows backend Perpl margin separately from wallet dollars, falling back to `collateralBalance` only when balances are unavailable.
