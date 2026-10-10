@@ -129,6 +129,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     this.nad?.add(m.wallet);
     if (this.watchingPerpl.has(userId) || !members.credentials(userId)) return;
     const session = await this.deps.sessionFor(userId);
+    if (this.watchingPerpl.has(userId)) return;
     this.watchingPerpl.add(userId);
     const seed = () => {
       for (const p of session.positions?.values() ?? []) {
