@@ -7,18 +7,23 @@ export const giphyEnabled = () => !!KEY;
 
 export type GifMood = 'moon' | 'win' | 'flat' | 'loss' | 'rekt';
 
-// By return on margin (or PnL when there's no return).
+// By return on margin (or PnL when there's no return). Any gain celebrates and
+// any loss commiserates, however small: a -0.2% card must never get a thumbs up.
+// Only a trade that's exactly even shrugs.
 export function moodOf(roiPct: number | null, pnlUsd: number | null): GifMood {
   const v = roiPct ?? (pnlUsd == null ? 0 : Math.sign(pnlUsd) * 10);
-  return v >= 40 ? 'moon' : v >= 3 ? 'win' : v > -3 ? 'flat' : v > -30 ? 'loss' : 'rekt';
+  if (Math.abs(v) < 0.05) return 'flat';
+  return v >= 25 ? 'moon' : v > 0 ? 'win' : v > -25 ? 'loss' : 'rekt';
 }
 
+// Searches that only ever mean one thing: vague words ("why", "pain", "meh")
+// bring back GIFs of anything.
 const QUERIES: Record<GifMood, string[]> = {
-  moon: ['to the moon', 'we are rich', 'money rain', 'make it rain', 'lambo', 'champagne celebration', 'wolf of wall street', 'rich dance', 'stonks'],
-  win: ['lets go', 'winning', 'celebration dance', 'nailed it', 'victory dance', 'success kid', 'yes yes yes', 'happy dance', 'too easy'],
-  flat: ['meh', 'shrug', 'not bad', 'close enough', 'it is what it is', 'thumbs up', 'okay then'],
-  loss: ['this is fine', 'oh no', 'facepalm', 'disappointed', 'sad', 'why', 'pain'],
-  rekt: ['its over', 'crying', 'mental breakdown', 'everything is on fire', 'rekt', 'devastated', 'help me'],
+  moon: ['money rain', 'make it rain money', 'we are rich', 'champagne celebration', 'wolf of wall street money', 'stonks', 'rich celebration', 'lambo'],
+  win: ['lets go celebration', 'victory dance', 'happy dance', 'success kid', 'winning celebration', 'celebration dance', 'nailed it', 'yes celebration'],
+  flat: ['shrug', 'it is what it is', 'unbothered shrug'],
+  loss: ['oh no', 'facepalm', 'this is fine dog', 'disappointed face', 'sigh disappointed', 'sad face', 'bad day'],
+  rekt: ['crying', 'its over', 'everything is on fire', 'mental breakdown', 'devastated crying', 'rekt'],
 };
 
 export type GifPick = { id: string; url: string; width: number; height: number; title: string };
@@ -46,11 +51,13 @@ export class GifError extends Error {}
 // Search results are kept on the device for a while, per mood: one search
 // gives 25 GIFs, so most cards need no request at all. That keeps a shared
 // GIPHY key well under its hourly limit (a beta key allows ~100 searches).
-const POOL_KEY = (mood: GifMood) => `cult:pnl-gifs:pool:${mood}`;
+// v2: the searches changed, so GIFs kept from the old ones are dropped.
+const POOL_KEY = (mood: GifMood) => `cult:pnl-gifs:pool:v2:${mood}`;
 const POOL_MS = 12 * 3_600_000;
 type Pool = { at: number; picks: GifPick[] };
 const cachedPool = (mood: GifMood): GifPick[] => {
   try {
+    localStorage.removeItem(`cult:pnl-gifs:pool:${mood}`); // v1, from the old searches
     const pool = JSON.parse(localStorage.getItem(POOL_KEY(mood)) ?? 'null') as Pool | null;
     return pool && Date.now() - pool.at < POOL_MS ? pool.picks : [];
   } catch { return []; }
@@ -79,11 +86,12 @@ export async function pickGif(mood: GifMood, skip: string[] = []): Promise<GifPi
     const pick = choose(kept, avoid, skip);
     if (pick) { remember(pick.id); return pick; }
   }
-  // Two tries: a random query at a random depth, then any query from the top.
+  // Two tries: a random query a little way down its results (variety), then
+  // any query from the top. GIPHY's matches get loose past the first dozen.
   let failure: string | null = null;
   for (const attempt of [0, 1]) {
     const q = queries[Math.floor(Math.random() * queries.length)]!;
-    const offset = attempt === 0 ? Math.floor(Math.random() * 40) : 0;
+    const offset = attempt === 0 ? Math.floor(Math.random() * 12) : 0;
     const params = new URLSearchParams({ api_key: KEY, q, limit: '25', offset: String(offset), rating: 'pg-13', lang: 'en', bundle: 'messaging_non_clips' });
     const response = await fetch(`https://api.giphy.com/v1/gifs/search?${params}`).catch(() => null);
     if (!response) { failure = 'GIF search couldn’t be reached'; continue; }
