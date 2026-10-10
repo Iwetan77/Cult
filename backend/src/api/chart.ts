@@ -43,6 +43,8 @@ export interface ChartMarker {
   leverage: number | null;
   isMine: boolean;
   mirrorStatus?: 'pending' | 'submitted' | 'filled';
+  followExits?: boolean;
+  leaderClosed?: boolean;
   skipUntil?: string;
   // Auto-mirror only: the leader added to this trade and this mirror will add
   // the same share of itself at skipUntil, unless skipped (skip id "adjust:<id>").
@@ -84,6 +86,15 @@ export interface ChartSnapshot {
 }
 
 export { shortName };
+
+export function chartTrades(clanId: string, userIds: string[]): LeaderTrade[] {
+  const visible = new Map(trades.openForUsers(userIds).map(t => [t.id, t]));
+  for (const m of mirrors.forClan(clanId, ['open', 'submitting'])) {
+    const t = trades.get(m.tradeId);
+    if (t && (!t.cultIds || t.cultIds.includes(clanId))) visible.set(t.id, t);
+  }
+  return [...visible.values()];
+}
 
 export function toApiMarket(m: PerplMarket): ApiMarket {
   return {
@@ -157,7 +168,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
   const ctx = await getContext();
   const roster = clans.members(clan.id);
   const userIds = roster.map((r) => r.userId);
-  const openTrades = trades.openForUsers(userIds);
+  const openTrades = chartTrades(clan.id, userIds);
 
   // Market list: every open Perpl market, plus any Nad.fun token the clan is in right now.
   const perplMarkets = ctx.markets.filter((m) => m.config.is_open).map(toApiMarket);
@@ -210,7 +221,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
 
   const markers: ChartMarker[] = [];
   for (const t of here) {
-    markers.push({
+    if (!t.closedAt) markers.push({
       id: `trade:${t.id}`,
       tradeId: t.id,
       memberId: t.userId,
@@ -246,6 +257,8 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
         leverage: pending ? null : t.leverage / 100,
         isMine: m.userId === viewerId,
         mirrorStatus: pending ? 'pending' : m.status === 'submitting' ? 'submitted' : 'filled',
+        followExits: m.followExits !== false,
+        leaderClosed: t.closedAt != null,
         ...(pending ? { skipUntil: new Date(m.skipUntil).toISOString() } : {}),
         pendingAdd: add ? { id: `adjust:${add.id}`, ratio: add.ratio, skipUntil: new Date(add.skipUntil).toISOString() } : null,
         txHash: m.openTx,

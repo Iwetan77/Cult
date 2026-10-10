@@ -27,3 +27,7 @@ test('pending, retries, successful and malformed events are not failures', () =>
   }
   for (const data of ['{', 'null', '[]', '{}']) assert.equal(copyFailureFromEvent(data, 'me', 'cult-1'), null);
 });
+
+test('deliberately disabling exit following does not show a failed-copy alert', () => {
+  assert.equal(copyFailureFromEvent(JSON.stringify({ ...failure, error: 'member turned off Follow exits' }), 'me', 'cult-1'), null);
+});
