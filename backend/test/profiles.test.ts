@@ -108,3 +108,23 @@ test('view trade: top trades link to the trade and a shared cult; the sheet has 
   assert.equal((await P.tradeView(tradeId, 'u1')).youCopied, false, 'the trader themself');
   await assert.rejects(() => P.tradeView('nope', 'u1'), /no such trade/);
 });
+
+test('app lots and older late private residuals never inherit the indexer whole-position result', async () => {
+  const { trades } = await import('../src/mirror/repo.js');
+  const { memberOrders } = await import('../src/mirror/member-orders.js');
+  const order = memberOrders.begin({ userId: 'u1', venue: 'perpl', market: '16', kind: 'open', side: 'short',
+    leverage: 500, marginFraction: 0.1, cultIds: [], markerId: null, requestedNotional: 100 });
+  memberOrders.ref(order.id, { txHash: '0xL2' });
+  for (const id of [order.id, 'late-private-one', 'late-private-two']) {
+    trades.insert({ id, venue: 'perpl', userId: 'u1', accountId: 1, market: '16', side: 'short', positionId: null,
+      netPositionId: 2, size: '1', entryPrice: 100, leverage: 500, marginFraction: 0.1,
+      openTx: '0xL2', openedAt: now - 3 * day, cultIds: [] });
+    trades.markClosed(id);
+  }
+  memberOrders.assignAllocation(order.id, 'late-private-two');
+  for (const id of [order.id, 'late-private-one', 'late-private-two']) {
+    const view = await P.tradeView(id, 'u2');
+    assert.equal(view.result, null, 'a verified net round trip is not a verified result for each slice');
+    assert.equal(view.cultId, null, 'a private entry does not reveal a shared cult');
+  }
+});

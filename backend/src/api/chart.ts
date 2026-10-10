@@ -8,6 +8,7 @@ import { getDb } from '../store/db.js';
 import { clans, type Clan } from '../store/clans.js';
 import { members } from '../store/members.js';
 import { venue, venueOf, type Holding, type TradeSide, type Venue } from '../venues/index.js';
+import { allocatedHoldings } from '../mirror/allocations.js';
 import { perplTpSl } from '../venues/perpl.js';
 import type { TpSl } from '../trading/tpsl.js';
 import { shortName } from './names.js';
@@ -133,7 +134,8 @@ export function sliceOf(v: Venue, h: Holding | undefined, sizeRaw: string | null
   const size = h.size * share;
   const valueUsd = h.valueAusd * share;
   const entry = entryPrice ?? h.entryPriceAusd;
-  const pnlUsd = v === 'perpl' ? (h.pnlAusd ?? 0) * share : entry != null ? valueUsd - entry * size : null;
+  const pnlUsd = v === 'perpl' && entryPrice == null ? (h.pnlAusd == null ? null : h.pnlAusd * share)
+    : entry != null ? (h.side === 'short' ? -1 : 1) * (h.markPriceAusd - entry) * size : null;
   return { entryPrice: entry, size, pnlUsd, valueUsd };
 }
 
@@ -159,7 +161,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
 
   // Market list: every open Perpl market, plus any Nad.fun token the clan is in right now.
   const perplMarkets = ctx.markets.filter((m) => m.config.is_open).map(toApiMarket);
-  const nadTokens = [...new Set(openTrades.filter((t) => t.venue === 'nadfun').map((t) => t.market))];
+  const nadTokens = [...new Set(openTrades.filter((t) => t.venue === 'nadfun' && (!t.cultIds || t.cultIds.includes(clan.id))).map((t) => t.market))];
   const nadMarkets = await Promise.all(nadTokens.map(nadMarket));
   const markets = [...perplMarkets, ...nadMarkets];
 
@@ -200,7 +202,11 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
   const name = (uid: string) => nameOf(uid);
   // Value one member's slice of their holding. `sizeRaw` is how much of it this
   // marker accounts for; `costAusd` is what that slice cost, when we know it.
-  const slice = (uid: string, sizeRaw: string | null, entryPrice: number | null) => sliceOf(v, live.get(uid), sizeRaw, entryPrice);
+  const allocated = new Map([...live].map(([uid, h]) => [uid, allocatedHoldings(uid, [h])]));
+  const slice = (uid: string, markerId: string, entryPrice: number | null) => {
+    const h = allocated.get(uid)?.find(p => p.markerId === markerId);
+    return sliceOf(v, h, h?.sizeRaw ?? null, h?.entryPriceAusd ?? entryPrice);
+  };
 
   const markers: ChartMarker[] = [];
   for (const t of here) {
@@ -218,7 +224,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
       leverage: t.leverage / 100,
       isMine: t.userId === viewerId,
       txHash: t.openTx,
-      ...slice(t.userId, t.size, t.entryPrice),
+      ...slice(t.userId, 'trade:' + t.id, t.entryPrice),
     });
     for (const m of mirrors.forTrade(t.id)) {
       if (m.clanId !== clan.id || !['pending', 'submitting', 'open'].includes(m.status)) continue;
@@ -245,7 +251,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
         txHash: m.openTx,
         ...(pending || m.status === 'submitting'
           ? { entryPrice: null, size: null, pnlUsd: null, valueUsd: null }
-          : slice(m.userId, m.size, v === 'nadfun' ? mEntry : null)),
+          : slice(m.userId, 'mirror:' + m.id, v === 'nadfun' ? mEntry : null)),
       });
     }
   }
@@ -266,7 +272,7 @@ export async function buildChart(clan: Clan, viewerId: string, marketId?: string
       leverage: s.leverage / 100,
       isMine: s.user_id === viewerId,
       txHash: s.open_tx,
-      ...slice(s.user_id, s.size, entry),
+      ...slice(s.user_id, 'stack:' + s.id, entry),
     });
   }
 

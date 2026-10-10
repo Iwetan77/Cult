@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Star } from './icons';
 import { getMarket } from '@/lib/api';
+import { combinedMarketHolding } from '@/lib/api';
 import { cachedMarket } from '@/lib/marketCache';
 import { CHART_RESOLUTIONS } from '@/lib/chartHistory';
 import type { BackendConfig, ChartMarker, ChartSnapshot, Clan, Holding, Market, MarketDetail, Me, TpslSuggestion, TpslValues } from '@/lib/contracts';
@@ -37,7 +38,8 @@ export type MarketSocial = {
   tpDraft: string; slDraft: string; onTpDraft: (value: string) => void; onSlDraft: (value: string) => void; onSaveLevels: () => void;
   onApplySuggestion: (suggestion: TpslSuggestion) => void;
   onSkip: () => void;
-  onClosePosition: (marketId: string) => void;
+  onClosePosition: (marker: ChartMarker) => void;
+  onCloseAll: (holding: Holding) => void;
   onShare: (marker: ChartMarker) => void;
 };
 
@@ -90,7 +92,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
   const avatarOf = (memberId: string) => snap?.members.find(x => x.id === memberId)?.avatarUrl ?? null;
   const avatars = useMemo(() => Object.fromEntries(snap?.members.map(x => [x.id, x.avatarUrl]) ?? []), [snap]);
   const postTo: PostTo = cult && (cult.isAdmin ?? true) ? cult.id : 'all'; // only a cult you share trades with
-  const mine = holdings.find(h => h.market.toLowerCase() === id.toLowerCase());
+  const mine = m ? combinedMarketHolding(holdings, id, m.venue) : undefined;
   const longs = markers.filter(x => x.side !== 'short').length;
   const longPct = markers.length ? Math.round((longs / markers.length) * 100) : null;
   const last = candles.at(-1);
@@ -137,7 +139,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
             {selected && <MarkerCard marker={selected} symbol={m.symbol} busy={!!busy} now={social.now} avatarUrl={avatarOf(selected.memberId)}
               stackUsd={social.stackUsd} onStackUsd={social.onStackUsd} onStack={social.onStack}
               tpDraft={social.tpDraft} slDraft={social.slDraft} onTpDraft={social.onTpDraft} onSlDraft={social.onSlDraft} onSaveLevels={social.onSaveLevels}
-              onApplySuggestion={social.onApplySuggestion} onSkip={social.onSkip} onClosePosition={() => social.onClosePosition(m.id)} onShare={() => social.onShare(selected)} onDismiss={() => social.onSelect(null)} />}
+              onApplySuggestion={social.onApplySuggestion} onSkip={social.onSkip} onClosePosition={() => social.onClosePosition(selected)} onShare={() => social.onShare(selected)} onDismiss={() => social.onSelect(null)} />}
           </div>
           {social.cults.length > 0 && <div className="chart-legend">
             <label className="friends-toggle">
@@ -172,7 +174,8 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
               <div><span>Value</span><b className="num">{dollars(mine.valueAusd)}</b></div>
               <div><span>PnL</span><b className={`num ${(mine.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}`}>{mine.pnlAusd == null ? '—' : signedDollars(mine.pnlAusd)}</b></div>
             </div>
-            <button className="btn btn-danger btn-sm" disabled={!!busy} onClick={() => social.onClosePosition(m.id)}>{mine.venue === 'perpl' ? 'Close position' : 'Sell all'}</button>
+            <small className="ticket-note">{mine.venue === 'perpl' ? 'Net position across all trades. Leverage and TP/SL are shared.' : 'Combined token balance across all trades.'}</small>
+            <button className="btn btn-danger btn-sm" disabled={!!busy} onClick={() => social.onCloseAll(mine)}>Close all</button>
           </div> : <div className="empty"><span>You have no position on {m.symbol}. Use the ticket to open one.</span></div>)
           : <dl className="about">
             <div><dt>Market</dt><dd>{m.symbol}</dd></div>
@@ -188,7 +191,7 @@ export function MarketPage({ id, me, config, busy, social, holdings, onBack, onT
       <aside className="view-side">
         <section className="card ticket-card">
           <div className="card-head"><h2>{isPerp ? 'Trade' : 'Buy'} {m.symbol.replace(/-PERP$/, '')}</h2><span className="count num">{price(ticket.priceUsd)}</span></div>
-          <TradeTicket market={ticket} balances={me.balances} monPriceUsd={config?.monPriceAusd ?? null} chainId={config?.chainId}
+          <TradeTicket market={ticket} balances={me.balances} monPriceUsd={config?.monPriceAusd ?? null} chainId={config?.chainId} hasPosition={!!mine} positionSide={mine?.side}
             cults={social.cults.filter(c => c.isAdmin ?? true)} inCults={social.cults.length > 0} defaultPostTo={postTo} busy={busy === 'open'} onSubmit={(side, margin, lev, cultIds, tpsl) => onTrade(ticket, side, margin, lev, cultIds, tpsl)} onDeposit={onDeposit} />
         </section>
       </aside>

@@ -1,5 +1,6 @@
 export type Venue = 'perpl' | 'nadfun';
 export type MarkerOrigin = 'leader' | 'auto_mirror' | 'manual_stack';
+export const isLeaderTradeMarker = (markerId: string | null | undefined): boolean => !!markerId?.startsWith('trade:') && markerId.length > 'trade:'.length;
 export type TradeSide = 'long' | 'short' | 'buy';
 export type MirrorPolicy = {
   enabled: boolean;
@@ -101,11 +102,12 @@ export type Holding = {
   venue: Venue; market: string; symbol: string; side: TradeSide;
   sizeRaw: string; size: number; entryPriceAusd: number | null;
   markPriceAusd: number; valueAusd: number; pnlAusd: number | null; leverage: number;
+  markerId?: string; tradeId?: string; origin?: MarkerOrigin | 'private'; cultIds?: string[]; isNetted?: boolean;
 };
 export type Fill = {
   venue: Venue; market: string; side: TradeSide; sizeRaw: string; size: number;
   priceAusd: number; notionalAusd: number; orderId?: number;
-  requestId?: number; txHash?: string | null;
+  requestId?: number; txHash?: string | null; tradeId?: string; markerId?: string;
 };
 export type FundingPlan = {
   id: string; expiresAt: string; requiredUsdc: string; minAusdOut: string; expectedAusdOut: string; depositToPerpl: boolean; actions: WalletAction[];

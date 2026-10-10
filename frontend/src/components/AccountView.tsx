@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
 import { ArrowRight, ArrowUpRight, Camera, LogOut, Share2, Wallet } from './icons';
 import { deleteAvatar, getPredictionPositions, getProfile, uploadAvatar } from '@/lib/api';
+import { holdingForTrade, holdingIdentity } from '@/lib/api';
 import type { ClosedTrade, Holding, PredictionClosed, PredictionPosition, Profile } from '@/lib/contracts';
 import { getEvent, type PredictionOutcome } from '@/lib/polymarket';
 import { EventArt, type PredictionPick } from './PredictionsBrowse';
@@ -134,7 +135,7 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
   }, [slugsKey]);
 
   // Your positions changed (a close, a partial close, a new trade): refresh the lists quietly.
-  const holdingsKey = holdings.map(h => `${h.venue}:${h.market}:${h.sizeRaw}`).sort().join(',');
+  const holdingsKey = holdings.map(h => `${holdingIdentity(h)}:${h.tradeId ?? ''}:${h.sizeRaw}`).sort().join(',');
   const firstHoldings = useRef(holdingsKey);
   useEffect(() => {
     if (id !== 'me' || holdingsKey === firstHoldings.current) return;
@@ -203,7 +204,7 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
   const when = (value: number | string | null | undefined) => value == null ? 0 : typeof value === 'number' ? value : Date.parse(value) || 0;
   // Your own open positions too: a trade only becomes a cult trade (with a
   // trade page) when it's posted to a cult, but every position you hold shows.
-  const tracked = (h: Holding) => profile.openTrades.some(trade => trade.market === h.market && trade.venue === h.venue);
+  const tracked = (h: Holding) => profile.openTrades.some(trade => holdingForTrade(holdings, trade) === h);
   const openItems: ({ kind: 'trade'; at: number; trade: Profile['openTrades'][number] } | { kind: 'prediction'; at: number; p: PredictionPosition } | { kind: 'position'; at: number; h: Holding })[] = [
     ...profile.openTrades.map(trade => ({ kind: 'trade' as const, at: when(trade.openedAt), trade })),
     ...(profile.isMe ? predictions.open.map(p => ({ kind: 'prediction' as const, at: p.openedAt, p })) : []),
@@ -214,7 +215,8 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
     ...profile.closedTrades.map(trade => ({ kind: 'trade' as const, at: trade.closedAt, trade })),
     ...(profile.isMe ? predictions.closed.map(c => ({ kind: 'prediction' as const, at: c.closedAt, c })) : []),
   ].sort((a, b) => b.at - a.at);
-  const holdingFor = (trade: Profile['openTrades'][number]) => holdings.find(item => item.market === trade.market && item.venue === trade.venue);
+  const holdingFor = (trade: Profile['openTrades'][number]) => holdingForTrade(holdings, trade);
+  const holdingOrigin = (holding: Holding) => holding.origin === 'auto_mirror' ? 'Auto copy' : holding.origin === 'manual_stack' ? 'Stacked' : holding.origin === 'private' ? 'Private' : holding.origin === 'leader' ? 'Own trade' : 'Position';
 
   return <div className="view two-col">
     <section className="view-main">
@@ -266,24 +268,24 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
           if (item.kind === 'position') {
             const h = item.h;
             const open = () => onMarket?.(h.market);
-            return <div className="ttable-row ttable-row--open is-link" key={`pos:${h.venue}:${h.market}`} role="button" tabIndex={0} aria-label={`Open ${h.symbol}`}
+            return <div className="ttable-row ttable-row--open is-link" key={`pos:${holdingIdentity(h)}`} role="button" tabIndex={0} aria-label={`Open ${h.symbol}`}
               onClick={open} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
-              <span className="ttable-main"><TokenLogo symbol={h.symbol} /><span><strong>{h.symbol}</strong><small><span className="ttable-side-sm">{h.side === 'buy' ? 'Buy' : `${h.side === 'long' ? 'Long' : 'Short'} ${h.leverage}x`} · </span>{h.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · just you</small></span></span>
+              <span className="ttable-main"><TokenLogo symbol={h.symbol} /><span><strong>{h.symbol}</strong><small><span className="ttable-side-sm">{h.side === 'buy' ? 'Buy' : `${h.side === 'long' ? 'Long' : 'Short'} ${h.leverage}x`} · </span>{h.venue === 'perpl' ? 'Perpl' : 'Nad.fun'} · {holdingOrigin(h)}</small></span></span>
               <span className={`side-chip ${h.side}`}>{h.side.toUpperCase()}{h.venue === 'perpl' ? ` ${h.leverage}x` : ''}</span>
               <span className={`num strong ${(h.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}`}>{h.pnlAusd != null ? signedDollars(h.pnlAusd) : ''}</span>
-              <span className="ttable-actions">{share(h)}<button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onCloseHolding(h); }}>{h.venue === 'nadfun' ? 'Sell' : 'Close'}</button></span>
+              <span className="ttable-actions">{share(h)}<button className="btn btn-ghost btn-sm" disabled={!h.markerId} title={!h.markerId ? 'Refresh positions to close this trade' : undefined} onClick={event => { event.stopPropagation(); onCloseHolding(h); }}>{h.venue === 'nadfun' ? 'Sell' : 'Close'}</button></span>
             </div>;
           }
           const trade = item.trade;
           const holding = profile.isMe ? holdingFor(trade) : undefined;
           // The whole row opens the trade; Close only closes.
           const open = () => onTrade({ kind: 'trade', tradeId: trade.tradeId });
-          return <div className="ttable-row ttable-row--open is-link" key={trade.tradeId} role="button" tabIndex={0} aria-label={`Open ${trade.symbol} trade`}
+          return <div className="ttable-row ttable-row--open is-link" key={`${trade.tradeId}:${holding?.markerId ?? trade.markerId}`} role="button" tabIndex={0} aria-label={`Open ${trade.symbol} trade`}
             onClick={open} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open(); } }}>
           <span className="ttable-main"><TokenLogo symbol={trade.symbol} /><span><strong>{trade.symbol}</strong><small><span className="ttable-side-sm">{trade.side === 'buy' ? 'Buy' : `${trade.side === 'long' ? 'Long' : 'Short'} ${trade.leverage}x`} · </span>{trade.venue === 'perpl' ? 'Perpl' : 'Nad.fun'}<span className="ttable-when"> · opened {new Date(trade.openedAt).toLocaleDateString()}</span></small></span></span>
           <span className={`side-chip ${trade.side}`}>{trade.side.toUpperCase()}{trade.venue === 'perpl' ? ` ${trade.leverage}x` : ''}</span>
           <span className={`num strong ${(holding?.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}`}>{holding?.pnlAusd != null ? signedDollars(holding.pnlAusd) : ''}</span>
-          {holding ? <span className="ttable-actions">{share(holding)}<button className="btn btn-ghost btn-sm" onClick={event => { event.stopPropagation(); onCloseHolding(holding); }}>Close</button></span> : <ArrowRight size={15} className="muted" />}
+          {holding ? <span className="ttable-actions">{share(holding)}<button className="btn btn-ghost btn-sm" disabled={!holding.markerId} title={!holding.markerId ? 'Refresh positions to close this trade' : undefined} onClick={event => { event.stopPropagation(); onCloseHolding(holding); }}>Close</button></span> : <ArrowRight size={15} className="muted" />}
         </div>; })}</div> : <div className="empty"><span>No open trades.</span></div>)
         : tab === 'closed' ? (closedItems.length ? <div className="ttable">{closedItems.map((item, index) => item.kind === 'prediction' ? (() => {
           const c = item.c, p = c.position;

@@ -11,6 +11,7 @@ export function recordEngineOrder(accountId: number, rq: number, kind: EngineOrd
 }
 
 export function isEngineOrder(accountId: number, rq: number): boolean {
+  if (!Number.isFinite(accountId) || !Number.isFinite(rq)) return false;
   return !!getDb().prepare('SELECT 1 FROM engine_orders WHERE account_id = ? AND rq = ?').get(accountId, rq);
 }
 

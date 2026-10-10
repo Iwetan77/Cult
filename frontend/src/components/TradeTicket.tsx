@@ -6,6 +6,7 @@ import type { Clan, Me, TpslValues } from '@/lib/contracts';
 import { dollars } from '@/lib/format';
 import { HIGH_LEVERAGE, liquidationMove, liquidationPrice } from '@/lib/risk';
 import { availableTradeFunds } from '@/lib/tradeFunds';
+import { TradeAudiencePicker, tradeAudienceFromDefault, tradeAudienceIds, type TradeAudience } from './TradeAudiencePicker';
 
 // A perps ticket in the terms people bet in: the big number is the money you
 // put in; leverage multiplies it into the position size shown under it. So
@@ -25,6 +26,8 @@ type Props = {
   chainId?: number;
   cults: Clan[]; // the cults this trade can be shared with (where you're an admin)
   inCults?: boolean; // a member of any cult at all
+  hasPosition?: boolean;
+  positionSide?: 'long' | 'short' | 'buy';
   defaultPostTo: PostTo;
   busy: boolean;
   onSubmit: (side: 'long' | 'short' | 'buy', marginUsd: number, leverage: number | undefined, cultIds: string[] | undefined, tpsl?: TpslValues) => void;
@@ -41,7 +44,7 @@ function leverageTicks(max: number): number[] {
 const assetOf = (symbol: string) => symbol.replace(/-PERP$/i, '').replace(/^\$/, '');
 const trim = (value: number, digits: number) => String(Number(value.toFixed(digits)));
 
-export function TradeTicket({ market, balances, monPriceUsd, chainId, cults, inCults = false, defaultPostTo, busy, onSubmit, onDeposit }: Props) {
+export function TradeTicket({ market, balances, monPriceUsd, chainId, cults, inCults = false, hasPosition = false, positionSide, defaultPostTo, busy, onSubmit, onDeposit }: Props) {
   const isPerp = market.venue === 'perpl';
   const maxLev = Math.max(1, Math.floor(market.maxLeverage));
   const asset = assetOf(market.symbol);
@@ -55,8 +58,8 @@ export function TradeTicket({ market, balances, monPriceUsd, chainId, cults, inC
   const [confirming, setConfirming] = useState(false);
   const [tpText, setTpText] = useState('');
   const [slText, setSlText] = useState('');
-  const [postTo, setPostTo] = useState<PostTo>(defaultPostTo);
-  useEffect(() => { setPostTo(defaultPostTo); }, [defaultPostTo]);
+  const [audience, setAudience] = useState<TradeAudience>(() => tradeAudienceFromDefault(defaultPostTo));
+  useEffect(() => { setAudience(tradeAudienceFromDefault(defaultPostTo)); }, [defaultPostTo]);
   useEffect(() => { setAmountText(''); setUnit('usd'); setSide('long'); setLevelsOn(false); setTpText(''); setSlText(''); setConfirming(false); setLeverage(isPerp ? Math.min(2, maxLev) : 1); }, [market.id, isPerp, maxLev]);
 
   // What this trade can draw on, in $ of stake.
@@ -75,7 +78,8 @@ export function TradeTicket({ market, balances, monPriceUsd, chainId, cults, inC
   const up = side === 'long';
   const tpProblem = tp == null ? null : !(tp > 0) ? 'Enter a price.' : price > 0 && (up ? tp <= price : tp >= price) ? `Take profit should be ${up ? 'above' : 'below'} the price.` : null;
   const slProblem = sl == null ? null : !(sl > 0) ? 'Enter a price.' : price > 0 && (up ? sl >= price : sl <= price) ? `Stop loss should be ${up ? 'below' : 'above'} the price.` : null;
-  const valid = stakeUsd >= 1 && !tooBig && (unit === 'usd' || price > 0) && !tpProblem && !slProblem;
+  const oppositePosition = isPerp && hasPosition && positionSide != null && side !== positionSide;
+  const valid = stakeUsd >= 1 && !tooBig && !oppositePosition && (unit === 'usd' || price > 0) && !tpProblem && !slProblem;
   const shortInAccount = isPerp && balances != null && stakeUsd > (balances.perplMarginUsd ?? 0);
 
   const show = (stake: number, inUnit = unit, withLev = lev) =>
@@ -88,11 +92,11 @@ export function TradeTicket({ market, balances, monPriceUsd, chainId, cults, inC
     setUnit(next);
     if (stakeUsd > 0) show(stakeUsd, next);
   };
-  const cultIds = cults.length === 0 || postTo === 'none' ? [] : postTo === 'all' ? undefined : [postTo];
+  const cultIds = tradeAudienceIds(audience, cults);
   // Risk, shown before you trade: the taker fee and where you'd be liquidated.
   const feeUsd = isPerp && market.takerFeeBps != null && positionUsd > 0 ? positionUsd * market.takerFeeBps / 10_000 : null;
-  const liq = isPerp && price > 0 ? liquidationPrice(price, side, lev, maxLev) : null;
-  const liqMove = isPerp ? liquidationMove(lev, maxLev) : null;
+  const liq = isPerp && !hasPosition && price > 0 ? liquidationPrice(price, side, lev, maxLev) : null;
+  const liqMove = isPerp && !hasPosition ? liquidationMove(lev, maxLev) : null;
   useEffect(() => { setConfirming(false); }, [lev, side]);
   const submit = (side: 'long' | 'short' | 'buy', confirmed = false) => {
     if (!valid) return;
@@ -139,29 +143,26 @@ export function TradeTicket({ market, balances, monPriceUsd, chainId, cults, inC
       </>}
     </div>}
 
+    {hasPosition && <p className="ticket-note">{isPerp ? `You already hold ${asset}. Trades change one net position; leverage and TP/SL apply to the whole market position. Opposite-side trades are blocked; close the existing position first to switch sides.` : `You already hold ${asset}. Buys add to your combined token balance.`}</p>}
+    {oppositePosition && <p className="ticket-warn">Close your existing {positionSide} position before opening a {side}.</p>}
+
     <dl className="ticket-summary">
       <div><dt>You put in</dt><dd className="num">{dollars(stakeUsd)}</dd></div>
       {isPerp && <div><dt>Position</dt><dd className="num">{dollars(positionUsd)}</dd></div>}
       {isPerp && <div><dt>Entry ≈</dt><dd className="num">{price > 0 ? dollars(price, price < 1 ? 6 : 2) : '—'}</dd></div>}
-      {isPerp && <div title="An estimate: assumes a maintenance margin of half the initial margin at this market's max leverage."><dt>Liquidation ≈ <span className="ticket-est">est.</span></dt><dd className="num down">{liq == null ? '—' : dollars(liq, liq < 1 ? 6 : 2)}</dd></div>}
+      {isPerp && <div title={hasPosition ? 'Liquidation depends on the combined net position and its shared margin.' : "An estimate: assumes a maintenance margin of half the initial margin at this market's max leverage."}><dt>Liquidation{!hasPosition && <> ≈ <span className="ticket-est">est.</span></>}</dt><dd className={`num${hasPosition ? '' : ' down'}`}>{hasPosition ? 'Shared net position' : liq == null ? '—' : dollars(liq, liq < 1 ? 6 : 2)}</dd></div>}
       {feeUsd != null && <div><dt>Fee ≈</dt><dd className="num">{dollars(feeUsd)} <span className="ticket-est">{(market.takerFeeBps! / 100).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}%</span></dd></div>}
     </dl>
     {tooBig && <p className="ticket-warn">More than you have available.{onDeposit && <button type="button" className="link" onClick={onDeposit}>Deposit</button>}</p>}
     {isPerp && chainId === 10143 && <p className="ticket-note">Testnet perps use testnet dollars. MON pays fees and buys meme tokens, but cannot fund perps here.</p>}
     {!tooBig && shortInAccount && stakeUsd > 0 && <p className="ticket-note">{chainId === 143 ? 'Funds move from your wallet automatically.' : 'Testnet dollars move from your wallet automatically.'}</p>}
 
-    {cults.length ? <label className="ticket-post">
-      <span className="ticket-label">Post to</span>
-      <select value={postTo} onChange={event => setPostTo(event.target.value)}>
-        <option value="all">All my cults ({cults.length})</option>
-        {cults.map(cult => <option key={cult.id} value={cult.id}>{cult.name}</option>)}
-        <option value="none">Only me (private)</option>
-      </select>
-    </label> : <p className="ticket-note">{inCults ? 'Only cult admins share trades, so this one is yours alone.' : <>You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</>}</p>}
+    {cults.length ? <TradeAudiencePicker cults={cults} value={audience} onChange={setAudience} />
+      : <p className="ticket-note">{inCults ? 'Only cult admins share trades, so this one is yours alone.' : <>You&apos;re not in a cult yet, so this trade is yours alone. Join or create one to trade with friends.</>}</p>}
 
     {isPerp && confirming ? <div className="ticket-confirm" role="alertdialog" aria-label={`Confirm ${lev}x leverage`}>
       <strong>{lev}x is high leverage</strong>
-      <p>A {liqMove == null ? 'small' : `${(liqMove * 100).toFixed(liqMove < 0.1 ? 1 : 0)}%`} move against you liquidates this position{liq == null ? '' : ` (around ${dollars(liq, liq < 1 ? 6 : 2)})`}, and you lose the {dollars(stakeUsd)} you put in.</p>
+      <p>{hasPosition ? `At ${lev}x, a small adverse move can liquidate your shared net position. Leverage affects all your ${asset} exposure; liquidation depends on the combined position and its shared margin.` : <>A {liqMove == null ? 'small' : `${(liqMove * 100).toFixed(liqMove < 0.1 ? 1 : 0)}%`} move against you liquidates this position{liq == null ? '' : ` (around ${dollars(liq, liq < 1 ? 6 : 2)})`}, and you lose the {dollars(stakeUsd)} you put in.</>}</p>
       <div className="ticket-confirm-actions">
         <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
         <button type="button" className={`ticket-submit ${side}`} disabled={!valid || busy} onClick={() => submit(side, true)}>Open {lev}x {side}</button>
@@ -169,6 +170,6 @@ export function TradeTicket({ market, balances, monPriceUsd, chainId, cults, inC
     </div>
       : isPerp ? <button type="button" className={`ticket-submit ${side}`} disabled={!valid || busy} onClick={() => submit(side)}>{side === 'long' ? 'Long' : 'Short'} {asset}{positionUsd > 0 && <small className="num">{dollars(positionUsd)}</small>}</button>
       : <button type="button" className="ticket-submit long" disabled={!valid || busy} onClick={() => submit('buy')}>Buy {market.symbol}{stakeUsd > 0 && <small className="num">{dollars(stakeUsd)}</small>}</button>}
-    {cults.length > 0 && <p className="ticket-foot">{postTo === 'none' ? 'Only you see this trade.' : 'Cult-mates on Auto-follow copy it, sized to their own limits.'}</p>}
+    {cults.length > 0 && <p className="ticket-foot">{cultIds?.length === 0 ? 'Only you see this trade.' : 'Cult-mates on Auto-follow copy it, sized to their own limits.'}</p>}
   </div>;
 }
