@@ -15,7 +15,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -413,6 +413,49 @@ function migrate(d: DatabaseSync) {
   if (!hasCol('chat_messages', 'image_id')) d.exec('ALTER TABLE chat_messages ADD COLUMN image_id TEXT');
   // ...and when a member last changed their username (one change every 3 months).
   if (!hasCol('members', 'username_changed_at')) d.exec('ALTER TABLE members ADD COLUMN username_changed_at INTEGER');
+  // New app fills share a net position without changing legacy position keys.
+  if (!hasCol('leader_trades', 'net_position_id')) d.exec('ALTER TABLE leader_trades ADD COLUMN net_position_id INTEGER');
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS member_orders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES members(user_id),
+      venue TEXT NOT NULL,
+      market TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      side TEXT NOT NULL,
+      leverage INTEGER NOT NULL,
+      margin_fraction REAL NOT NULL,
+      requested_notional REAL NOT NULL,
+      before_size TEXT NOT NULL DEFAULT '0',
+      targets TEXT NOT NULL DEFAULT '[]',
+      cult_ids TEXT NOT NULL,
+      marker_id TEXT,
+      account_id INTEGER,
+      rq INTEGER,
+      tx_hash TEXT,
+      booked_size TEXT NOT NULL DEFAULT '0',
+      booked_notional REAL NOT NULL DEFAULT 0,
+      allocation_id TEXT,
+      state TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      UNIQUE(account_id, rq)
+    );
+    CREATE INDEX IF NOT EXISTS member_orders_tx ON member_orders(tx_hash);
+    CREATE TABLE IF NOT EXISTS member_order_txs (
+      tx_hash TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL REFERENCES member_orders(id)
+    );
+    CREATE INDEX IF NOT EXISTS member_order_txs_order ON member_order_txs(order_id);
+  `);
+  if (!hasCol('member_orders', 'booked_notional')) d.exec('ALTER TABLE member_orders ADD COLUMN booked_notional REAL NOT NULL DEFAULT 0');
+  if (!hasCol('member_orders', 'allocation_id')) d.exec('ALTER TABLE member_orders ADD COLUMN allocation_id TEXT');
+  // Keep each automatic exit attempt and its cumulative fill separate.
+  if (!hasCol('mirrors', 'close_ref')) d.exec('ALTER TABLE mirrors ADD COLUMN close_ref TEXT');
+  if (!hasCol('mirrors', 'close_before_size')) d.exec('ALTER TABLE mirrors ADD COLUMN close_before_size TEXT');
+  if (!hasCol('mirrors', 'close_requested_size')) d.exec('ALTER TABLE mirrors ADD COLUMN close_requested_size TEXT');
+  if (!hasCol('mirrors', 'close_booked_size')) d.exec('ALTER TABLE mirrors ADD COLUMN close_booked_size TEXT');
+  if (!hasCol('mirror_adjustments', 'before_size')) d.exec('ALTER TABLE mirror_adjustments ADD COLUMN before_size TEXT');
+  if (!hasCol('mirror_adjustments', 'available_size')) d.exec('ALTER TABLE mirror_adjustments ADD COLUMN available_size TEXT');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);
@@ -442,6 +485,8 @@ export function switchChain(d: DatabaseSync, chainId: number): boolean {
       DELETE FROM mirror_adjustments;
       DELETE FROM mirrors;
       DELETE FROM stacks;
+      DELETE FROM member_order_txs;
+      DELETE FROM member_orders;
       DELETE FROM leader_trades;
       DELETE FROM engine_orders;
       DELETE FROM engine_txs;

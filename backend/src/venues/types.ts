@@ -28,6 +28,7 @@ export interface CloseInput {
   userId: string;
   market: string;
   sizeRaw?: string; // close only this much (a mirror's own slice); default all
+  side?: TradeSide; // do not reduce the opposite side after an external inversion
   onRef?: (ref: OrderRef) => void;
 }
 
@@ -43,6 +44,8 @@ export interface Fill {
   requestId?: number;
   txHash?: string | null;
   extraTxs?: string[]; // approvals / swaps that were part of this trade
+  tradeId?: string; // independently shared app allocation
+  markerId?: string;
 }
 
 export interface Holding {
@@ -57,6 +60,11 @@ export interface Holding {
   valueAusd: number;
   pnlAusd: number | null;
   leverage: number;
+  markerId?: string;
+  tradeId?: string;
+  origin?: 'leader' | 'auto_mirror' | 'manual_stack' | 'private';
+  cultIds?: string[];
+  isNetted?: boolean;
 }
 
 export interface VenueAdapter {

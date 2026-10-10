@@ -1,6 +1,6 @@
 // Offline: a leader adding to or partly exiting a trade they lead, and how
 // open mirrors follow. Fake venue with real raw-size bookkeeping.
-import { test, before } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.DB_PATH = ':memory:';
@@ -42,7 +42,8 @@ const fake = {
       .filter((m) => (held.get(`${userId}:${m}`) ?? 0n) > 0n)
       .map((m) => {
         const raw = held.get(`${userId}:${m}`)!;
-        return { venue: 'nadfun', market: m, sizeRaw: raw.toString(), size: Number(raw) / 1000, markPriceAusd: 1 } as any;
+        return { venue: 'nadfun', market: m, symbol: '$TEST', side: 'buy', sizeRaw: raw.toString(), size: Number(raw) / 1000,
+          entryPriceAusd: 1, markPriceAusd: 1, valueAusd: Number(raw) / 1000, pnlAusd: 0, leverage: 1 };
       });
   },
   async freeBalanceAusd(userId: string) { return balances[userId] ?? 0; },
@@ -67,6 +68,8 @@ before(async () => {
   clans.join(clan.id, 'C', { enabled: true, balancePercentCap: 50, maxUsdPerTrade: 30 });
   engine = new E.MirrorEngine({ optOutSeconds: 0.2, minMirrorAusd: 1 }, { sessionFor: async () => { throw new Error('no sessions'); }, venue: () => fake as any, nadWatcher: null });
 });
+
+after(() => engine.stop());
 
 // Leader A buys 10% of their dollars; B and C mirror at 10% of 1000 = $100 (C capped at $30).
 async function leaderBuys(market: string) {
@@ -149,8 +152,9 @@ test('a member who sold some by hand is never sold below zero', async () => {
   await wait(50);
   const b = mirrorOf(t.id, 'B');
   const adj = repo.adjustments.forMirror(b.id)[0]!;
-  assert.equal(adj.sizeDelta, '10000', 'sold only what B still had');
-  assert.equal(held.get(`B:${mkt}`), 0n);
+  assert.equal(adj.sizeDelta, '5000', 'sold half the live remaining slice, never the stale recorded 100k');
+  assert.equal(held.get(`B:${mkt}`), 5000n);
+  assert.equal(b.size, '50000', 'half the recorded copy corresponds to half its available balance');
 });
 
 test('the exit after a partial sell closes what is left, not the original size', async () => {

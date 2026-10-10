@@ -1,7 +1,7 @@
 // Offline: after a crash, mirrors and adjustments caught mid-send are settled
 // by what reached the venue (a fake lookup here; the real one reads receipts
 // and Perpl order history, see scripts/e2e/reconcile-read.ts).
-import { test, before } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.DB_PATH = ':memory:';
@@ -30,7 +30,8 @@ const fake = {
     return { venue: 'nadfun', market: i.market, side: 'buy', sizeRaw: i.sizeRaw ?? '0', size: 0, priceAusd: 1, notionalAusd: 1, txHash: '0xsold' };
   },
   async holdings(userId: string, markets: string[] = []) {
-    return markets.filter((m) => held.has(`${userId}:${m}`)).map((m) => ({ venue: 'nadfun', market: m, sizeRaw: '10000', size: 10, markPriceAusd: 1 }) as any);
+    return markets.filter((m) => held.has(`${userId}:${m}`)).map((m) => ({ venue: 'nadfun', market: m, symbol: '$TEST', side: 'buy',
+      sizeRaw: '10000', size: 10, entryPriceAusd: 1, markPriceAusd: 1, valueAusd: 10, pnlAusd: 0, leverage: 1 }));
   },
   async freeBalanceAusd() { return 1000; },
   async markPriceAusd() { return 1; },
@@ -59,6 +60,7 @@ function adjustment(m: string, tradeId: string, kind: 'add' | 'reduce', ageMs = 
 let db: () => import('node:sqlite').DatabaseSync;
 
 const ids: Record<string, string> = {};
+let engine: InstanceType<Mod['MirrorEngine']>;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 before(async () => {
@@ -99,7 +101,7 @@ before(async () => {
   const t10 = trade(0, true); ids.exitMissing = mirror(t10.id, 'open'); held.add(`B:${t10.market}`);
   answers.set(`mirror_close:${ids.exitMissing}`, [{ state: 'none' }]);
 
-  const engine = new E.MirrorEngine(
+  engine = new E.MirrorEngine(
     { optOutSeconds: 0, minMirrorAusd: 1 },
     {
       sessionFor: async () => { throw new Error('no sessions'); },
@@ -117,6 +119,8 @@ before(async () => {
   await engine.recovered();
   await wait(300);
 });
+
+after(() => engine.stop());
 
 test('a mirror whose buy landed is booked open from the chain', () => {
   const m = repo.mirrors.get(ids.filled)!;
