@@ -14,8 +14,8 @@ export function validateMirrorPolicy(policy: MirrorPolicy): void {
   }
 }
 
-export function mirrorPolicyFromDraft(maxUsd: string, balancePct: string): MirrorPolicy {
-  const policy = { enabled: true, maxUsdPerTrade: Number(maxUsd), balancePercentCap: Number(balancePct) };
+export function mirrorPolicyFromDraft(maxUsd: string, balancePct: string, followExits?: boolean): MirrorPolicy {
+  const policy = { enabled: true, maxUsdPerTrade: Number(maxUsd), balancePercentCap: Number(balancePct), ...(followExits == null ? {} : { followExits }) };
   validateMirrorPolicy(policy);
   return policy;
 }

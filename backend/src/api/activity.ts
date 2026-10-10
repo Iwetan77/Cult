@@ -21,9 +21,16 @@ export function describeTrade(t: LeaderTrade, what: 'opened' | 'changed' | 'clos
 }
 
 async function announce(t: LeaderTrade, what: 'opened' | 'changed' | 'closed', ratio: number | undefined, symbol: typeof marketSymbol) {
+  const prefixes = what === 'opened' ? ['opened %', 'bought %'] : what === 'closed' ? ['closed %', 'sold all %'] : [];
+  const exists = (room: string) => prefixes.length > 0 && !!getDb().prepare(
+    `SELECT 1 FROM chat_messages WHERE room = ? AND user_id = ? AND marker_id = ? AND kind = 'system'
+       AND (${prefixes.map(() => 'body LIKE ?').join(' OR ')}) LIMIT 1`,
+  ).get(room, t.userId, `trade:${t.id}`, ...prefixes);
+  const rooms = tradeCults(t, clans.adminCultIds(t.userId)).map(cultRoom).filter(room => !exists(room));
+  if (!rooms.length) return;
   const body = describeTrade(t, what, await symbol(t.venue, t.market), ratio);
-  // Only to cults the trader shares with (admins), as the engine recorded it.
-  for (const id of tradeCults(t, clans.adminCultIds(t.userId))) postSystem(cultRoom(id), t.userId, body, `trade:${t.id}`);
+  // A symbol lookup may yield to a replay of the same trade event.
+  for (const room of rooms) if (!exists(room)) postSystem(room, t.userId, body, `trade:${t.id}`);
 }
 
 async function announceMirror(m: Mirror, symbol: typeof marketSymbol) {
@@ -48,7 +55,11 @@ async function announceMirror(m: Mirror, symbol: typeof marketSymbol) {
   if (!exists()) postSystem(room, m.userId, `${action} ${position}`, marker);
 }
 
+const feeds = new WeakSet<MirrorEngine>();
+
 export function startActivityFeed(engine: MirrorEngine, symbol: typeof marketSymbol = marketSymbol) {
+  if (feeds.has(engine)) return;
+  feeds.add(engine);
   const log = (e: unknown) => console.warn('[activity]', (e as Error).message);
   engine.on('trade', (t) => void announce(t, 'opened', undefined, symbol).catch(log));
   engine.on('tradeChanged', (t, ratio) => void announce(t, 'changed', ratio, symbol).catch(log));

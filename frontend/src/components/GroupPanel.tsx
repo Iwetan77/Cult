@@ -20,6 +20,7 @@ type Props = {
   perpsReady: boolean; perpsFunded: boolean; onEnablePerps: () => void; onDeposit: () => void;
   copyFailure: string | null; onDismissCopyFailure: () => void;
   onFollowOn: (policy: MirrorPolicy) => Promise<void>; onFollowOff: () => Promise<void>;
+  onFollowExits: (enabled: boolean) => Promise<void>;
   onMarket: (marketId: string) => void; onMarker: (marker: ChartMarker) => void; onOpenTrade: () => void;
   onGuideDrop: (marker: ChartMarker, kind: 'takeProfit' | 'stopLoss', price: number) => void;
   onInvite: () => void; onVisibility: (visibility: 'private' | 'public') => void;
@@ -53,7 +54,7 @@ function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: str
   </div>;
 }
 
-export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, perpsReady, perpsFunded, onEnablePerps, onDeposit, copyFailure, onDismissCopyFailure, onFollowOn, onFollowOff, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile, meId, onSetAdmin, onImage }: Props) {
+export function GroupPanel({ room, cult, config, snapshot, selected, busy, signerPrompt, onGrantSigner, perpsReady, perpsFunded, onEnablePerps, onDeposit, copyFailure, onDismissCopyFailure, onFollowOn, onFollowOff, onFollowExits, onMarket, onMarker, onOpenTrade, onGuideDrop, onInvite, onVisibility, onLeave, onProfile, meId, onSetAdmin, onImage }: Props) {
   const imageInput = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<'positions' | 'stats' | 'members' | 'settings'>('positions');
   const [followSheet, setFollowSheet] = useState(false);
@@ -75,7 +76,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
   const turnOn = async () => {
     setError(null);
     try {
-      await onFollowOn(mirrorPolicyFromDraft(maxUsd, balancePct));
+      await onFollowOn(mirrorPolicyFromDraft(maxUsd, balancePct, cult?.myPolicy?.followExits !== false));
       setFollowSheet(false);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Auto-follow limits could not be saved.'); }
   };
@@ -113,6 +114,11 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         <input className="switch" type="checkbox" checked={cult.autoFollow} disabled={busy} onChange={event => { if (event.target.checked) openFollowSheet(); else void onFollowOff(); }} />
       </label>
       {cult.autoFollow && policy && !followSheet && <div className="follow-alloc"><span>Your copy limits</span><b className="num">Up to {dollars(policy.maxUsdPerTrade)} <small>/ copy</small></b><small>Up to {policy.balancePercentCap}% of free balance</small><button className="link" disabled={busy} onClick={openFollowSheet}>Edit</button></div>}
+      <label className="follow-row follow-exits">
+        <span><strong>Follow exits</strong><small>{policy?.followExits === false ? 'You close your copies yourself' : 'Copy the sender’s partial sells and closes'}</small></span>
+        <input className="switch" type="checkbox" checked={policy?.followExits !== false} disabled={busy} onChange={event => { void onFollowExits(event.target.checked); }} />
+      </label>
+      {policy?.followExits === false && <p className="fine">Copies stay open when the sender exits. Your own TP/SL and liquidation still apply. Orders already sent cannot be undone.</p>}
       {cult.autoFollow && signerPrompt && <div className="follow-alert"><p>{signerPrompt}. New meme copies are cancelled until your wallet permission is confirmed.</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onGrantSigner}><ShieldCheck size={14} /> Approve signer</button></div>}
       {cult.autoFollow && !perpsReady && <div className="follow-alert"><p>Perp copying is not ready. Enable your perps account and trading key once to copy new perp trades.</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onEnablePerps}><ShieldCheck size={14} /> Enable perp copying</button></div>}
       {cult.autoFollow && perpsReady && !perpsFunded && <div className="follow-alert"><p>Perp copies need dollars in your wallet or trading account.{config?.chainId === 10143 ? ' MON alone cannot fund testnet perps.' : ''}</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onDeposit}>Deposit</button></div>}
@@ -140,7 +146,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         <div className="mini-chart"><SharedChart candles={snapshot?.candles ?? []} markers={markers} market={market ?? { venue: 'perpl', id: '', symbol: '', baseSymbol: '', quoteSymbol: 'USD', maxLeverage: 1, makerFeeBps: null, takerFeeBps: null }} selectedId={selected?.id ?? null} onSelect={onMarker} onGuideDrop={onGuideDrop} guidesDisabled={busy} avatars={Object.fromEntries(members.map(x => [x.id, x.avatarUrl]))} resolution={snapshot && snapshot.candles.length > 1 ? candleResolution(snapshot.candles) : undefined} /></div>
         <div className="feed feed--compact">{markers.length ? markers.map(marker => <button className={`feed-row ${selected?.id === marker.id ? 'on' : ''}`} key={marker.id} onClick={() => onMarker(marker)}>
           <Avatar name={marker.memberName} url={members.find(m => m.id === marker.memberId)?.avatarUrl} />
-          <span className="feed-who"><strong>{marker.isMine ? 'You' : marker.memberName}</strong><small>{marker.origin === 'auto_mirror' ? 'Auto copy' : marker.origin === 'manual_stack' ? 'Stacked' : 'Own trade'} · {price(marker.entryPrice)}</small></span>
+          <span className="feed-who"><strong>{marker.isMine ? 'You' : marker.memberName}</strong><small>{marker.origin === 'auto_mirror' ? (marker.leaderClosed ? 'Sender closed · Manual exit' : marker.followExits === false ? 'Auto copy · Manual exit' : 'Auto copy') : marker.origin === 'manual_stack' ? 'Stacked' : 'Own trade'} · {price(marker.entryPrice)}</small></span>
           <span className={`side-chip ${marker.side}`}>{marker.side.toUpperCase()}{marker.leverage ? ` ${marker.leverage}x` : ''}</span>
           <b className={`num ${(marker.pnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{marker.venue === 'perpl' ? (marker.pnlUsd == null ? 'Pending' : signedDollars(marker.pnlUsd)) : dollars(marker.valueUsd)}</b>
         </button>) : <div className="empty compact"><span>No open positions on {market?.symbol ?? 'this market'}.</span></div>}</div>
@@ -169,7 +175,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
         {cult.isAdmin && onImage && <div className="setting"><div><strong>Cult picture</strong><small>Shown on the cult everywhere, and in Discover when it&apos;s public.</small></div><div className="row-gap">{cult.imageUrl && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onImage(null)}>Remove</button>}<button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => imageInput.current?.click()}><Camera size={14} /> {cult.imageUrl ? 'Change' : 'Add'}</button></div></div>}
         <div className="setting"><div><strong>Invite link</strong><small>Code <b className="code">{cult.inviteCode}</b></small></div><button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Copy</button></div>
         {cult.isOwner && <div className="setting"><div><strong>Visibility</strong><small>{cult.visibility === 'public' ? 'Listed in Discover and public rankings.' : 'Invite only.'}</small></div><div className="seg seg--sm"><button className={cult.visibility === 'private' ? 'on' : ''} disabled={busy} onClick={() => onVisibility('private')}>Private</button><button className={cult.visibility === 'public' ? 'on' : ''} disabled={busy} onClick={() => onVisibility('public')}>Public</button></div></div>}
-        <div className="setting danger"><div><strong>Leave cult</strong><small>Pending copies are cancelled. Open ones unwind when their leader exits.</small></div>{!confirmLeave ? <button className="btn btn-danger btn-sm" onClick={() => setConfirmLeave(true)}>Leave</button> : <div className="row-gap"><button className="btn btn-ghost btn-sm" onClick={() => setConfirmLeave(false)}>Cancel</button><button className="btn btn-danger btn-sm" disabled={busy} onClick={() => void onLeave()}>Confirm</button></div>}</div>
+        <div className="setting danger"><div><strong>Leave cult</strong><small>Pending copies are cancelled. Open copies keep your Follow exits choice.</small></div>{!confirmLeave ? <button className="btn btn-danger btn-sm" onClick={() => setConfirmLeave(true)}>Leave</button> : <div className="row-gap"><button className="btn btn-ghost btn-sm" onClick={() => setConfirmLeave(false)}>Cancel</button><button className="btn btn-danger btn-sm" disabled={busy} onClick={() => void onLeave()}>Confirm</button></div>}</div>
       </div>}
     </section>
   </aside>;

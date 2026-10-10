@@ -129,6 +129,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     this.nad?.add(m.wallet);
     if (this.watchingPerpl.has(userId) || !members.credentials(userId)) return;
     const session = await this.deps.sessionFor(userId);
+    if (this.watchingPerpl.has(userId)) return;
     this.watchingPerpl.add(userId);
     const seed = () => {
       for (const p of session.positions?.values() ?? []) {
@@ -527,13 +528,14 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         if (!m.policy.enabled) continue;
         seen.add(m.userId);
         const why = await this.cannotTrade(m.userId, e.venue);
+        const followExits = clans.membership(clanId, m.userId)?.policy.followExits ?? m.policy.followExits;
         if (why) {
           // Tell the member why they weren't mirrored instead of silently skipping them.
-          const skipped = mirrors.insertPending({ tradeId: trade.id, clanId, userId: m.userId, skipUntil });
+          const skipped = mirrors.insertPending({ tradeId: trade.id, clanId, userId: m.userId, skipUntil, followExits });
           this.emit('mirror', mirrors.transition(skipped.id, 'pending', 'cancelled', { error: why })!);
           continue;
         }
-        const mirror = mirrors.insertPending({ tradeId: trade.id, clanId, userId: m.userId, skipUntil });
+        const mirror = mirrors.insertPending({ tradeId: trade.id, clanId, userId: m.userId, skipUntil, followExits });
         if (stale) {
           this.emit('mirror', mirrors.transition(mirror.id, 'pending', 'cancelled', { error: `leader trade detected ${e.detectedLateBySeconds}s late (backend was catching up); not mirrored at a stale price` })!);
           continue;
@@ -590,6 +592,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
   private queueAdjustment(trade: LeaderTrade, m: Mirror, ratio: number, detectedLateBySeconds?: number) {
     const kind = ratio > 1 ? 'add' : 'reduce';
+    if (kind === 'reduce' && mirrors.get(m.id)?.followExits === false) return;
     const a = adjustments.insert({
       mirrorId: m.id,
       tradeId: trade.id,
@@ -622,8 +625,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     return updated;
   }
 
-  // A member leaving a clan: nothing new fires for them there. Open mirrors
-  // still follow partial exits and the exit, so nothing is left orphaned.
+  // Leaving cancels new entries and adds. Open copies retain their exit choice.
   memberLeft(clanId: string, userId: string) {
     for (const m of mirrors.forClan(clanId, ['pending'])) {
       if (m.userId === userId) this.cancelPending(m.id, 'member left the clan');
@@ -631,6 +633,24 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     for (const a of adjustments.byStatus('pending')) {
       if (a.clanId !== clanId || a.userId !== userId || a.kind !== 'add') continue;
       const updated = adjustments.transition(a.id, 'pending', 'cancelled', { error: 'member left the clan' });
+      if (!updated) continue;
+      this.unschedule(`adj:${a.id}`);
+      this.emit('adjustment', updated);
+    }
+  }
+
+  setFollowExits(clanId: string, userId: string, enabled: boolean) {
+    clans.setFollowExits(clanId, userId, enabled);
+    for (const m of mirrors.forClan(clanId, ['pending', 'submitting', 'open'])) {
+      if (m.userId !== userId) continue;
+      // Re-enabling must not retroactively sell a copy the member kept after an exit.
+      if (enabled && trades.get(m.tradeId)?.closedAt) continue;
+      mirrors.patch(m.id, { followExits: enabled });
+      this.emit('mirror', mirrors.get(m.id)!);
+    }
+    if (!enabled) for (const a of adjustments.byStatus('pending')) {
+      if (a.clanId !== clanId || a.userId !== userId || a.kind !== 'reduce') continue;
+      const updated = adjustments.transition(a.id, 'pending', 'cancelled', { error: 'member turned off Follow exits' });
       if (!updated) continue;
       this.unschedule(`adj:${a.id}`);
       this.emit('adjustment', updated);
@@ -660,6 +680,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       this.emit('adjustment', adjustments.transition(id, 'submitting', to, patch)!);
     if (trade.closedAt) return done('cancelled', { error: 'leader already closed; the exit covers it' });
     if (m.status !== 'open' || !m.size) return done('cancelled', { error: `mirror is ${m.status}` });
+    if (a.kind === 'reduce' && m.followExits === false) return done('cancelled', { error: 'member turned off Follow exits' });
 
     let sent = false;
     const attempt = (this.attempts.get(id) ?? 0) + 1;
@@ -688,6 +709,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       const keepMillionths = BigInt(Math.round(a.ratio * 1_000_000));
 
       if (a.kind === 'reduce') {
+        if (mirrors.get(m.id)?.followExits === false) return done('cancelled', { error: 'member turned off Follow exits' });
         const own = allocatedHoldings(m.userId, [held]).find(h => h.markerId === 'mirror:' + m.id);
         const available = BigInt(own?.sizeRaw ?? '0');
         const sell = available - (available * keepMillionths) / 1_000_000n;
@@ -767,7 +789,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     for (const a of adjustments.byStatus('submitting')) await this.guard(`reconcile adjustment ${a.id}`, () => this.reconcileAdjustment(a.id));
     for (const m of mirrors.byStatus('open')) {
       const trade = trades.get(m.tradeId)!;
-      if (trade.closedAt) await this.guard(`reconcile exit ${m.id}`, () => this.reconcileExit(m.id));
+      if (trade.closedAt && (m.followExits !== false || m.closeRef || m.closeRq != null)) await this.guard(`reconcile exit ${m.id}`, () => this.reconcileExit(m.id));
     }
   }
 
@@ -832,8 +854,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       this.emit('adjustment', adjustments.transition(id, 'submitting', 'done', { ...note, sizeDelta: r.sizeRaw })!);
       return;
     }
-    // A partial sell that didn't happen still has to: it only takes risk off.
-    // An add is only retried while the leader's move is fresh, like a new mirror.
+    // Reconcile confirmed fills even after an opt-out, but never retry an
+    // unsent reduction against the member's current exit choice.
+    if (a.kind === 'reduce' && mirrors.get(m.id)?.followExits === false) {
+      this.emit('adjustment', adjustments.transition(id, 'submitting', 'cancelled', { error: 'member turned off Follow exits' })!);
+      return;
+    }
     const retry = a.kind === 'reduce' || (r.state === 'none' && Date.now() - a.createdAt <= this.maxAgeMs());
     if (retry) {
       const again = adjustments.transition(id, 'submitting', 'pending', { skipUntil: Date.now(), error: `interrupted by a restart${r.state === 'failed' ? `; ${r.reason}` : ' before sending'}; trying again` })!;
@@ -942,7 +968,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       if (m.status === 'pending') {
         this.unschedule(m.id);
         this.emit('mirror', mirrors.transition(m.id, 'pending', 'cancelled', { error: 'leader closed before mirror fired' })!);
-      } else if (m.status === 'open') {
+      } else if (m.status === 'open' && m.followExits !== false) {
         toClose.push(m);
       }
     }
@@ -1078,7 +1104,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   private closeMirror(m: Mirror, trade: LeaderTrade) {
     return this.inLane(m.id, async () => {
       const now = mirrors.get(m.id);
-      if (now?.status === 'open') await this.closeMirrorNow(now, trade); // an earlier adjustment may have sold it all
+      if (now?.status === 'open' && now.followExits !== false) await this.closeMirrorNow(now, trade);
     });
   }
 
@@ -1091,6 +1117,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     }
     // If the member already got out on their own, there's nothing to unwind.
     const held = await adapter.holdings(m.userId, [trade.market]).catch(() => null);
+    if (mirrors.get(m.id)?.followExits === false) return;
     if (held && held.length === 0) {
       this.emit('mirror', mirrors.transition(m.id, 'open', 'closed', { error: 'member had already exited this position' })!);
       return;

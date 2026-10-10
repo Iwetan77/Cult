@@ -265,3 +265,38 @@ test('original leader open, change and close notices keep their audience and wor
   assert.ok(messages().every((n) => n.memberId === 'leader' && n.memberName === 'leaderName' && n.markerId === `trade:${t.id}`));
   assert.deepEqual(chat.listMessages(chat.cultRoom(cultB)).messages, []);
 });
+
+test('leader opening and closing replays post once across concurrent lookup and restart', async () => {
+  const t = trade('perpl', { cultIds: [cultA] });
+  let resolve!: (symbol: string) => void;
+  const lookup = new Promise<string>(r => { resolve = r; });
+  const engine = feed(mock.fn(() => lookup));
+  for (let i = 0; i < 10; i++) engine.emit('trade', t);
+  resolve('NEAR-PERP');
+  await flush();
+  const restarted = feed();
+  restarted.emit('trade', t);
+  for (let i = 0; i < 10; i++) restarted.emit('tradeClosed', { ...t, closedAt: Date.now() });
+  await flush();
+  assert.deepEqual(messages().map(m => m.body), ['opened NEAR-PERP long 5x', 'closed BTC-PERP long 5x']);
+});
+
+test('two real entries in the same market and repeated partial exits remain separate', async () => {
+  const engine = feed();
+  const a = trade('perpl', { cultIds: [cultA] }), b = trade('perpl', { cultIds: [cultA] });
+  engine.emit('trade', a);
+  engine.emit('trade', b);
+  engine.emit('tradeChanged', a, 0.5);
+  engine.emit('tradeChanged', a, 0.5);
+  await flush();
+  assert.equal(messages().length, 4);
+});
+
+test('binding an activity feed twice does not duplicate listeners', async () => {
+  const engine = feed();
+  startActivityFeed(engine);
+  engine.emit('tradeChanged', trade('perpl', { cultIds: [cultA] }), 1.5);
+  await flush();
+  assert.equal(engine.listenerCount('trade'), 1);
+  assert.equal(messages().length, 1);
+});
