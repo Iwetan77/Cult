@@ -4,6 +4,7 @@ export const isLeaderTradeMarker = (markerId: string | null | undefined): boolea
 export type TradeSide = 'long' | 'short' | 'buy';
 export type MirrorPolicy = {
   enabled: boolean;
+  followExits?: boolean; // defaults to true for older responses; individual per-cult choice
   balancePercentCap: number; // (0, 100] of free venue balance: perp margin or meme spend.
   maxUsdPerTrade: number; // [1, 1e6] dollar notional per copy/add, including perp leverage; not fixed spend.
 };
@@ -54,6 +55,7 @@ export type ChartMarker = {
   pnlUsd: number | null; valueUsd: number | null; leverage: number | null;
   takeProfitPrice?: number | null; stopLossPrice?: number | null; suggestions?: TpslSuggestion[];
   isMine: boolean; mirrorStatus?: 'pending' | 'submitted' | 'filled';
+  followExits?: boolean; leaderClosed?: boolean;
   skipUntil?: string; pendingAdd?: { id: string; ratio: number; skipUntil: string } | null;
   txHash?: string | null;
 };

@@ -6,6 +6,7 @@ import { getDb } from './db.js';
 // Units and bounds are defined here and published in CONTRACTS.md.
 export const MirrorPolicySchema = z.object({
   enabled: z.boolean(),
+  followExits: z.boolean().optional(), // absent in older clients: preserve the saved choice
   balancePercentCap: z.number().gt(0).max(100), // % of free Perpl balance one mirror may use as margin
   maxUsdPerTrade: z.number().min(1).max(1_000_000), // max notional of one mirrored position, USD
 });
@@ -66,6 +67,7 @@ interface MemberRow {
   clan_id: string;
   user_id: string;
   mirror_enabled: number;
+  follow_exits: number;
   balance_percent_cap: number;
   max_usd_per_trade: number;
   joined_at: number;
@@ -83,7 +85,7 @@ const toClan = (r: ClanRow): Clan => ({
 const toMembership = (r: MemberRow, createdBy?: string): ClanMembership => ({
   clanId: r.clan_id,
   userId: r.user_id,
-  policy: { enabled: r.mirror_enabled === 1, balancePercentCap: r.balance_percent_cap, maxUsdPerTrade: r.max_usd_per_trade },
+  policy: { enabled: r.mirror_enabled === 1, followExits: r.follow_exits !== 0, balancePercentCap: r.balance_percent_cap, maxUsdPerTrade: r.max_usd_per_trade },
   joinedAt: r.joined_at,
   role: r.user_id === createdBy || r.role === 'admin' ? 'admin' : 'member',
 });
@@ -160,19 +162,24 @@ export const clans = {
     const role: CultRole = this.get(clanId)?.createdBy === userId ? 'admin' : 'member';
     getDb()
       .prepare(
-        `INSERT INTO clan_members (clan_id, user_id, mirror_enabled, balance_percent_cap, max_usd_per_trade, joined_at, role)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO clan_members (clan_id, user_id, mirror_enabled, balance_percent_cap, max_usd_per_trade, joined_at, role, follow_exits)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(clan_id, user_id) DO NOTHING`,
       )
-      .run(clanId, userId, p.enabled ? 1 : 0, p.balancePercentCap, p.maxUsdPerTrade, Date.now(), role);
+      .run(clanId, userId, p.enabled ? 1 : 0, p.balancePercentCap, p.maxUsdPerTrade, Date.now(), role, p.followExits === false ? 0 : 1);
   },
 
   // Replaces the member's policy (after they've signed a fresh consent).
   setPolicy(clanId: string, userId: string, policy: MirrorPolicy) {
     const p = MirrorPolicySchema.parse(policy);
     getDb()
-      .prepare('UPDATE clan_members SET mirror_enabled = ?, balance_percent_cap = ?, max_usd_per_trade = ? WHERE clan_id = ? AND user_id = ?')
-      .run(p.enabled ? 1 : 0, p.balancePercentCap, p.maxUsdPerTrade, clanId, userId);
+      .prepare('UPDATE clan_members SET mirror_enabled = ?, balance_percent_cap = ?, max_usd_per_trade = ?, follow_exits = ? WHERE clan_id = ? AND user_id = ?')
+      .run(p.enabled ? 1 : 0, p.balancePercentCap, p.maxUsdPerTrade,
+        (p.followExits ?? this.membership(clanId, userId)?.policy.followExits ?? true) ? 1 : 0, clanId, userId);
+  },
+
+  setFollowExits(clanId: string, userId: string, enabled: boolean) {
+    getDb().prepare('UPDATE clan_members SET follow_exits = ? WHERE clan_id = ? AND user_id = ?').run(enabled ? 1 : 0, clanId, userId);
   },
 
   leave(clanId: string, userId: string) {

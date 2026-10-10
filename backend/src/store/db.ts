@@ -15,7 +15,7 @@ export function getDb(path = env.dbPath): DatabaseSync {
   return db;
 }
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 
 function migrate(d: DatabaseSync) {
   const { user_version } = d.prepare('PRAGMA user_version').get() as { user_version: number };
@@ -456,6 +456,9 @@ function migrate(d: DatabaseSync) {
   if (!hasCol('mirrors', 'close_booked_size')) d.exec('ALTER TABLE mirrors ADD COLUMN close_booked_size TEXT');
   if (!hasCol('mirror_adjustments', 'before_size')) d.exec('ALTER TABLE mirror_adjustments ADD COLUMN before_size TEXT');
   if (!hasCol('mirror_adjustments', 'available_size')) d.exec('ALTER TABLE mirror_adjustments ADD COLUMN available_size TEXT');
+  // Exit following is personal to each cult, and retained on copies after leaving.
+  if (!hasCol('clan_members', 'follow_exits')) d.exec('ALTER TABLE clan_members ADD COLUMN follow_exits INTEGER NOT NULL DEFAULT 1');
+  if (!hasCol('mirrors', 'follow_exits')) d.exec('ALTER TABLE mirrors ADD COLUMN follow_exits INTEGER NOT NULL DEFAULT 1');
   if (user_version < 4) {
     d.exec(`INSERT OR IGNORE INTO chat_messages (id, room, user_id, body, reply_to, marker_id, created_at)
             SELECT id, 'cult:' || clan_id, user_id, body, reply_to, marker_id, created_at FROM clan_messages`);

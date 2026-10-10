@@ -4,7 +4,7 @@ import type { ChatMessage } from '../src/lib/contracts';
 import { uniqueChatNotices } from '../src/lib/chat-notices';
 
 const message = (id: string, patch: Partial<ChatMessage> = {}): ChatMessage => ({
-  id, room: 'cult:a', clanId: 'a', memberId: 'me', memberName: 'Trader', body: 'opened NEAR-PERP long 3x',
+  id, room: 'cult:a', clanId: 'a', memberId: 'me', memberName: 'Trader', memberAvatarUrl: null, body: 'opened NEAR-PERP long 3x',
   text: 'Trader opened NEAR-PERP long 3x', kind: 'system', replyTo: null, markerId: 'trade:one',
   createdAt: new Date().toISOString(), ...patch,
 });

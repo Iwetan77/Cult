@@ -4,6 +4,11 @@ import { autoFollowDraft, mirrorPolicyFromDraft, validateMirrorPolicy } from '..
 
 const defaults = { maxUsdPerTrade: 100, balancePercentCap: 10 };
 
+test('saving limits preserves the independent exit choice', () => {
+  assert.equal(mirrorPolicyFromDraft('25', '5', false).followExits, false);
+  assert.equal(mirrorPolicyFromDraft('25', '5', true).followExits, true);
+});
+
 test('saved personal limits survive turning copying off and on', () => {
   const draft = autoFollowDraft({ enabled: false, maxUsdPerTrade: 23.75, balancePercentCap: 0.5 }, defaults);
   assert.deepEqual(draft, { maxUsd: '23.75', balancePct: '0.5' });

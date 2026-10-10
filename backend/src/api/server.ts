@@ -64,10 +64,11 @@ function consentMessage(cultName: string, inviteCode: string, wallet: string, p:
     `Wallet: ${wallet}`,
     ``,
     p.enabled
-      ? `When a member of this cult trades on Perpl or Nad.fun, copy it into my account automatically, and follow their adds, partial sells and exits.`
+      ? `When a member of this cult trades on Perpl or Nad.fun, copy it into my account automatically, and follow their adds.`
       : `Do not copy trades into my account.`,
     `Per copy: at most ${p.balancePercentCap}% of my free balance on that venue, and at most $${p.maxUsdPerTrade}.`,
-    `I can skip any copy or add before it fires; partial sells and exits follow right away.`,
+    `I can skip any copy or add before it fires.`,
+    p.followExits === false ? `Keep my copies open when the sender partly sells or closes. I will close them myself.` : `Follow the sender's partial sells and exits automatically.`,
     `The backend can never withdraw my funds.`,
     ``,
     `Nonce: ${nonce}`,
@@ -730,6 +731,7 @@ export function createApp(engine: MirrorEngine) {
   cultRoutes.post('/:clanId/policy/challenge', async (c) => {
     const clan = clanFor(c);
     const body = z.object({ policy: MirrorPolicySchema }).parse(await c.req.json());
+    body.policy.followExits ??= clans.membership(clan.id, c.get('userId'))?.policy.followExits ?? true;
     const challengeId = randomUUID();
     const wasOn = clans.membership(clan.id, c.get('userId'))?.policy.enabled ?? false;
     const lead = body.policy.enabled && !wasOn ? 'Turn on Auto-follow in the Cult' : 'Update my copy limits in the Cult';
@@ -746,6 +748,7 @@ export function createApp(engine: MirrorEngine) {
     if (ethers.verifyMessage(ch.message, body.signature).toLowerCase() !== c.get('wallet')) throw bad(403, 'signature is not from your wallet');
     const wasOn = clans.membership(clan.id, ch.userId)?.policy.enabled ?? false;
     clans.setPolicy(clan.id, ch.userId, ch.policy);
+    engine.setFollowExits(clan.id, ch.userId, clans.membership(clan.id, ch.userId)!.policy.followExits !== false);
     if (ch.policy.enabled && !wasOn) postSystem(cultRoom(clan.id), ch.userId, 'turned on Auto-follow');
     getDb()
       .prepare('INSERT OR REPLACE INTO join_consents (clan_id, user_id, message, signature, signed_at) VALUES (?, ?, ?, ?, ?)')
@@ -755,8 +758,8 @@ export function createApp(engine: MirrorEngine) {
   });
 
   // Auto-follow off: stops copying new trades straight away, no signature (it
-  // only reduces what the backend may do). Copies already open still follow
-  // their leader's partial sells and exit. Turning it on is the signed
+  // only reduces what the backend may do). Existing copies retain the member's
+  // Follow exits choice. Turning it on is the signed
   // /policy/challenge + /policy with enabled: true.
   cultRoutes.post('/:clanId/auto-follow', async (c) => {
     const clan = clanFor(c);
@@ -765,6 +768,14 @@ export function createApp(engine: MirrorEngine) {
     const m = clans.membership(clan.id, c.get('userId'))!;
     clans.setPolicy(clan.id, c.get('userId'), { ...m.policy, enabled: false });
     engine.memberLeft(clan.id, c.get('userId')); // cancels anything still pending for them here
+    return c.json(clanView(clan.id, c.get('userId')));
+  });
+
+  // Members control exits independently of enabling entries or changing spend limits.
+  cultRoutes.post('/:clanId/follow-exits', async (c) => {
+    const clan = clanFor(c);
+    const body = z.object({ enabled: z.boolean() }).parse(await c.req.json());
+    engine.setFollowExits(clan.id, c.get('userId'), body.enabled);
     return c.json(clanView(clan.id, c.get('userId')));
   });
 

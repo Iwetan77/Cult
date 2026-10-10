@@ -56,6 +56,7 @@ export interface Mirror {
   clanId: string;
   userId: string;
   status: MirrorStatus;
+  followExits?: boolean;
   skipUntil: number;
   marginUsd: number | null;
   notionalUsd: number | null;
@@ -102,6 +103,7 @@ const MIRROR_COLS: Record<keyof Mirror, string> = {
   clanId: 'clan_id',
   userId: 'user_id',
   status: 'status',
+  followExits: 'follow_exits',
   skipUntil: 'skip_until',
   marginUsd: 'margin_usd',
   notionalUsd: 'notional_usd',
@@ -156,7 +158,11 @@ const tradeFrom = (r: unknown) => {
   if (t) t.cultIds = t.cultIds ? (JSON.parse(t.cultIds as unknown as string) as string[]) : null;
   return t;
 };
-const mirrorFrom = (r: unknown) => fromRow<Mirror>(MIRROR_COLS, r as Record<string, unknown>);
+const mirrorFrom = (r: unknown) => {
+  const m = fromRow<Mirror>(MIRROR_COLS, r as Record<string, unknown>);
+  if (m) m.followExits = (r as Record<string, unknown>).follow_exits !== 0;
+  return m;
+};
 const adjFrom = (r: unknown) => fromRow<Adjustment>(ADJ_COLS, r as Record<string, unknown>);
 
 export const trades = {
@@ -217,15 +223,15 @@ export function sizeFactor(t: LeaderTrade): number {
 type MirrorPatch = Partial<Omit<Mirror, 'id' | 'tradeId' | 'clanId' | 'userId' | 'status' | 'createdAt' | 'updatedAt'>>;
 
 export const mirrors = {
-  insertPending(m: { tradeId: string; clanId: string; userId: string; skipUntil: number }): Mirror {
+  insertPending(m: { tradeId: string; clanId: string; userId: string; skipUntil: number; followExits?: boolean }): Mirror {
     const id = randomUUID();
     const now = Date.now();
     getDb()
       .prepare(
-        `INSERT INTO mirrors (id, trade_id, clan_id, user_id, status, skip_until, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
+        `INSERT INTO mirrors (id, trade_id, clan_id, user_id, status, skip_until, created_at, updated_at, follow_exits)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
       )
-      .run(id, m.tradeId, m.clanId, m.userId, m.skipUntil, now, now);
+      .run(id, m.tradeId, m.clanId, m.userId, m.skipUntil, now, now, m.followExits === false ? 0 : 1);
     return this.get(id)!;
   },
   get(id: string) {
@@ -254,7 +260,7 @@ export const mirrors = {
     if (keys.length === 0) return;
     getDb()
       .prepare(`UPDATE mirrors SET ${keys.map((k) => `${MIRROR_COLS[k]} = ?`).join(', ')}, updated_at = ? WHERE id = ?`)
-      .run(...keys.map((k) => (patch[k] ?? null) as string | number | null), Date.now(), id);
+      .run(...keys.map((k) => typeof patch[k] === 'boolean' ? Number(patch[k]) : (patch[k] ?? null) as string | number | null), Date.now(), id);
   },
   // Compare-and-set on status. Returns null if the mirror wasn't in `from`.
   transition(id: string, from: MirrorStatus, to: MirrorStatus, patch: MirrorPatch = {}): Mirror | null {

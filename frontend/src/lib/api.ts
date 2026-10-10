@@ -172,6 +172,7 @@ export const getLeaderboard = (token: string, scope: 'global' | 'country' | 'cul
 export const getCultStandings = (token: string) => api<{ entries: CultStanding[]; asOf: string }>('/v1/leaderboards/cults', token);
 
 export const setAutoFollowOff = (token: string, cultId: string) => api<Clan>(`/v1/cults/${encodeURIComponent(cultId)}/auto-follow`, token, { method: 'POST', body: json({ enabled: false }) });
+export const setFollowExits = (token: string, cultId: string, enabled: boolean) => api<Clan>(`/v1/cults/${encodeURIComponent(cultId)}/follow-exits`, token, { method: 'POST', body: json({ enabled }) });
 export const pinRoomMessage = (token: string, room: string, messageId: string | null) => api<{ pinned: ChatPage['pinned'] }>(`/v1/chat/${encodeURIComponent(room)}/pin`, token, { method: 'POST', body: json({ messageId }) });
 export const getHome = (token: string) => api<Home>('/v1/home', token);
 export const getProfile = (token: string, idOrWallet: string) => api<Profile>(`/v1/members/${encodeURIComponent(idOrWallet)}`, token);

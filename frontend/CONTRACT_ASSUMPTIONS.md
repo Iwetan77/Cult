@@ -1,5 +1,9 @@
 # Frontend-only assumptions
 
+Individual exits (2026-10-10): `MirrorPolicy.followExits` is an optional boolean, defaulting to true for existing members. The focused backend implementation exposes authenticated `POST /v1/cults/:id/follow-exits { enabled }`, returning `Clan`. Each member controls only their own copies in that cult, independently of Auto-follow entries and spending caps. Turning it off stops future sender-driven partial sells and full closes, cancels unsent reductions, and applies to current and future copies. It cannot undo orders already broadcast or disable the member's own TP/SL or liquidation. Turning it on never retroactively sells a kept copy whose sender already exited. Copies retain the choice after leaving, and remain manually closeable through `/v1/positions/close { markerId }`.
+
+- Automatic copy chart markers now carry `followExits` and `leaderClosed`. Open copies remain on the cult chart even after the sender exits; the original closed leader marker is not rendered as open. Saving signed copy limits preserves the exit choice; older clients omitting the field preserve the saved setting.
+
 Trading allocations (2026-10-10): `/v1/positions` now exposes optional `markerId`, `tradeId`, `origin`, `cultIds`, and `isNetted` on each holding. `/v1/positions/open` returns its confirmed entry's identifiers. `/v1/positions/close` accepts `markerId` to close only that member-owned entry; omitting it explicitly closes the whole market. These additive shapes are implemented in the focused backend changes shipped with this frontend, not speculative fields.
 
 - Each app entry retains its own selected cults, confirmed quantity, and entry price, including private entries. API requests are correlated to fills by the member's request ID or transaction hash; cumulative websocket and HTTP reports are deduplicated.
