@@ -678,6 +678,9 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .follow-row > span { flex: 1; display: flex; flex-direction: column; gap: 5px; }
 .follow-row strong { font-size: 15px; font-weight: 500; }
 .follow-row small { font-size: 13px; color: var(--muted); }
+.follow-exits { min-height: 44px; padding-top: 14px; border-top: 1px solid var(--line); }
+.follow-exits > span { min-width: 0; }
+.follow-exits small { line-height: 1.4; overflow-wrap: anywhere; }
 .switch { -webkit-appearance: none; appearance: none; flex: none; position: relative; width: 40px; height: 22px; margin: 0; border-radius: 99px; background: var(--s4); cursor: pointer; transition: background-color 0.2s; }
 .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.2s var(--ease); }
 .switch:checked { background: var(--accent); }

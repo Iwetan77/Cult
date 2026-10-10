@@ -9,6 +9,7 @@ import { monad, monadTestnet } from 'viem/chains';
 import { ArrowLeft, ArrowRight, Camera, CandlestickChart, Compass, Globe2, Home, Link2, Lock, Menu, Plus, Search, Trophy, UserRound, UsersRound, X } from './icons';
 import { createClan, createShare, enrollPerpl, ensureGas, setCultAdmin, getChart, getMarkets, setCountry, setPin, resetPin, getPolicyChallenge, updateClanPolicy, leaveClan, getClanEventUrl, getConfig, getEnrollmentChallenge, getHoldings, getMe, getPerplSetup, getPrivySigner, setUsername, joinClan, setAutoFollowOff, setCultVisibility, openPosition, closePosition, skipAutoMirror, stackPosition, setPositionTpsl, suggestMarkerTpsl, ApiError } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
+import { setFollowExits } from '@/lib/api';
 import { DEMO_ADDRESS, demoEnabled, enterDemo, exitDemo, isDemo } from '@/lib/demo';
 import { privySupported } from '@/lib/privySupport';
 import { BOOT_CLASS, PIN_RESET_KEY, hasStoredSession, markSession } from '@/lib/session';
@@ -777,6 +778,16 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     catch (reason) { setError(errorText(reason)); }
     finally { setBusy(null); }
   };
+  const changeFollowExits = async (enabled: boolean) => {
+    if (!clanId) return;
+    setBusy('follow-exits'); setError(null);
+    try {
+      await setFollowExits(await token(), clanId, enabled);
+      await loadMe(); await loadChart(clanId, marketId ?? undefined);
+      setNotice(enabled ? 'Follow exits is on. Already-kept copies stay under your control.' : 'Follow exits is off. You close your copies yourself.');
+    } catch (reason) { setError(errorText(reason)); }
+    finally { setBusy(null); }
+  };
   const enroll = () => { let ready = false; return perform('enroll-perpl', async () => {
     if (!wallet || !config) throw new Error('Connect your trading wallet first.');
     const auth = await token();
@@ -1271,7 +1282,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
               copyFailure={copyFailure && copyFailure.clanId === clan?.id ? copyFailure.reason : null} onDismissCopyFailure={() => setCopyFailure(null)}
               onEnablePerps={() => { void perform('prepare-perps', async () => { if (await ensurePerps()) { await loadMe(); setNotice('Perp copying is authorized.'); } }); }} onDeposit={() => setDepositOpen(true)}
               onGrantSigner={() => { void perform('grant-signer', async () => { const confirmed = await grantSigner(); setNotice(confirmed ? 'Trading signer is active.' : 'Signer approval is awaiting Privy verification.'); }); }}
-              onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker}
+              onFollowOn={enableAutoFollow} onFollowOff={disableAutoFollow} onFollowExits={changeFollowExits} onMarket={id => { setMarketId(id); setSelectedId(null); }} onMarker={selectMarker}
               onOpenTrade={() => { if (market) { setMarketSolo(false); navigate({ view: 'markets', market: market.id }); } }} onGuideDrop={(marker, kind, level) => { void submitGuide(marker, kind, level); }}
               onInvite={copyInvite} onVisibility={changeVisibility} onLeave={leave} onProfile={openAccount}
               meId={me.id} onSetAdmin={activeRoom.kind === 'cult' ? (memberId, admin) => setAdmin(activeRoom.id.slice(5), memberId, admin) : undefined}

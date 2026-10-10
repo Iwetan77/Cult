@@ -11,6 +11,7 @@ import { isLeaderTradeMarker } from '@/lib/contracts';
 import { mentions } from '@/lib/prefs';
 import { dollars, signedDollars } from '@/lib/format';
 import { fittedImage } from '@/lib/image';
+import { uniqueChatNotices } from '@/lib/chat-notices';
 import { Avatar } from './Avatar';
 import { ChartShareCard, sharedChartOf } from './ChartShareCard';
 import { RoomBadge } from './RoomBadge';
@@ -522,8 +523,8 @@ export function ClanChat({ room, liveMessage, selectedMarker, onOpenMarker, onMe
       {hasMore && <button className="chat-older" disabled={loadingOlder} onClick={loadOlder}>{loadingOlder ? 'Loading…' : 'Older messages'}</button>}
       {loading ? <div className="chat-loading">{Array.from({ length: 5 }, (_, i) => <span key={i} className={i % 2 ? 'mine' : ''} />)}</div>
         : messages.length === 0 ? <div className="chat-empty"><RoomBadge icon={room.icon} kind={room.kind} size="lg" /><strong>Say hi to {room.name}</strong><span>{room.kind === 'cult' ? 'Tell your cult what you are about to trade. Trades post here on their own.' : 'Everyone here can see what you post.'}</span></div>
-        : messages.map((message, index) => {
-          const prev = messages[index - 1];
+        : uniqueChatNotices(messages).map((message, index, visible) => {
+          const prev = visible[index - 1];
           const newDay = !prev || new Date(prev.createdAt).toDateString() !== new Date(message.createdAt).toDateString();
           const separator = newDay && <div className="chat-day"><span>{dayLabel(message.createdAt)}</span></div>;
           if (message.kind === 'system') return <Fragment key={message.id}>{separator}{tradeCard(message)}</Fragment>;
