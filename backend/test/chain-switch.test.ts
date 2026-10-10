@@ -25,6 +25,10 @@ before(async () => {
   cult = clans.create('cult', 'A', { enabled: true, balancePercentCap: 10, maxUsdPerTrade: 50 }).id;
   chat.postMessage(chat.cultRoom(cult), 'A', { body: 'gm' });
   const d = db.getDb();
+  const { memberOrders } = await import('../src/mirror/member-orders.js');
+  const request = memberOrders.begin({ userId: 'A', venue: 'perpl', market: '16', kind: 'open', side: 'long', leverage: 100,
+    marginFraction: 0.1, requestedNotional: 10, cultIds: [cult], markerId: null });
+  memberOrders.ref(request.id, { txHash: '0xtestnet' });
   d.prepare(`INSERT INTO leader_trades (id, venue, user_id, market, side, size, leverage, margin_fraction, opened_at)
              VALUES ('t1', 'perpl', 'A', '16', 'long', '100', 100, 0.1, 1)`).run();
   d.prepare(`INSERT INTO mirrors (id, trade_id, clan_id, user_id, status, skip_until, created_at, updated_at)
@@ -37,13 +41,14 @@ const count = (table: string) => (db.getDb().prepare(`SELECT count(*) AS n FROM 
 test('same chain: nothing is reset', () => {
   assert.equal(db.switchChain(db.getDb(), 10143), false, 'a database from before tracking counts as testnet');
   assert.equal(count('leader_trades'), 1);
+  assert.equal(count('member_orders'), 1);
   assert.equal(members.get('A')!.perplAccountId, 42);
 });
 
 test('testnet -> mainnet: trading state reset, people kept, Auto-follow off', () => {
   assert.equal(db.switchChain(db.getDb(), 143), true);
   // reset
-  for (const t of ['leader_trades', 'mirrors', 'cursors']) assert.equal(count(t), 0, `${t} cleared`);
+  for (const t of ['leader_trades', 'mirrors', 'cursors', 'member_order_txs', 'member_orders']) assert.equal(count(t), 0, `${t} cleared`);
   const a = members.get('A')!;
   assert.equal(a.perplAccountId, null);
   assert.equal(members.credentials('A'), null);

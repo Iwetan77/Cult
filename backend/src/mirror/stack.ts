@@ -6,7 +6,7 @@ import { venue as defaultVenue, type TradeSide, type Venue, type VenueAdapter } 
 import { MirrorError } from './engine.js';
 import { recordRef } from './origin.js';
 import { landed as defaultLanded, type LandedLookup } from './reconcile.js';
-import { trades } from './repo.js';
+import { trades, tradeCults } from './repo.js';
 
 // Manual stack: a member taps someone's marker on the clan chart and opens
 // their own position/buy on top of it. It's the member's explicit action,
@@ -41,7 +41,7 @@ export async function stackOnTrade(req: StackRequest, venueOf: (v: Venue) => Ven
   if (!clans.membership(req.clanId, req.userId)) throw new MirrorError(403, 'not a member of this clan');
   const trade = trades.get(req.tradeId);
   if (!trade || trade.closedAt) throw new MirrorError(404, 'that position is not open');
-  if (!clans.membership(req.clanId, trade.userId)) throw new MirrorError(404, 'that position is not in this clan');
+  if (!clans.membership(req.clanId, trade.userId) || !tradeCults(trade, clans.adminCultIds(trade.userId)).includes(req.clanId)) throw new MirrorError(404, 'that position is not in this cult');
   if (trade.userId === req.userId) throw new MirrorError(400, 'cannot stack on your own position');
   if (trade.venue === 'perpl' && !members.get(req.userId)?.perplAccountId) throw new MirrorError(409, 'finish Perpl setup first');
 
@@ -67,6 +67,7 @@ export async function stackOnTrade(req: StackRequest, venueOf: (v: Venue) => Ven
         if (ref.rq != null) db.prepare('UPDATE stacks SET open_rq = ? WHERE id = ?').run(ref.rq, id);
       },
     });
+    if (BigInt(fill.sizeRaw) <= 0n) throw new Error('stack order did not fill');
     db.prepare(`UPDATE stacks SET status = 'open', size = ?, notional_usd = ?, open_oid = ?, open_tx = ? WHERE id = ?`).run(
       fill.sizeRaw,
       fill.notionalAusd,

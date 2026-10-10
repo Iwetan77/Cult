@@ -8,11 +8,11 @@ import { rpc } from '../chain/signer.js';
 import { NadWatcher, type NadTradeEvent } from '../nadfun/watcher.js';
 import { getExchangeInfo } from '../perpl/context.js';
 import type { TradingSession } from '../perpl/session.js';
-import { PositionSide, PositionStatus, type Position } from '../perpl/types.js';
+import { OrderStatus, PositionSide, PositionStatus, type Order, type Position } from '../perpl/types.js';
 import { monPriceAusd } from '../prices.js';
 import { clans } from '../store/clans.js';
 import { members } from '../store/members.js';
-import { venue as defaultVenue, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
+import { venue as defaultVenue, venueOf, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
 import { isEngineOrder, isEngineTx, recordRef } from './origin.js';
 import { adjustments, mirrors, sizeFactor, tradeCults, trades, type Adjustment, type LeaderTrade, type Mirror } from './repo.js';
 import { takeAudience } from './audience.js';
@@ -20,6 +20,10 @@ import { leaderDollarFraction, mirrorNotional } from './sizing.js';
 import { landed as defaultLanded, type Landed, type LandedLookup } from './reconcile.js';
 import { erc20Abi } from '../chain/exchange.js';
 import { GAS_RESERVE_WEI } from '../venues/nadfun.js';
+import { getDb } from '../store/db.js';
+import { memberOrders } from './member-orders.js';
+import { allocatedHoldings, allocationsFor } from './allocations.js';
+import type { CloseInput, Fill, OpenInput } from '../venues/types.js';
 
 // Perpl position status reasons that mean "a new position now exists".
 const SR_OPENED = 21;
@@ -66,6 +70,11 @@ export interface LeaderOpen {
   positionId?: number;
   openTx?: string | null;
   detectedLateBySeconds?: number; // set when the trade happened well before we saw it
+  id?: string;
+  cultIds?: string[];
+  keepPrivate?: boolean;
+  netPositionId?: number;
+  booking?: { orderId: string; size: string; notional: number };
 }
 
 // One engine, two venues. A clan member opens a trade themselves (Perpl
@@ -86,6 +95,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   private attempts = new Map<string, number>(); // mirror/adjustment id -> fire attempts so far
   private lanes = new Map<string, Promise<unknown>>(); // mirror id -> its adjustments and close, one at a time
   private perplSeen = new Map<string, bigint>(); // "acc:pid" -> last position size seen, ours included
+  private perplPositions = new Map<string, Position>(); // member+market, including private and copied size
   private recovering: Promise<void> = Promise.resolve();
   private readonly venue: (v: Venue) => VenueAdapter;
   private readonly nad: NadWatcher | null;
@@ -120,6 +130,20 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     if (this.watchingPerpl.has(userId) || !members.credentials(userId)) return;
     const session = await this.deps.sessionFor(userId);
     this.watchingPerpl.add(userId);
+    const seed = () => {
+      for (const p of session.positions?.values() ?? []) {
+        this.perplSeen.set(p.acc + ':' + p.pid, BigInt(p.s));
+        this.perplPositions.set(userId + ':' + p.mkt, p);
+        trades.attachPosition(userId, String(p.mkt), p.pid);
+      }
+    };
+    seed();
+    const recoverOrders = () => {
+      if (!this.deps.venue) void this.recoverOwnOrders(userId).catch(e => this.log('member order recovery', e));
+    };
+    recoverOrders();
+    session.on('ready', () => { seed(); recoverOrders(); });
+    session.on('order', o => void this.onOwnPerplOrder(o).catch(e => this.log('member order', e)));
     session.on('position', (p) => void this.onPerplPosition(userId, session, p).catch((e) => this.log('perpl position', e)));
     session.on('positionClosed', (p) => void this.onPerplClosed(userId, p).catch((e) => this.log('perpl close', e)));
   }
@@ -127,14 +151,20 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   // ---- leader detection: Perpl ---------------------------------------------
 
   private async onPerplPosition(userId: string, session: TradingSession, p: Position) {
-    if (p.sr === SR_INCREASED || p.sr === SR_DECREASED) return this.onPerplResized(p);
+    const previous = this.perplPositions.get(userId + ':' + p.mkt);
+    this.perplPositions.set(userId + ':' + p.mkt, p);
+    trades.attachPosition(userId, String(p.mkt), p.pid);
+    if (memberOrders.perpl(p.acc, p.rq)) {
+      this.perplSeen.set(p.acc + ':' + p.pid, BigInt(p.s));
+      return;
+    }
+    if (p.sr === SR_INCREASED || p.sr === SR_DECREASED) return this.onPerplResized(userId, p, previous);
     if (p.sr !== SR_OPENED && p.sr !== SR_INVERTED) return;
     this.perplSeen.set(`${p.acc}:${p.pid}`, BigInt(p.s));
     if (isEngineOrder(p.acc, p.rq)) return; // our own mirror/stack
     if (trades.byPosition(p.acc, p.pid)) return; // replay after reconnect
     if (p.sr === SR_INVERTED) {
-      const prev = trades.openFor(userId, 'perpl', String(p.mkt));
-      if (prev) await this.closeTrade(prev);
+      await this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'short' : 'long', 0n, 1n);
     }
     const acct = session.accounts.get(p.acc);
     const { collateralDecimals } = await getExchangeInfo();
@@ -161,14 +191,28 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   // The leader grew or shrank a position they lead. Only their own orders
   // count: a mirror or stack of someone else's trade can land on the same
   // Perpl position, so their share is tracked apart from the position's total.
-  private async onPerplResized(p: Position) {
+  private async onPerplResized(userId: string, p: Position, previous?: Position) {
     const key = `${p.acc}:${p.pid}`;
+    const all = trades.openOnMarket(userId, 'perpl', String(p.mkt));
     const trade = trades.byPosition(p.acc, p.pid);
     const total = BigInt(p.s);
     const seen = this.perplSeen.get(key) ?? (trade ? BigInt(trade.size) : total);
     this.perplSeen.set(key, total);
-    if (!trade || trade.closedAt || total === seen) return; // not a trade we lead, or a replay
+    if (total === seen) return;
     if (isEngineOrder(p.acc, p.rq)) return;
+    if (total < seen) return this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'long' : 'short', total, seen);
+    if (!trade || trade.closedAt || all.length !== 1) {
+      const { getMarket, scale } = await import('../perpl/context.js');
+      const m = await getMarket(p.mkt);
+      const newEntry = previous ? (scale.unprice(p.ep, m) * Number(total) - scale.unprice(previous.ep, m) * Number(seen)) / Number(total - seen) : null;
+      const deltaMargin = (newEntry ?? scale.unprice(p.ep, m)) * scale.unsize(Number(total - seen), m) / (p.lv / 100);
+      const free = await this.venue('perpl').freeBalanceAusd(userId);
+      return this.leaderOpened({ venue: 'perpl', userId, market: String(p.mkt),
+        side: p.sd === PositionSide.Long ? 'long' : 'short', sizeRaw: (total - seen).toString(),
+        entryPriceAusd: newEntry != null && newEntry > 0 && Number.isFinite(newEntry) ? newEntry : null,
+        leverageHundredths: p.lv, marginFraction: deltaMargin > 0 ? deltaMargin / (free + deltaMargin) : 0,
+        accountId: p.acc, netPositionId: p.pid, openTx: p.at?.txid ?? null });
+    }
     const own = BigInt(trade.size) + (total - seen);
     if (own <= 0n) return this.closeTrade(trade);
     const { getMarket, scale } = await import('../perpl/context.js');
@@ -178,8 +222,10 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   private async onPerplClosed(userId: string, p: Position) {
     if (p.st === PositionStatus.Liquidated) this.emit('liquidation', userId, p);
     this.perplSeen.delete(`${p.acc}:${p.pid}`);
-    const trade = trades.byPosition(p.acc, p.pid) ?? trades.openFor(userId, 'perpl', String(p.mkt));
-    if (trade && !trade.closedAt) await this.closeTrade(trade);
+    this.perplPositions.delete(userId + ':' + p.mkt);
+    const own = memberOrders.perpl(p.acc, p.rq);
+    if (p.st !== PositionStatus.Liquidated && (own?.kind === 'close' || isEngineOrder(p.acc, p.rq))) return;
+    await this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'long' : 'short', 0n, BigInt(p.s ?? '0') || 1n);
   }
 
   // ---- leader detection: Nad.fun --------------------------------------------
@@ -188,11 +234,20 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     if (isEngineTx(t.txHash)) return; // our own mirror/stack
     const member = members.byWallet(t.wallet);
     if (!member) return;
+    const own = memberOrders.tx(t.txHash);
+    if (own) {
+      const tokens = Number(ethers.formatEther(t.tokenAmount));
+      const value = Number(ethers.formatEther(t.monAmount)) * await monPriceAusd();
+      await this.bookOwnFill(own.id, { venue: 'nadfun', market: t.token, side: 'buy', sizeRaw: t.tokenAmount.toString(),
+        size: tokens, priceAusd: tokens > 0 ? value / tokens : 0, notionalAusd: value, txHash: t.txHash });
+      return;
+    }
     const open = trades.openFor(member.userId, 'nadfun', t.token);
 
     const lateBy = t.blockTime > 0 ? Math.max(0, Math.round((Date.now() - t.blockTime) / 1000)) : undefined;
 
-    if (t.side === 'buy' && open) {
+    const lots = trades.openOnMarket(member.userId, 'nadfun', t.token);
+    if (t.side === 'buy' && open && lots.length === 1) {
       // Buying more of a token they already lead: followers add the same share of their own mirror.
       const spentUsd = Number(ethers.formatEther(t.monAmount)) * (await monPriceAusd());
       const before = BigInt(open.size);
@@ -241,6 +296,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     // an exit if the wallet held nothing after that block (e.g. two sells in
     // one block, or tokens moved out before selling the rest).
     if (!open) return;
+    if (lots.length > 1) {
+      const { tokenBalance } = await import('../nadfun/trading.js');
+      const after = await tokenBalance(t.token, t.wallet, t.blockNumber);
+      await this.reduceExternal(member.userId, 'nadfun', t.token, 'buy', after, after + t.tokenAmount);
+      return;
+    }
     const before = BigInt(open.size);
     const after = before > t.tokenAmount ? before - t.tokenAmount : 0n;
     const { tokenBalance } = await import('../nadfun/trading.js');
@@ -251,21 +312,193 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
   // ---- shared pipeline ---------------------------------------------------------
 
+  async executeOwnOpen(i: OpenInput, cultIds?: string[]): Promise<Fill> {
+    return this.inLane('member:' + i.userId + ':' + i.market.toLowerCase(), async () => {
+      await this.watch(i.userId);
+      const v = venueOf(i.market);
+      const adapter = this.venue(v);
+      const held = await adapter.holdings(i.userId, [i.market]);
+      if (v === 'perpl' && held.some(h => h.market === i.market && h.side !== i.side && BigInt(h.sizeRaw) > 0n)) {
+        throw new MirrorError(409, 'Close your existing opposite-side position first. Perpl combines trades on the same asset into one net position.');
+      }
+      const eligible = clans.adminCultIds(i.userId);
+      if (cultIds?.some(id => !eligible.includes(id))) throw new MirrorError(403, 'Only cult owners and admins can post trades to that cult.');
+      const free = await adapter.freeBalanceAusd(i.userId);
+      const leverage = v === 'perpl' ? i.leverage ?? 1 : 1;
+      const order = memberOrders.begin({ userId: i.userId, venue: v, market: i.market, kind: 'open', side: i.side,
+        leverage: Math.round(leverage * 100), marginFraction: free > 0 ? Math.min(1, i.notionalAusd / leverage / free) : 0,
+        cultIds: cultIds ?? eligible, markerId: null, requestedNotional: i.notionalAusd });
+      try {
+        const fill = await adapter.open({ ...i, onRef: ref => { memberOrders.ref(order.id, ref); i.onRef?.(ref); } });
+        memberOrders.ref(order.id, { rq: fill.requestId, accountId: members.get(i.userId)?.perplAccountId ?? undefined, txHash: fill.txHash ?? undefined });
+        await this.bookOwnFill(order.id, fill);
+        const tradeId = memberOrders.get(order.id)!.allocationId;
+        return { ...fill, tradeId, markerId: 'trade:' + tradeId };
+      } catch (e) { memberOrders.failed(order.id); throw e; }
+    });
+  }
+
+  async executeOwnClose(i: CloseInput, markerId?: string): Promise<Fill> {
+    const run = () => this.inLane('member:' + i.userId + ':' + i.market.toLowerCase(), async () => {
+      await this.watch(i.userId);
+      const v = venueOf(i.market);
+      const adapter = this.venue(v);
+      const held = (await adapter.holdings(i.userId, [i.market])).find(h => h.market.toLowerCase() === i.market.toLowerCase());
+      if (!held || BigInt(held.sizeRaw) <= 0n) throw new MirrorError(409, 'This position is no longer open. Refresh your positions.');
+      const parts = allocatedHoldings(i.userId, [held]);
+      const bookedParts = allocationsFor(i.userId, held);
+      const target = markerId ? parts.find(p => p.markerId === markerId) : held;
+      if (!target) throw new MirrorError(404, 'That trade is not an open position in your account.');
+      const size = BigInt(i.sizeRaw ?? target.sizeRaw);
+      if (size <= 0n || size > BigInt(target.sizeRaw)) throw new MirrorError(409, 'Close size exceeds this trade. Refresh your positions.');
+      const targets = (markerId ? [target] : parts).filter(p => p.markerId && !p.markerId.startsWith('private:'))
+        .map(p => ({ markerId: p.markerId!, size: bookedParts.find(b => b.markerId === p.markerId)?.size.toString() ?? p.sizeRaw }));
+      const order = memberOrders.begin({ userId: i.userId, venue: v, market: i.market, kind: 'close', side: held.side,
+        leverage: Math.round(held.leverage * 100), marginFraction: 0, cultIds: [], markerId: markerId ?? null,
+        requestedNotional: 0, beforeSize: target.sizeRaw, targets });
+      try {
+        const fill = await adapter.close({ ...i, sizeRaw: size.toString(), side: held.side,
+          onRef: ref => { memberOrders.ref(order.id, ref); i.onRef?.(ref); } });
+        memberOrders.ref(order.id, { rq: fill.requestId, accountId: members.get(i.userId)?.perplAccountId ?? undefined, txHash: fill.txHash ?? undefined });
+        await this.bookOwnFill(order.id, fill);
+        return { ...fill, markerId };
+      } catch (e) { memberOrders.failed(order.id); throw e; }
+    });
+    const mirrorIds = markerId?.startsWith('mirror:') ? [markerId.slice(7)] : !markerId
+      ? mirrors.forUser(i.userId, ['open']).filter(m => trades.get(m.tradeId)?.market === i.market.toLowerCase()).map(m => m.id).sort() : [];
+    const locked = (index: number): Promise<Fill> => index === mirrorIds.length ? run() : this.inLane(mirrorIds[index]!, () => locked(index + 1));
+    return locked(0);
+  }
+
+  private async onOwnPerplOrder(o: Order) {
+    const order = memberOrders.perpl(o.acc, o.rq);
+    if (!order || !(o.fs > 0) || o.st === OrderStatus.Pending || o.st === OrderStatus.Open) return;
+    const { getMarket, scale } = await import('../perpl/context.js');
+    const market = await getMarket(o.mkt);
+    const size = scale.unsize(o.fs, market);
+    const price = scale.unprice(o.fp, market);
+    await this.bookOwnFill(order.id, { venue: 'perpl', market: String(o.mkt), side: order.side, sizeRaw: String(o.fs),
+      size, priceAusd: price, notionalAusd: size * price, requestId: o.rq, orderId: o.oid, txHash: o.at?.txid });
+  }
+
+  private async recoverOwnOrders(userId: string) {
+    if (!getDb().prepare('SELECT 1 FROM member_orders WHERE user_id = ? AND account_id IS NOT NULL LIMIT 1').get(userId)) return;
+    const { restFor } = await import('../accounts/lifecycle.js');
+    const history = await restFor(userId).orderHistory(200);
+    for (const order of history.d) await this.onOwnPerplOrder(order);
+  }
+
+  // Both the websocket and HTTP result may report a fill. Book only the
+  // increase in confirmed cumulative quantity, never the requested size.
+  async bookOwnFill(id: string, fill: Fill): Promise<void> {
+    return this.inLane('fill:' + id, async () => {
+      const order = memberOrders.get(id);
+      if (!order) throw new MirrorError(404, 'Trade request not found.');
+      if (fill.venue !== order.venue || fill.market.toLowerCase() !== order.market || fill.side !== order.side) throw new MirrorError(409, 'Fill does not match this trade request.');
+      const cumulative = BigInt(fill.sizeRaw);
+      const booked = BigInt(order.bookedSize);
+      if (cumulative <= 0n) throw new MirrorError(409, 'The order did not fill. Refresh your positions before trying again.');
+      if (cumulative <= booked) return;
+      if (!(fill.priceAusd > 0) || !Number.isFinite(fill.priceAusd)) throw new MirrorError(503, 'Fill price unavailable; refresh your positions shortly.');
+      if (order.kind === 'open') {
+        const existing = trades.get(order.allocationId);
+        const delta = cumulative - booked;
+        const perRaw = fill.size / Number(cumulative);
+        const deltaCost = fill.notionalAusd - order.bookedNotional;
+        const deltaPrice = deltaCost > 0 && perRaw > 0 ? deltaCost / (Number(delta) * perRaw) : null;
+        if (existing && !existing.closedAt) {
+          const size = BigInt(existing.size) + delta;
+          const entry = existing.entryPrice != null && deltaPrice != null
+            ? (existing.entryPrice * Number(BigInt(existing.size)) + deltaPrice * Number(delta)) / Number(size) : null;
+          await memberOrders.commitFill(id, cumulative.toString(), fill.notionalAusd, () => this.leaderResized(existing, size, entry, undefined, true));
+        } else {
+          const tradeId = existing?.closedAt ? randomUUID() : order.allocationId;
+          await this.leaderOpened({ id: tradeId, booking: { orderId: id, size: cumulative.toString(), notional: fill.notionalAusd },
+            keepPrivate: true, cultIds: existing?.closedAt || order.allocationId !== id ? [] : order.cultIds, venue: order.venue, userId: order.userId,
+            market: order.market, side: order.side, sizeRaw: delta.toString(), entryPriceAusd: deltaPrice,
+            leverageHundredths: order.leverage, marginFraction: order.marginFraction * Math.min(1, fill.notionalAusd / order.requestedNotional),
+            accountId: order.accountId ?? undefined, netPositionId: this.perplPositions.get(order.userId + ':' + order.market)?.pid,
+            detectedLateBySeconds: Math.max(0, (Date.now() - order.createdAt) / 1000),
+            openTx: fill.txHash ?? order.txHash });
+        }
+      } else {
+        const before = BigInt(order.beforeSize);
+        if (before <= 0n) throw new MirrorError(409, 'Close allocation unavailable. Refresh your positions.');
+        const done = cumulative > before ? before : cumulative;
+        for (const target of order.targets) {
+          const size = BigInt(target.size);
+          await memberOrders.applyTarget(id, target.markerId, size * done / before, amount => this.reduceMarker(target.markerId, order.userId, amount, fill));
+        }
+      }
+      memberOrders.booked(id, cumulative.toString(), fill.notionalAusd);
+    });
+  }
+
+  private reduceMarker(markerId: string, userId: string, amount: bigint, fill?: Fill): Promise<void> {
+    if (amount <= 0n) return Promise.resolve();
+    const [kind, id] = markerId.split(':');
+    if (kind === 'trade') {
+      const t = trades.get(id!);
+      if (!t || t.userId !== userId || t.closedAt) return Promise.resolve();
+      const after = BigInt(t.size) > amount ? BigInt(t.size) - amount : 0n;
+      return after === 0n ? this.closeTrade(t, false) : this.leaderResized(t, after, t.entryPrice, undefined, true);
+    } else if (kind === 'mirror') {
+      const m = mirrors.get(id!);
+      if (!m || m.userId !== userId || m.status !== 'open') return Promise.resolve();
+      const before = BigInt(m.size ?? '0');
+      const after = before > amount ? before - amount : 0n;
+      const patch = { size: after === 0n ? m.size : after.toString(), notionalUsd: m.notionalUsd == null ? null : after === 0n ? m.notionalUsd : m.notionalUsd * Number(after) / Number(before),
+        closeOid: fill?.orderId ?? m.closeOid, closeTx: fill?.txHash ?? m.closeTx, error: null };
+      if (after === 0n) {
+        const closed = mirrors.transition(m.id, 'open', 'closed', patch);
+        if (closed) this.emit('mirror', closed);
+      } else { mirrors.patch(m.id, patch); this.emit('mirror', mirrors.get(m.id)!); }
+    } else if (kind === 'stack') {
+      const db = getDb();
+      const s = db.prepare("SELECT size, notional_usd FROM stacks WHERE id = ? AND user_id = ? AND status = 'open'")
+        .get(id!, userId) as { size: string; notional_usd: number | null } | undefined;
+      if (!s) return Promise.resolve();
+      const before = BigInt(s.size);
+      const after = before > amount ? before - amount : 0n;
+      db.prepare('UPDATE stacks SET size = ?, notional_usd = ?, status = ? WHERE id = ?')
+        .run(after.toString(), s.notional_usd == null ? null : s.notional_usd * Number(after) / Number(before), after === 0n ? 'closed' : 'open', id!);
+    }
+    return Promise.resolve();
+  }
+
+  private async reduceExternal(userId: string, v: Venue, market: string, side: TradeSide, after: bigint, before: bigint) {
+    const parts: { markerId: string; size: bigint }[] = [];
+    for (const m of mirrors.forUser(userId, ['open'])) {
+      const t = trades.get(m.tradeId);
+      if (t?.venue === v && t.market === market && t.side === side) parts.push({ markerId: 'mirror:' + m.id, size: BigInt(m.size ?? '0') });
+    }
+    const stacks = getDb().prepare("SELECT id, size FROM stacks WHERE user_id = ? AND venue = ? AND market = ? AND side = ? AND status = 'open'")
+      .all(userId, v, market, side) as { id: string; size: string }[];
+    parts.push(...stacks.map(s => ({ markerId: 'stack:' + s.id, size: BigInt(s.size ?? '0') })));
+    parts.push(...trades.openOnMarket(userId, v, market).filter(t => t.side === side).map(t => ({ markerId: 'trade:' + t.id, size: BigInt(t.size) })));
+    for (const p of parts) await this.reduceMarker(p.markerId, userId, after === 0n ? p.size : p.size * (before - after) / before);
+  }
+
   async leaderOpened(e: LeaderOpen): Promise<LeaderTrade | null> {
     // Every cult the trader is an admin of, or only the ones they posted this
     // trade to. Only admins share trades with a cult; anyone else's trade is
     // theirs alone (no chart, no notice, no copies).
-    const picked = takeAudience(e.userId, e.venue, e.market);
+    if (e.id && trades.get(e.id)) return trades.get(e.id);
+    const picked = e.cultIds ?? takeAudience(e.userId, e.venue, e.market);
     const clanIds = tradeCults({ cultIds: picked ?? null }, clans.adminCultIds(e.userId));
-    if (clanIds.length === 0) return null;
-    const trade = trades.insert({
-      id: randomUUID(),
+    if (clanIds.length === 0 && !e.keepPrivate) return null;
+    const db = getDb();
+    if (e.id) db.exec('BEGIN IMMEDIATE');
+    let trade: LeaderTrade;
+    try { trade = trades.insert({
+      id: e.id ?? randomUUID(),
       venue: e.venue,
       userId: e.userId,
       accountId: e.accountId ?? null,
       market: e.market,
       side: e.side,
       positionId: e.positionId ?? null,
+      netPositionId: e.netPositionId ?? null,
       size: e.sizeRaw,
       entryPrice: e.entryPriceAusd,
       leverage: e.leverageHundredths,
@@ -276,6 +509,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       // admin change doesn't move it).
       cultIds: clanIds,
     });
+      if (e.booking) {
+        memberOrders.assignAllocation(e.booking.orderId, trade.id);
+        memberOrders.booked(e.booking.orderId, e.booking.size, e.booking.notional);
+      } else if (e.id && memberOrders.get(e.id)) memberOrders.booked(e.id, e.sizeRaw);
+      if (e.id) db.exec('COMMIT');
+    } catch (error) { if (e.id) db.exec('ROLLBACK'); throw error; }
     this.emit('trade', trade);
 
     const skipUntil = Date.now() + this.cfg.optOutSeconds * 1000;
@@ -334,10 +573,10 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   // The leader's trade is now `sizeRaw` (was trade.size). Every open mirror
   // follows by the same ratio of its own size. Mirrors still pending or
   // mid-submit pick the change up themselves (see fire), so none is counted twice.
-  async leaderResized(trade: LeaderTrade, sizeRaw: bigint, entryPriceAusd: number | null, detectedLateBySeconds?: number) {
+  leaderResized(trade: LeaderTrade, sizeRaw: bigint, entryPriceAusd: number | null, detectedLateBySeconds?: number, exact = false): Promise<void> {
     const before = BigInt(trade.size);
-    if (before <= 0n || sizeRaw === before) return;
-    if (sizeRaw * 100n <= before) return this.closeTrade(trade);
+    if (before <= 0n || sizeRaw === before) return Promise.resolve();
+    if (sizeRaw <= 0n || (!exact && sizeRaw * 100n <= before)) return this.closeTrade(trade);
     const ratio = Number((sizeRaw * 1_000_000n) / before) / 1_000_000;
     // No await from here to the end of the loop: the resize and the set of
     // open mirrors it applies to have to be read as one step.
@@ -346,6 +585,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     for (const m of mirrors.forTrade(trade.id)) {
       if (m.status === 'open') this.queueAdjustment(trade, m, ratio, detectedLateBySeconds);
     }
+    return Promise.resolve();
   }
 
   private queueAdjustment(trade: LeaderTrade, m: Mirror, ratio: number, detectedLateBySeconds?: number) {
@@ -431,6 +671,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     };
     try {
       const adapter = this.venue(trade.venue);
+      if (!this.deps.venue && trade.venue === 'perpl' && !members.credentials(m.userId)) throw new NotSized('Perpl credentials unavailable; position status is unconfirmed');
       if (a.kind === 'add') {
         const why = await this.cannotTrade(m.userId, trade.venue);
         if (why) {
@@ -447,13 +688,16 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       const keepMillionths = BigInt(Math.round(a.ratio * 1_000_000));
 
       if (a.kind === 'reduce') {
-        let sell = size - (size * keepMillionths) / 1_000_000n;
-        const heldRaw = BigInt(held.sizeRaw);
-        if (sell > heldRaw) sell = heldRaw; // they sold some by hand; never sell what isn't theirs
+        const own = allocatedHoldings(m.userId, [held]).find(h => h.markerId === 'mirror:' + m.id);
+        const available = BigInt(own?.sizeRaw ?? '0');
+        const sell = available - (available * keepMillionths) / 1_000_000n;
         if (sell <= 0n) return done('done', { sizeDelta: '0', error: 'rounds to nothing at this size' });
-        const fill = await adapter.close({ userId: m.userId, market: trade.market, sizeRaw: sell.toString(), onRef: onRef('mirror_reduce') });
+        adjustments.patch(id, { beforeSize: size.toString(), availableSize: available.toString() });
+        const fill = await adapter.close({ userId: m.userId, market: trade.market, sizeRaw: sell.toString(), side: trade.side, onRef: onRef('mirror_reduce') });
+        if (BigInt(fill.sizeRaw) <= 0n) throw new Error('partial exit did not fill');
         this.attempts.delete(id);
-        this.applyReduce(a, m, BigInt(fill.sizeRaw || '0') || sell, { notionalUsd: fill.notionalAusd, oid: fill.orderId ?? null, tx: fill.txHash ?? null });
+        const sold = BigInt(fill.sizeRaw) > available ? available : BigInt(fill.sizeRaw);
+        this.applyReduce(a, m, size * sold / available, { sizeDelta: sold.toString(), notionalUsd: fill.notionalAusd, oid: fill.orderId ?? null, tx: fill.txHash ?? null });
         return;
       }
 
@@ -467,6 +711,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       const sized = capAdd(want, leverage, await adapter.freeBalanceAusd(m.userId), membership.policy, this.cfg.minMirrorAusd ?? 1);
       if (!sized.ok) throw new NotSized(`not sized: ${sized.reason}`);
       const fill = await adapter.open({ userId: m.userId, market: trade.market, side: trade.side, notionalAusd: sized.notionalUsd, leverage, onRef: onRef('mirror_add') });
+      if (BigInt(fill.sizeRaw) <= 0n) throw new Error('add order did not fill');
       this.attempts.delete(id);
       this.applyAdd(a, m, BigInt(fill.sizeRaw), leverage, {
         notionalUsd: fill.notionalAusd,
@@ -489,7 +734,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
   // Book a mirror's partial sell: the size and cost basis shrink together
   // (entry price unchanged); selling all of it closes the mirror.
-  private applyReduce(a: Adjustment, m: Mirror, sold: bigint, fill: { notionalUsd: number; oid: number | null; tx: string | null; error?: string | null }) {
+  private applyReduce(a: Adjustment, m: Mirror, sold: bigint, fill: { sizeDelta?: string; notionalUsd: number; oid: number | null; tx: string | null; error?: string | null }) {
     const size = BigInt(m.size ?? '0');
     const left = size > sold ? size - sold : 0n;
     const keep = size > 0n ? Number((left * 1_000_000n) / size) / 1_000_000 : 0;
@@ -573,7 +818,13 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     if (r.state === 'pending') return this.lookAgain(`a:${id}`, () => this.reconcileAdjustment(id));
     const note = { notionalUsd: r.state === 'filled' ? r.notionalUsd : 0, oid: r.state === 'filled' ? r.orderId : null, tx: r.state === 'filled' ? r.txHash : null, error: 'recovered after a restart' };
     if (r.state === 'filled' && m.status === 'open') {
-      if (a.kind === 'reduce') this.applyReduce(a, m, BigInt(r.sizeRaw), note);
+      if (a.kind === 'reduce') {
+        const available = BigInt(a.availableSize ?? m.size ?? '0');
+        const before = BigInt(a.beforeSize ?? m.size ?? '0');
+        const raw = BigInt(r.sizeRaw);
+        const sold = available > 0n ? before * (raw > available ? available : raw) / available : 0n;
+        this.applyReduce(a, m, sold, { ...note, sizeDelta: r.sizeRaw });
+      }
       else this.applyAdd(a, m, BigInt(r.sizeRaw), trade.venue === 'perpl' ? trade.leverage / 100 : 1, note);
       return;
     }
@@ -598,13 +849,45 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   private async reconcileExit(id: string): Promise<void> {
     const m = mirrors.get(id)!;
     const trade = trades.get(m.tradeId)!;
-    const r = await this.landed(trade.venue, 'mirror_close', m.id, m.userId);
+    const r = await this.landed(trade.venue, 'mirror_close', m.closeRef ?? m.id, m.userId);
     if (r.state === 'pending') return this.lookAgain(`x:${id}`, () => this.reconcileExit(id));
     if (r.state === 'filled') {
-      this.emit('mirror', mirrors.transition(id, 'open', 'closed', { closeTx: r.txHash, closeOid: r.orderId, error: 'exit recovered after a restart' })!);
+      this.bookMirrorExit(m, r, true);
       return;
     }
     await this.closeMirror(m, trade);
+  }
+
+  private bookMirrorExit(m: Mirror, fill: { sizeRaw: string; orderId?: number | null; txHash?: string | null }, recovered = false) {
+    if (m.status !== 'open') return;
+    const sameFill = (fill.orderId != null && fill.orderId === m.closeOid) || (fill.txHash != null && fill.txHash === m.closeTx);
+    // Older rows have no attempt snapshot. An already-booked legacy fill is
+    // ambiguous, so never subtract it again without its cumulative baseline.
+    if (!m.closeBeforeSize && sameFill) return;
+    const continuing = m.closeRef != null || sameFill;
+    const before = BigInt(continuing ? m.closeBeforeSize ?? m.size ?? '0' : m.size ?? '0');
+    const requested = BigInt(continuing ? m.closeRequestedSize ?? before.toString() : before.toString());
+    const booked = BigInt(continuing ? m.closeBookedSize ?? '0' : '0');
+    const raw = BigInt(fill.sizeRaw);
+    if (requested <= 0n || raw <= booked) return;
+    const cumulative = raw > requested ? requested : raw;
+    if (cumulative <= booked) return;
+    // The live position can be smaller than our ledger. Apply the confirmed
+    // fraction of the requested slice, not an unrelated member's quantity.
+    const removed = before * cumulative / requested - before * booked / requested;
+    const current = BigInt(m.size ?? '0');
+    const after = current > removed ? current - removed : 0n;
+    const note = { closeBeforeSize: before.toString(), closeRequestedSize: requested.toString(),
+      closeBookedSize: cumulative.toString(), closeTx: fill.txHash ?? null, closeOid: fill.orderId ?? null };
+    if (after > 0n) {
+      mirrors.patch(m.id, { ...note, size: after.toString(),
+        notionalUsd: m.notionalUsd == null ? null : m.notionalUsd * Number(after) / Number(current),
+        error: 'close partially filled; remaining size is still open' });
+      this.emit('mirror', mirrors.get(m.id)!);
+    } else {
+      const closed = mirrors.transition(m.id, 'open', 'closed', { ...note, error: recovered ? 'exit recovered after a restart' : null });
+      if (closed) this.emit('mirror', closed);
+    }
   }
 
   private lookAgain(key: string, fn: () => Promise<void>): void {
@@ -643,7 +926,8 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     return run;
   }
 
-  async closeTrade(trade: LeaderTrade) {
+  closeTrade(trade: LeaderTrade, waitForCopies = true): Promise<void> {
+    if (trades.get(trade.id)?.closedAt) return Promise.resolve();
     trades.markClosed(trade.id);
     this.emit('tradeClosed', { ...trade, closedAt: Date.now() });
     // A pending add would buy into a trade that's over; the exit below covers pending reductions.
@@ -664,7 +948,10 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     }
     // Each follower is their own wallet/account, so unwind them in parallel:
     // the last follower shouldn't exit later just because of the clan's size.
-    await Promise.all(toClose.map((m) => this.closeMirror(m, trade)));
+    const exits = Promise.all(toClose.map((m) => this.closeMirror(m, trade)));
+    if (waitForCopies) return exits.then(() => undefined);
+    void exits.catch(error => this.log('follower exit', error));
+    return Promise.resolve();
   }
 
   // Stop a pending mirror for a reason other than the member's own skip.
@@ -755,6 +1042,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
           if (ref.rq != null) mirrors.patch(m.id, { openRq: ref.rq });
         },
       });
+      if (BigInt(fill.sizeRaw) <= 0n) throw new Error('copy order did not fill');
       this.attempts.delete(m.id);
       const updated = mirrors.transition(m.id, 'submitting', 'open', {
         marginUsd: sizing.marginUsd,
@@ -796,6 +1084,11 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
   private async closeMirrorNow(m: Mirror, trade: LeaderTrade) {
     const adapter = this.venue(trade.venue);
+    if (!this.deps.venue && trade.venue === 'perpl' && !members.credentials(m.userId)) {
+      mirrors.patch(m.id, { error: 'close failed: Perpl credentials unavailable; position status is unconfirmed' });
+      this.emit('mirror', mirrors.get(m.id)!);
+      return;
+    }
     // If the member already got out on their own, there's nothing to unwind.
     const held = await adapter.holdings(m.userId, [trade.market]).catch(() => null);
     if (held && held.length === 0) {
@@ -803,16 +1096,28 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       return;
     }
     try {
+      if (!held) throw new Error('position status is unconfirmed; retry once the venue is available');
+      const holding = held.find(h => h.market.toLowerCase() === trade.market && h.side === trade.side);
+      if (!holding) throw new Error('position direction changed; refresh before closing this copy');
+      const own = allocatedHoldings(m.userId, [holding]).find(h => h.markerId === 'mirror:' + m.id);
+      if (!own || BigInt(own.sizeRaw) <= 0n) throw new Error('copy size is unconfirmed; refresh before closing');
+      const wanted = BigInt(own.sizeRaw);
+      const closeRef = randomUUID();
+      mirrors.patch(m.id, { closeRef, closeBeforeSize: m.size, closeRequestedSize: wanted.toString(),
+        closeBookedSize: '0', closeRq: null, closeOid: null, closeTx: null });
       const fill = await adapter.close({
         userId: m.userId,
         market: trade.market,
-        sizeRaw: m.size ?? undefined,
+        sizeRaw: wanted.toString(),
+        side: trade.side,
         onRef: (ref) => {
-          recordRef(ref, 'mirror_close', m.id);
+          recordRef(ref, 'mirror_close', closeRef);
           if (ref.rq != null) mirrors.patch(m.id, { closeRq: ref.rq });
         },
       });
-      this.emit('mirror', mirrors.transition(m.id, 'open', 'closed', { closeOid: fill.orderId ?? null, closeTx: fill.txHash ?? null })!);
+      const filled = BigInt(fill.sizeRaw);
+      if (filled <= 0n) throw new Error('exit order did not fill');
+      this.bookMirrorExit(mirrors.get(m.id)!, fill);
     } catch (e) {
       mirrors.patch(m.id, { error: `close failed: ${String(e).slice(0, 400)}` });
       this.emit('mirror', mirrors.get(m.id)!);

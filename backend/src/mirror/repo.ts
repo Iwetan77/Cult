@@ -10,6 +10,7 @@ export interface LeaderTrade {
   market: string; // perpl market id | nadfun token (lowercase)
   side: TradeSide;
   positionId: number | null; // perpl
+  netPositionId?: number | null; // multiple app fills can share a net Perpl position
   size: string; // raw, the leader's size now
   openSize: string | null; // raw, what they opened with (null on rows from before v3)
   entryPrice: number | null; // AUSD per unit
@@ -36,6 +37,8 @@ export interface Adjustment {
   status: AdjustmentStatus;
   skipUntil: number;
   sizeDelta: string | null;
+  beforeSize?: string | null;
+  availableSize?: string | null;
   notionalUsd: number | null;
   rq: number | null;
   oid: number | null;
@@ -64,6 +67,10 @@ export interface Mirror {
   closeRq: number | null;
   closeOid: number | null;
   closeTx: string | null;
+  closeRef?: string | null;
+  closeBeforeSize?: string | null;
+  closeRequestedSize?: string | null;
+  closeBookedSize?: string | null;
   error: string | null;
   createdAt: number;
   updatedAt: number;
@@ -77,6 +84,7 @@ const TRADE_COLS: Record<keyof LeaderTrade, string> = {
   market: 'market',
   side: 'side',
   positionId: 'position_id',
+  netPositionId: 'net_position_id',
   size: 'size',
   openSize: 'open_size',
   entryPrice: 'entry_price',
@@ -105,6 +113,10 @@ const MIRROR_COLS: Record<keyof Mirror, string> = {
   closeRq: 'close_rq',
   closeOid: 'close_oid',
   closeTx: 'close_tx',
+  closeRef: 'close_ref',
+  closeBeforeSize: 'close_before_size',
+  closeRequestedSize: 'close_requested_size',
+  closeBookedSize: 'close_booked_size',
   error: 'error',
   createdAt: 'created_at',
   updatedAt: 'updated_at',
@@ -121,6 +133,8 @@ const ADJ_COLS: Record<keyof Adjustment, string> = {
   status: 'status',
   skipUntil: 'skip_until',
   sizeDelta: 'size_delta',
+  beforeSize: 'before_size',
+  availableSize: 'available_size',
   notionalUsd: 'notional_usd',
   rq: 'rq',
   oid: 'oid',
@@ -174,6 +188,14 @@ export const trades = {
       .prepare(`SELECT * FROM leader_trades WHERE closed_at IS NULL AND user_id IN (${userIds.map(() => '?').join(',')}) ORDER BY opened_at`)
       .all(...userIds)
       .map((r) => tradeFrom(r)!);
+  },
+  openOnMarket(userId: string, venue: Venue, market: string): LeaderTrade[] {
+    return getDb().prepare('SELECT * FROM leader_trades WHERE user_id = ? AND venue = ? AND market = ? AND closed_at IS NULL ORDER BY opened_at, id')
+      .all(userId, venue, market.toLowerCase()).map(r => tradeFrom(r)!);
+  },
+  attachPosition(userId: string, market: string, positionId: number) {
+    getDb().prepare("UPDATE leader_trades SET net_position_id = ? WHERE user_id = ? AND venue = 'perpl' AND market = ? AND closed_at IS NULL AND position_id IS NULL")
+      .run(positionId, userId, market.toLowerCase());
   },
   markClosed(id: string) {
     getDb().prepare('UPDATE leader_trades SET closed_at = ? WHERE id = ? AND closed_at IS NULL').run(Date.now(), id);
@@ -243,7 +265,7 @@ export const mirrors = {
   },
 };
 
-type AdjustmentPatch = Partial<Pick<Adjustment, 'skipUntil' | 'sizeDelta' | 'notionalUsd' | 'rq' | 'oid' | 'tx' | 'error'>>;
+type AdjustmentPatch = Partial<Pick<Adjustment, 'skipUntil' | 'sizeDelta' | 'beforeSize' | 'availableSize' | 'notionalUsd' | 'rq' | 'oid' | 'tx' | 'error'>>;
 
 export const adjustments = {
   insert(a: Pick<Adjustment, 'mirrorId' | 'tradeId' | 'clanId' | 'userId' | 'kind' | 'ratio' | 'skipUntil'>): Adjustment {
