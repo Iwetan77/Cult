@@ -1,7 +1,7 @@
 import { statsFor } from '../indexer/stats.js';
 import { strEnv } from '../config/env.js';
 import { randomBytes } from 'node:crypto';
-import { mirrors, trades } from '../mirror/repo.js';
+import { mirrors, trades, tradeCults } from '../mirror/repo.js';
 import { clans } from '../store/clans.js';
 import { getDb } from '../store/db.js';
 import { members } from '../store/members.js';
@@ -57,7 +57,8 @@ function clanOfMarker(markerId: string): { clanId: string; tradeId: string } | n
   if (kind === 'trade') {
     const t = trades.get(id!);
     if (!t) return null;
-    const c = clans.forUser(t.userId)[0];
+    const posted = tradeCults(t, clans.adminCultIds(t.userId));
+    const c = clans.forUser(t.userId).find(c => posted.includes(c.id));
     return c ? { clanId: c.id, tradeId: t.id } : null;
   }
   return null;

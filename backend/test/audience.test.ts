@@ -1,7 +1,7 @@
 // "Post to": a trade reaches only the cults it was posted to (copies, chart,
 // notices); no pick means every cult the trader is in; an empty pick keeps it
 // to themselves.
-import { test, before } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.DB_PATH = ':memory:';
@@ -40,6 +40,8 @@ before(async () => {
 });
 
 const open = (market: string) => engine.leaderOpened({ venue: 'perpl', userId: 'L', market, side: 'long', sizeRaw: '100', entryPriceAusd: 1, leverageHundredths: 200, marginFraction: 0.1 });
+
+after(() => engine.stop());
 
 test('no pick: every cult the trader is an admin of', async () => {
   const t = await open('16');

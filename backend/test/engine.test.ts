@@ -2,7 +2,7 @@
 // This is NOT the Phase 4 gate (that one reads real venues). It pins down the
 // engine's own rules: who gets a mirror, skip, caps, close propagation, and
 // that orders the engine sends are tagged so they never become leader trades.
-import { test, before } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 
 process.env.DB_PATH = ':memory:';
@@ -15,24 +15,35 @@ let origin: typeof import('../src/mirror/origin.js');
 
 const opens: { venue: string; userId: string; market: string; notionalAusd: number; leverage?: number }[] = [];
 const closes: { venue: string; userId: string; market: string; sizeRaw?: string }[] = [];
-const holding = new Set<string>(); // `${venue}:${user}:${market}` currently held
+const holding = new Map<string, { raw: bigint; side: 'long' | 'short' | 'buy'; leverage: number }>();
 let n = 0;
 const fake = (v: 'perpl' | 'nadfun', balances: Record<string, number>) => ({
   venue: v,
   async open(i: any) {
     opens.push({ venue: v, userId: i.userId, market: i.market, notionalAusd: i.notionalAusd, leverage: i.leverage });
-    holding.add(`${v}:${i.userId}:${i.market}`);
+    const key = `${v}:${i.userId}:${i.market}`;
+    holding.set(key, { raw: (holding.get(key)?.raw ?? 0n) + BigInt(Math.round(i.notionalAusd * 1000)),
+      side: i.side, leverage: i.leverage ?? 1 });
     const ref = v === 'perpl' ? { rq: ++n, accountId: 1000 + n } : { txHash: `0x${(++n).toString(16).padStart(64, '0')}`, wallet: '0xabc' };
     i.onRef?.(ref);
     return { venue: v, market: i.market, side: i.side, sizeRaw: String(Math.round(i.notionalAusd * 1000)), size: i.notionalAusd, priceAusd: 1, notionalAusd: i.notionalAusd, txHash: (ref as any).txHash ?? null, orderId: n };
   },
   async close(i: any) {
     closes.push({ venue: v, userId: i.userId, market: i.market, sizeRaw: i.sizeRaw });
-    holding.delete(`${v}:${i.userId}:${i.market}`);
-    return { venue: v, market: i.market, side: 'long', sizeRaw: i.sizeRaw ?? '0', size: 0, priceAusd: 1, notionalAusd: 0, orderId: ++n };
+    const key = `${v}:${i.userId}:${i.market}`;
+    const previous = holding.get(key)!;
+    const raw = BigInt(i.sizeRaw ?? previous.raw);
+    if (raw >= previous.raw) holding.delete(key);
+    else holding.set(key, { ...previous, raw: previous.raw - raw });
+    return { venue: v, market: i.market, side: previous.side, sizeRaw: raw.toString(), size: Number(raw) / 1000,
+      priceAusd: 1, notionalAusd: Number(raw) / 1000, orderId: ++n };
   },
   async holdings(userId: string, markets: string[] = []) {
-    return markets.filter((m) => holding.has(`${v}:${userId}:${m}`)).map((m) => ({ venue: v, market: m }) as any);
+    return markets.filter((m) => holding.has(`${v}:${userId}:${m}`)).map((m) => {
+      const current = holding.get(`${v}:${userId}:${m}`)!;
+      return { venue: v, market: m, symbol: 'TEST', side: current.side, sizeRaw: current.raw.toString(), size: Number(current.raw) / 1000,
+        entryPriceAusd: 1, markPriceAusd: 1, valueAusd: Number(current.raw) / 1000, pnlAusd: 0, leverage: current.leverage };
+    });
   },
   async freeBalanceAusd(userId: string) { return balances[userId] ?? 0; },
   async markPriceAusd() { return 1; },
@@ -58,6 +69,8 @@ before(async () => {
   const venues = { perpl: fake('perpl', bal), nadfun: fake('nadfun', bal) } as any;
   engine = new E.MirrorEngine({ optOutSeconds: 0.2, minMirrorAusd: 1 }, { sessionFor: async () => { throw new Error('no sessions in test'); }, venue: (v) => venues[v], nadWatcher: null });
 });
+
+after(() => engine.stop());
 
 test('perpl leader: mirrors for B and C only, sized by own balance and caps', async () => {
   const t = await engine.leaderOpened({ venue: 'perpl', userId: 'A', market: '16', side: 'long', sizeRaw: '100', entryPriceAusd: 100, leverageHundredths: 500, marginFraction: 0.1 });

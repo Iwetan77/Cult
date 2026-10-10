@@ -7,6 +7,7 @@ import { countryName } from './countries.js';
 import { shortName } from './names.js';
 import { marketSymbol } from './symbols.js';
 import { displayName, avatarUrl } from './names.js';
+import { tradeCults, trades as leaderTrades } from '../mirror/repo.js';
 
 // Profiles and the home feed (the "Account" and "Home" screens).
 // Records are verified by the indexer and count own trades only.
@@ -41,15 +42,17 @@ function tradeIdByTx(openTx: string): string | null {
 
 // Where "view trade" should take this viewer: a cult they share with the
 // trader (so they land in its room), else one of the trader's public cults.
-function cultToOpen(traderId: string, viewerId: string): string | null {
-  const theirs = clans.forUser(traderId);
+function cultToOpen(traderId: string, viewerId: string, tradeId?: string | null): string | null {
+  const t = tradeId ? leaderTrades.get(tradeId) : null;
+  const posted = t ? tradeCults(t, clans.adminCultIds(traderId)) : null;
+  const theirs = clans.forUser(traderId).filter(c => !posted || posted.includes(c.id));
   return (theirs.find((c) => clans.membership(c.id, viewerId)) ?? theirs.find((c) => c.visibility === 'public'))?.id ?? null;
 }
 
 // How many people were in on a leader's trade: them, plus every copy and stack of it.
 function copiesOf(tradeId: string): number {
   const m = (getDb().prepare(`SELECT count(*) AS n FROM mirrors WHERE trade_id = ? AND status IN ('open', 'closed')`).get(tradeId) as { n: number }).n;
-  const s = (getDb().prepare(`SELECT count(*) AS n FROM stacks WHERE target_trade = ? AND status = 'open'`).get(tradeId) as { n: number }).n;
+  const s = (getDb().prepare(`SELECT count(*) AS n FROM stacks WHERE target_trade = ? AND status IN ('open', 'closed')`).get(tradeId) as { n: number }).n;
   return m + s;
 }
 
@@ -170,7 +173,7 @@ export async function home(viewerId: string, limit = 10): Promise<Home> {
         tradersIn: inOn.count,
         markerId: inOn.tradeId ? `trade:${inOn.tradeId}` : null,
         tradeId: inOn.tradeId,
-        cultId: cultToOpen(t.member.userId, viewerId),
+        cultId: cultToOpen(t.member.userId, viewerId, inOn.tradeId),
         openTx: t.openTx,
       };
     }),
@@ -214,14 +217,18 @@ export async function tradeView(tradeId: string, viewerId: string): Promise<Trad
   if (!t) throw new ProfileError(404, 'no such trade');
   const m = members.get(t.user_id)!;
   let result: TradeView['result'] = null;
-  if (t.closed_at && t.open_tx) {
+  // The indexer result is the venue's whole round trip, not one app slice.
+  const lot = getDb().prepare(`SELECT 1 FROM member_orders WHERE user_id = ? AND venue = ?
+    AND (id = ? OR allocation_id = ? OR (tx_hash IS NOT NULL AND tx_hash = lower(?)))`)
+    .get(t.user_id, t.venue, t.id, t.id, t.open_tx);
+  if (t.closed_at && t.open_tx && !lot) {
     const rec = (await recordsFor([m.wallet])).get(m.wallet.toLowerCase());
     const rt = rec?.trades.find((x) => x.openTx.toLowerCase() === t.open_tx!.toLowerCase());
     if (rt) result = { returnPct: rt.returnPct, pnlUsd: rt.pnlUsd, entryPrice: rt.entryPrice, exitPrice: rt.exitPrice, isWin: rt.isWin };
   }
   const youCopied =
     !!getDb().prepare(`SELECT 1 FROM mirrors WHERE trade_id = ? AND user_id = ? AND status IN ('open', 'closed')`).get(t.id, viewerId) ||
-    !!getDb().prepare(`SELECT 1 FROM stacks WHERE target_trade = ? AND user_id = ? AND status = 'open'`).get(t.id, viewerId);
+    !!getDb().prepare(`SELECT 1 FROM stacks WHERE target_trade = ? AND user_id = ? AND status IN ('open', 'closed')`).get(t.id, viewerId);
   return {
     tradeId: t.id,
     markerId: `trade:${t.id}`,
@@ -238,6 +245,6 @@ export async function tradeView(tradeId: string, viewerId: string): Promise<Trad
     result,
     tradersIn: 1 + copiesOf(t.id),
     youCopied,
-    cultId: cultToOpen(t.user_id, viewerId),
+    cultId: cultToOpen(t.user_id, viewerId, t.id),
   };
 }

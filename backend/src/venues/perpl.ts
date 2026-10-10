@@ -5,6 +5,8 @@ import { ensurePerplMargin, perplFreeAusd, walletSpendableAusd } from '../fundin
 import { checkLeverage, closePosition, openPosition, viewPositions } from '../trading/positions.js';
 import { readTpSl, type TpSl } from '../trading/tpsl.js';
 import type { CloseInput, Fill, Holding, OpenInput, VenueAdapter } from './types.js';
+import { PositionSide } from '../perpl/types.js';
+import { MirrorError } from '../mirror/engine.js';
 
 // Perpl: orders go over the member's trading session with their Perpl API key.
 
@@ -53,11 +55,20 @@ export const perpl: VenueAdapter = {
     const step = 10 ** m.config.size_decimals;
     const size = Math.floor((i.notionalAusd / px) * step) / step;
     if (size <= 0) throw new Error(`$${i.notionalAusd} rounds to 0 ${m.symbol}`);
+    const session = await sessionFor(i.userId);
+    const checkSide = () => {
+      const existing = session.positions.get(`${accountId}:${m.id}`);
+      if (existing && existing.s > 0 && (existing.sd === PositionSide.Long ? 'long' : 'short') !== i.side) {
+        throw new MirrorError(409, 'Close your existing opposite-side position first. Perpl combines trades on the same asset into one net position.');
+      }
+    };
+    checkSide();
     // Margin for this order plus a little for fees and price moves, moved in
     // from the wallet (AUSD, then MON via Kuru) if the Perpl account is short.
     const notional = size * px;
     await ensurePerplMargin(i.userId, (notional / leverage) * 1.02 + notional * 0.001);
-    const order = await openPosition(await sessionFor(i.userId), {
+    checkSide(); // Funding can take several blocks; the position may have changed.
+    const order = await openPosition(session, {
       accountId,
       marketId: m.id,
       side: i.side,
@@ -87,6 +98,9 @@ export const perpl: VenueAdapter = {
     const m = await getMarket(Number(i.market));
     const session = await sessionFor(i.userId);
     const pos = session.positions.get(`${accountId}:${m.id}`);
+    if (i.side && pos && (pos.sd === PositionSide.Short ? 'short' : 'long') !== i.side) {
+      throw new MirrorError(409, 'The position changed direction. Refresh your positions before closing.');
+    }
     const order = await closePosition(session, accountId, m.id, {
       sizeScaled: i.sizeRaw != null ? Number(i.sizeRaw) : undefined,
       onRq: (rq) => i.onRef?.({ rq, accountId }),

@@ -10,9 +10,9 @@ import { completeEnrollment, setupStatus, startEnrollment } from '../accounts/cl
 import { sessionFor } from '../accounts/lifecycle.js';
 import { env, numEnv } from '../config/env.js';
 import { MirrorError, type MirrorEngine } from '../mirror/engine.js';
-import { mirrors, trades } from '../mirror/repo.js';
+import { mirrors, trades, tradeCults, type LeaderTrade } from '../mirror/repo.js';
+import { allocatedHoldings } from '../mirror/allocations.js';
 import { stackOnTrade } from '../mirror/stack.js';
-import { clearAudience, setAudience } from '../mirror/audience.js';
 import { getContext, getMarket } from '../perpl/context.js';
 import { listMonMarkets } from '../nadfun/trading.js';
 import { monPriceAusd } from '../prices.js';
@@ -585,7 +585,7 @@ export function createApp(engine: MirrorEngine) {
       venue('perpl').holdings(userId).catch(() => []),
       venue('nadfun').holdings(userId, heldMarkets(userId, 'nadfun')).catch(() => []),
     ]);
-    return c.json({ positions: [...p, ...n] });
+    return c.json({ positions: allocatedHoldings(userId, [...p, ...n]) });
   });
 
   // A member's own trade, on either venue. Not tagged as an engine order, so
@@ -616,14 +616,8 @@ export function createApp(engine: MirrorEngine) {
       if (body.side === 'buy') throw bad(400, 'perpl side must be long or short');
       await getMarket(Number(body.marketId));
     } else if (body.side !== 'buy') throw bad(400, 'nad.fun side must be buy');
-    if (body.cultIds) setAudience(userId, v, body.marketId, body.cultIds);
-    try {
-      const fill = await venue(v).open({ userId, market: body.marketId, side: body.side, notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage });
-      return c.json(fill);
-    } catch (error) {
-      clearAudience(userId, v, body.marketId);
-      throw error;
-    }
+    return c.json(await engine.executeOwnOpen({ userId, market: body.marketId, side: body.side,
+      notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage }, body.cultIds));
   });
 
   // TP/SL on your own Perpl position, as real Perpl trigger orders. A number
@@ -641,11 +635,11 @@ export function createApp(engine: MirrorEngine) {
   });
 
   authed.post('/positions/close', async (c) => {
-    const body = z.object({ marketId: z.coerce.string(), sizeRaw: z.string().regex(/^\d+$/).optional() }).parse(await c.req.json());
+    const body = z.object({ marketId: z.coerce.string(), sizeRaw: z.string().regex(/^\d+$/).optional(), markerId: z.string().max(160).optional() }).parse(await c.req.json());
     const userId = c.get('userId');
     const v = venueOf(body.marketId);
     if (v === 'perpl' && !members.get(userId)?.perplAccountId) throw bad(409, 'no Perpl account');
-    return c.json(await venue(v).close({ userId, market: body.marketId, sizeRaw: body.sizeRaw }));
+    return c.json(await engine.executeOwnClose({ userId, market: body.marketId, sizeRaw: body.sizeRaw }, body.markerId));
   });
 
   // "Pay with USDC": ordered wallet actions (Kuru swap -> Perpl deposit) for
@@ -883,7 +877,7 @@ export function createApp(engine: MirrorEngine) {
     const markerId = c.req.param('markerId');
     const tradeId = resolveTradeId(markerId);
     const trade = trades.get(tradeId);
-    if (!trade || trade.closedAt || !clans.membership(clan.id, trade.userId)) throw bad(404, 'marker not found');
+    if (!trade || trade.closedAt || !clans.membership(clan.id, trade.userId) || !tradeCults(trade, clans.adminCultIds(trade.userId)).includes(clan.id)) throw bad(404, 'marker not found');
     if (trade.venue !== 'perpl') throw bad(400, 'TP/SL is Perpl only');
     return c.json(addSuggestion(clan.id, tradeId, markerId, c.get('userId'), body.takeProfit ?? null, body.stopLoss ?? null), 201);
   });
@@ -912,9 +906,10 @@ export function createApp(engine: MirrorEngine) {
     const inClan = (userId: string) => !!clans.membership(clan.id, userId);
     return streamSSE(c, async (stream) => {
       const send = (event: string, data: unknown) => void stream.writeSSE({ event, data: JSON.stringify(data) });
-      const onTrade = (t: { userId: string }) => inClan(t.userId) && send('trade', t);
-      const onChanged = (t: { userId: string }) => inClan(t.userId) && send('trade_changed', t);
-      const onClosed = (t: { userId: string }) => inClan(t.userId) && send('trade_closed', t);
+      const postedHere = (t: LeaderTrade) => inClan(t.userId) && tradeCults(t, clans.adminCultIds(t.userId)).includes(clan.id);
+      const onTrade = (t: LeaderTrade) => postedHere(t) && send('trade', t);
+      const onChanged = (t: LeaderTrade) => postedHere(t) && send('trade_changed', t);
+      const onClosed = (t: LeaderTrade) => postedHere(t) && send('trade_closed', t);
       const onMirror = (m: { clanId: string }) => m.clanId === clan.id && send('mirror', m);
       const onAdjust = (a: { clanId: string }) => a.clanId === clan.id && send('adjustment', a);
       engine.on('trade', onTrade);

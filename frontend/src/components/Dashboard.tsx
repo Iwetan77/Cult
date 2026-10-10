@@ -20,6 +20,7 @@ import { validateMirrorPolicy } from '@/lib/mirrorPolicy';
 import { tradeAudienceNotice } from '@/lib/tradeAudience';
 import { copyFailureFromEvent, perpsCopyReady, type CopyFailure } from '@/lib/copyStatus';
 import { availableTradeFunds } from '@/lib/tradeFunds';
+import { combinedMarketHolding, holdingClosedByFill, holdingForMarker, positionCloseSizeRaw } from '@/lib/api';
 import { disablePhonePush } from '@/lib/phonePush';
 import { TokenLogo } from './TokenLogo';
 import { Change } from './MarketsView';
@@ -143,6 +144,10 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   const [perpsPrompt, setPerpsPrompt] = useState(false);
   const [monBalance, setMonBalance] = useState<number | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const netHoldings = useMemo(() => [...new Map(holdings.map(holding => [`${holding.venue}:${holding.market.toLowerCase()}`, holding])).values()].flatMap(holding => {
+    const combined = combinedMarketHolding(holdings, holding.market, holding.venue);
+    return combined ? [combined] : [];
+  }), [holdings]);
   // The chart's candle size, shared by the cult panel and the market page.
   const [chartResolution, setChartResolution] = useState(300);
   // The market page shows a cult's positions (clanId) unless you pick "Off".
@@ -860,14 +865,13 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     if (levelsFailed) setError(`The trade is open, but TP/SL wasn't set: ${levelsFailed} Set it from the chart.`);
   });
   const trader = () => ({ name: me?.name ?? 'You', avatarUrl: me?.avatarUrl ?? null });
-  const holdingFor = (market: string) => holdings.find(item => item.market.toLowerCase() === market.toLowerCase());
   // An open position's PnL card, from Account (no chart marker needed).
   const shareHolding = (holding: Holding) => setCardSheet({ mode: 'live', result: { ...resultOfClose(holding, null, trader()), live: true } });
   // Share one of your open positions: its PnL card as an image, made right
   // here (no sign-in needed, works in the demo). Real accounts can also share
   // a public link to it.
   const shareMarker = (marker: ChartMarker) => {
-    const holding = holdingFor(marker.marketId);
+    const holding = marker.isMine ? holdingForMarker(holdings, marker) : undefined;
     const symbol = holding?.symbol ?? (snapshot?.selectedMarket.id === marker.marketId ? snapshot.selectedMarket.symbol : marker.marketId);
     const result = holding ? { ...resultOfClose(holding, null, trader()), live: true } : resultOfMarker(marker, symbol, trader());
     setCardSheet({ mode: 'live', result, onShareLink: demo ? undefined : () => void shareLink(marker) });
@@ -887,33 +891,43 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   });
   // After a close, the PnL card, built from the position as it was just before.
   const showCard = (holding: Holding | undefined, fill: Fill | null) => {
-    if (holding) setCardSheet({ mode: 'closed', result: resultOfClose(holding, fill, trader()) });
+    if (holding) {
+      setCardSheet({ mode: 'closed', result: resultOfClose(holding, fill, trader()) });
+      if (fill && holding.pnlAusd != null) setNotice('PnL is estimated at the fill price, before fees.');
+    }
     else { setCardSheet(null); setNotice('Position close submitted.'); }
   };
-  const runClose = (holding: Holding | undefined, market: string, chartMarket: string | undefined, share = 1) => perform('close', async () => {
+  const runClose = (holding: Holding, chartMarket: string | undefined, share = 1, wholeMarket = false) => perform('close', async () => {
     try {
-      const part = holding && share < 1 ? (BigInt(holding.sizeRaw) * BigInt(Math.round(share * 100)) / BigInt(100)).toString() : undefined;
-      const fill = await closePosition(await token(), market, part && part !== '0' ? part : undefined);
+      if (!wholeMarket && !holding.markerId) throw new Error('This trade has no lot identifier. Refresh positions, or use Close all on the market.');
+      const part = positionCloseSizeRaw(holding, share);
+      const fill = await closePosition(await token(), holding.market, part, wholeMarket ? undefined : holding.markerId);
       setSelectedId(null);
       if (clanId) await loadChart(clanId, chartMarket).catch(() => undefined);
       setHoldings((await getHoldings(await token())).positions);
       await loadMe();
-      showCard(holding && share < 1 ? scaleHolding(holding, share) : holding, fill);
+      showCard(holdingClosedByFill(holding, fill), fill);
     } catch (reason) { setCardSheet(null); throw reason; }
   });
   // Closing asks first: the PnL card you'd get at the current mark, with
   // Keep open / Close. Confirming closes it and the sheet turns into the
   // final card.
-  const askClose = (holding: Holding | undefined, market: string, chartMarket: string | undefined) => {
-    const marker = holding ? null : snapshot?.markers.find(m => m.isMine && m.marketId.toLowerCase() === market.toLowerCase());
-    const symbol = snapshot?.selectedMarket.id.toLowerCase() === market.toLowerCase() ? snapshot.selectedMarket.symbol : market;
-    const preview = holding ? resultOfClose(holding, null, trader()) : marker ? { ...resultOfMarker(marker, symbol, trader()), live: false } : null;
-    if (!preview) { void runClose(holding, market, chartMarket); return; }
-    const venue = holding?.venue ?? marker?.venue;
+  const askClose = (holding: Holding, chartMarket: string | undefined, wholeMarket = false) => {
+    if (!wholeMarket && !holding.markerId) { setError('This trade has no lot identifier. Refresh positions, or use Close all on the market.'); return; }
+    const preview = resultOfClose(holding, null, trader());
     setCloseShare(1);
-    setCardSheet({ mode: 'confirm', result: preview, confirmLabel: venue === 'nadfun' ? 'Sell all' : 'Close position', onConfirm: share => void runClose(holding, market, chartMarket, share), closeHolding: holding && holding.sizeRaw !== '0' ? holding : undefined });
+    setCardSheet({ mode: 'confirm', result: preview, confirmLabel: wholeMarket ? 'Close all' : holding.venue === 'nadfun' ? 'Sell trade' : 'Close trade', onConfirm: share => void runClose(holding, chartMarket, share, wholeMarket), closeHolding: wholeMarket ? undefined : holding });
   };
-  const closeMarket = (marketToClose: string) => askClose(holdingFor(marketToClose), marketToClose, marketToClose);
+  const closeMarker = (marker: ChartMarker) => {
+    const holding = marker.isMine ? holdingForMarker(holdings, marker) : undefined;
+    if (!holding) { setError('This trade is not in your current positions. Refresh positions before closing it.'); return; }
+    askClose(holding, marker.marketId);
+  };
+  const closeAllMarket = (position: Holding) => {
+    const combined = combinedMarketHolding(holdings, position.market, position.venue);
+    if (!combined) { setError('This market has no remaining position. Refresh positions.'); return; }
+    askClose(combined, position.market, true);
+  };
   // Move dollars from the wallet into the predictions account and wait until
   // the bet can be covered (target), up to ~3 minutes.
   const topUpPredictions = async (shortUsd: number, targetUsd: number, funding: PredictionAccount['funding']) => {
@@ -971,7 +985,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   // A bet you keep, as a card to share.
   const sharePrediction = (position: PredictionPosition, price: number) =>
     setCardSheet({ mode: 'live', result: resultOfPrediction(position, price, trader(), true) });
-  const closeTrade = (holding: Holding) => askClose(holding, holding.market, marketId ?? undefined);
+  const closeTrade = (holding: Holding) => askClose(holding, marketId ?? undefined);
   const stack = () => perform('stack', async () => {
     if (!clanId || !selected) throw new Error('Select a cult position first.');
     if (selected.isMine) throw new Error('Choose a cult-mate position to stack.');
@@ -1147,7 +1161,8 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     tpDraft, slDraft, onTpDraft: setTpDraft, onSlDraft: setSlDraft, onSaveLevels: saveLevels,
     onApplySuggestion: applySuggestion,
     onSkip: skip,
-    onClosePosition: closeMarket,
+    onClosePosition: closeMarker,
+    onCloseAll: closeAllMarket,
     onShare: shareMarker,
   };
   // Where the top search looks: on a market screen, that market's kind comes
@@ -1229,7 +1244,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
 
     <main className="stage" key={view === 'chat' ? `chat:${roomId}` : view === 'markets' ? `m:${marketPage ?? ''}` : view === 'account' ? `a:${profileId}` : view}>
       {!me ? <div className="view two-col"><section className="view-main"><div className="skel skel-head" /><div className="skel skel-strip" /><div className="skel skel-chart" /></section><aside className="view-side"><div className="skel skel-card" /><div className="skel skel-card" /></aside></div>
-        : view === 'home' ? <HomeView me={me} holdings={holdings} unread={unread} mentioned={mentioned} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
+        : view === 'home' ? <HomeView me={me} holdings={netHoldings} unread={unread} mentioned={mentioned} search={search} onMarket={openMarket} onRoom={openRoom} onProfile={openAccount} onTrade={trade => setTradeSheetTarget(trade.tradeId ? { kind: 'trade', tradeId: trade.tradeId } : { kind: 'home', trade })} onDeposit={() => setDepositOpen(true)} onCreate={() => setFormOpen('create')} onDiscover={() => go('discover')} />
         : view === 'markets' ? (marketPage?.startsWith('pm:') ? <PredictionPage slug={marketPage.slice(3)} pick={predictionPick} me={me} canTrade={!!demo || !!config?.features?.predictions} busy={busy} revision={predictionRev} cults={me.clans.map(c => ({ id: c.id, name: c.name }))} onAccountNeeded={demo ? undefined : () => { void loadPredictionAccount().catch(() => undefined); }}
             onBack={() => goUp({ view: 'markets' })} onBuy={placePrediction} onSell={sellPredictionPosition} onShare={sharePrediction} onDeposit={() => setDepositOpen(true)} onProfile={openAccount} />
           : marketPage ? <MarketPage id={marketPage} me={me} config={config} busy={busy} social={marketSocial} onSendChart={sendChart} holdings={holdings} onBack={() => goUp({ view: 'markets' })} onTrade={placeMarketTrade} onDeposit={() => setDepositOpen(true)} /> : <MarketsView owner={me.id} onSection={setMarketsTab} search={search} onOpen={openMarket} onPredict={openPrediction} predictionRevision={predictionRev} />)
