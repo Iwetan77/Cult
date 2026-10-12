@@ -26,26 +26,29 @@ const messages: Record<string, string> = {
   copy_unconfirmed: 'Your copy has not been confirmed. Check Open positions before trying again.',
   copy_off: 'Auto-follow is off for this cult. Turn it on to copy new trades.',
   not_member: 'You are no longer in this cult. Rejoin before copying its trades.',
-  too_late: 'The skip window has ended. Check your Open positions for the result.',
+  too_late: 'This trade arrived too late to copy at a fair price. Look for the next trade instead.',
   leader_closed: 'The sender already closed this trade. Check your Open positions before copying another.',
   restarted: 'This copy was interrupted. Check Open positions before trying again.',
   retrying: 'Your copy is still being retried. Check its status in this cult.',
-  capped: 'This copy reached your limit. Increase your auto-follow cap to copy more.',
+  capped: 'Your copy was sized down to fit your limits. Increase your cap to copy more.',
   exits_off: 'Follow exits is off. Close this copy yourself from Open positions.',
   invalid_request: 'Those details could not be used. Check them and try again.',
   internal: 'Something went wrong while processing this request. Try again shortly.',
+  signed_out: 'Your session ended. Sign in again to continue.',
 };
 
 const technical = /\b(?:Error\s*:|undefined\b|null\b|revert(?:ed)?\b|contract\b|rpc\b|HTTP\s*\d{3}\b|status\s*\d{3}\b)|\b(?:rq|st|sr|fr)=\S+|0x[0-9a-f]{8,}/i;
-const action = /\b(?:try|check|refresh|add|enable|choose|select|turn|sign|open|wait|deposit|contact|review|switch|rejoin|reduce|increase|use|enter|allow|confirm|start|pick)\b|come back/i;
 
 export function friendlyError(reason: unknown, fallback = 'Something went wrong. Try again shortly.'): string {
   const value = reason && typeof reason === 'object' ? reason as CodedError : null;
   const code = typeof value?.code === 'string' ? value.code : typeof value?.errorCode === 'string' ? value.errorCode : null;
-  if (code && messages[code]) return messages[code];
-
   const raw = typeof reason === 'string' ? reason : reason instanceof Error ? reason.message
     : typeof value?.message === 'string' ? value.message : typeof value?.error === 'string' ? value.error : '';
+  if (code === 'signed_out' || value?.status === 401) return messages.signed_out;
+  if (value?.status === 429) {
+    const seconds = typeof value.retryAfterSeconds === 'number' && value.retryAfterSeconds > 0 ? ` in ${Math.ceil(value.retryAfterSeconds)}s` : ' shortly';
+    return `Too many requests. Try again${seconds}.`;
+  }
   if (/user rejected|user denied|rejected the request|request rejected|popup closed|user cancelled|user canceled|modal closed/i.test(raw))
     return 'Wallet approval was cancelled. Try again when you are ready.';
   if (/insufficient (funds|balance)|not enough .*gas|gas required/i.test(raw))
@@ -54,12 +57,9 @@ export function friendlyError(reason: unknown, fallback = 'Something went wrong.
     return 'Your wallet is on the wrong network. Switch to the network shown in Cult and try again.';
   if (/network error|failed to fetch|rpc|timeout|timed out|connection failed/i.test(raw))
     return 'The connection to trading services failed. Check your connection and try again.';
-  if (value?.status === 429) {
-    const seconds = typeof value.retryAfterSeconds === 'number' && value.retryAfterSeconds > 0 ? ` in ${Math.ceil(value.retryAfterSeconds)}s` : ' shortly';
-    return `Too many requests. Try again${seconds}.`;
-  }
-  if (value?.status === 401 || value?.status === 403) return 'Your session needs refreshing. Sign in again to continue.';
+  if (raw.trim() && !technical.test(raw) && !/[\r\n{}<>]/.test(raw)) return raw.trim();
+  if (code && messages[code]) return messages[code];
+  if (value?.status === 403) return 'You do not have access to do that. Check your cult role or account.';
   if (value?.status === 503) return 'This service is temporarily unavailable. Try again shortly.';
-  if (!raw.trim() || technical.test(raw) || /[\r\n{}<>]/.test(raw)) return fallback;
-  return action.test(raw) ? raw.trim() : `${raw.trim()} Try again shortly.`;
+  return fallback;
 }

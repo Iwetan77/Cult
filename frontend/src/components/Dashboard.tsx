@@ -250,6 +250,18 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
     void createWallet().catch(reason => setError(errorText(reason)));
   }, [demo, ready, authenticated, walletsReady, wallet, createWallet]);
   const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => {
+    if (demo) return;
+    const onSessionEnded = () => {
+      try { if (wallet?.address) window.localStorage.removeItem(`cult:me:${wallet.address.toLowerCase()}`); } catch { /* Storage can be unavailable. */ }
+      markSession(false);
+      setExpectSession(false);
+      setMe(null); setHoldings([]); setSnapshot(null);
+      void logout().catch(() => undefined);
+    };
+    window.addEventListener('cult:session-ended', onSessionEnded);
+    return () => window.removeEventListener('cult:session-ended', onSessionEnded);
+  }, [demo, wallet?.address, logout]);
   const [clanId, setClanId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<ChartSnapshot | null>(null);
   const [marketId, setMarketId] = useState<string | null>(null);
@@ -1141,8 +1153,10 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   };
   const copyInvite = async () => {
     if (!clan) return;
-    await navigator.clipboard.writeText(`${window.location.origin}/?invite=${encodeURIComponent(clan.inviteCode)}`).catch(() => undefined);
-    setNotice(`Invite link copied. Code ${clan.inviteCode}`);
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/?invite=${encodeURIComponent(clan.inviteCode)}`);
+      setNotice(`Invite link copied. Code ${clan.inviteCode}`);
+    } catch { setError(friendlyError('Invite link could not be copied. Share the code from cult settings instead.')); }
   };
   const signOut = () => {
     if (demo) { exitDemo(); window.location.assign('/'); return; }

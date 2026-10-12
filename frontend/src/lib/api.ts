@@ -31,6 +31,7 @@ async function request<T>(path: string, token: string | null, options: RequestIn
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string; code?: string };
+    if (response.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event('cult:session-ended'));
     const message = body.message ?? `Request failed (${response.status})`;
     if (response.status === 503 && path === '/v1/positions/open') {
       throw new ApiError("Couldn't swap for this trade right now. Try again shortly.", 503);
