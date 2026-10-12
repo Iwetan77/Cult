@@ -1,101 +1,158 @@
 # Cult
 
-**Trade together on Monad.** Cult is social trading for small groups ("cults").
-Members trade perps on **Perpl** and Monad-native memes on **Nad.fun** from their own
-wallets. Anyone in a cult can switch on **Auto-follow**, and every trade a cult-mate
-makes is copied into their own account, sized to their own balance and limits. Every
-member's track record is **verified from the chain**, not typed in.
+**Social trading on Monad.** Cult lets small groups, called *cults*, trade together. Members
+trade perpetual futures on **Perpl** and Monad-native tokens on **Nad.fun** from their own
+wallets. A member can switch on **Auto-follow** to have a cult's shared trades copied into
+their own account, sized to their own balance and limits. Every track record is **verified
+from the chain**, not self-reported.
 
-- **App:** https://cult-trades.vercel.app
-- **API:** https://cult-production-e803.up.railway.app (`GET /v1/health`)
-- **API contract:** [`CONTRACTS.md`](CONTRACTS.md)
-
-Money is always shown in dollars. Under the hood everything settles in AUSD
-(Agora's dollar stablecoin, 1:1 with USD). The word "AUSD" only appears on the
-funding screen.
-
----
-
-## How it works
-
-1. **Sign in** with Google or a wallet. Privy creates an embedded wallet the member
-   owns.
-2. **You land in Global,** the chat and leaderboard everyone is in. Pick your
-   country and you're also in its room.
-3. **Join or create a cult.**
-   - Private cults are joined with a six-letter code like `ABC-DEF`.
-   - Public cults can be discovered and joined in one tap.
-   - Joining is just joining the group chat; nothing touches your money.
-4. **The cult chat is also its activity feed.** Members talk, and trades post
-   themselves:
-   - "opened BTC-PERP long 5x"
-   - "sold 50% of $MOE"
-   - "closed …"
-5. **Turn on Auto-follow** to copy a cult's trades.
-   - You sign your limits once: max $ per trade, and max % of your balance.
-   - That signature is the consent. You're never asked per trade.
-6. **When a cult-mate trades:**
-   - every follower gets a pending copy, with a **20-second window to skip it**;
-   - the copy is sized from the follower's own balance and caps;
-   - it's placed from the follower's own account.
-7. **Copies track their leader.**
-   - When the leader **adds**, copies add the same share after the skip window.
-   - When the leader **sells part**, copies sell the same share at once.
-   - When the leader **exits**, copies exit.
-8. **Track records** (win rate, PnL, streak, average win) come from an on-chain
-   indexer, and count **your own trades only**; copies are shown apart. They feed:
-   - member profiles;
-   - leaderboards (Global, per country, per cult, and public cults ranked);
-   - the home feed of the week's best trades;
-   - shareable trade cards.
-
----
-
-## What's integrated
-
-| | What it does in Cult |
+| | |
 |---|---|
-| **Monad** | The chain. Testnet (10143) today; the mainnet (143) addresses are wired and checked. |
-| **Perpl** | Perpetuals. Each member enrolls a delegated **Ed25519 API key**; the owner signs the EIP-712 enrollment in the browser. The backend places orders over Perpl's trading WebSocket with that key. The key can trade but never withdraw. TP/SL are real Perpl trigger orders. |
-| **Nad.fun** | Memes. Buys and sells go through the v2 router (`buyWithNative` / `sellToNative`) from the member's own wallet. Leaders' meme trades are detected from the router's `Buy`/`Sell` logs. |
-| **Kuru Flow** | Swaps, so members can deposit whatever they have. **USDC** that arrives in a wallet is converted to AUSD automatically. **MON** pays for perps: before a perp trade the Perpl account is topped up from wallet AUSD, then from MON swapped to AUSD. Memes can be **paid in dollars**: AUSD→MON before a buy and MON→AUSD after a sell. On mainnet it routes through a deep AUSD/USDC pool. |
-| **Privy** | Sign-in (Google + wallets), embedded wallets, and the **policy engine**. The backend is an *additional signer* on each member's wallet, scoped by a per-member policy (see Safety). |
-| **Envio HyperIndex** | The indexer behind verified records. It reads Perpl position and fill events and Nad.fun router events per wallet, and builds round trips, win rate, realized PnL and trade history. |
-| **Alchemy** | RPC for on-chain reads and writes (falls back to the public Monad RPC). |
-| **Vercel / Railway** | The frontend on Vercel. The backend on Railway: long-running, with a persistent disk. |
+| **App** | https://cult-trades.vercel.app |
+| **API** | https://cult-production-e803.up.railway.app (`GET /v1/health`, `GET /v1/status`) |
+| **API contract** | [`CONTRACTS.md`](CONTRACTS.md) |
+| **Network** | Monad testnet (10143) today; mainnet (143) is configured and checked |
+
+Balances and results are always shown in US dollars. Everything settles in AUSD (Agora's
+dollar stablecoin, redeemable 1:1 for USD); the token name appears only on the funding screen.
 
 ---
 
-## Safety model
+## Contents
 
-Cult never takes custody, and the backend can never move a member's money anywhere
-but back into that member's own positions.
+- [Features](#features)
+- [How copy trading works](#how-copy-trading-works)
+- [Verified track records](#verified-track-records)
+- [Integrations](#integrations)
+- [Security model](#security-model)
+- [Architecture](#architecture)
+- [Getting started](#getting-started)
+- [Deployment](#deployment)
+- [Moving to mainnet](#moving-to-mainnet)
+- [Testing and verification](#testing-and-verification)
+- [License](#license)
 
-- **Privy policy:** each member's wallet lets the backend signer do only this:
-  - approve and deposit AUSD into their own Perpl account, capped;
-  - buy on Nad.fun, capped per buy, with tokens delivered to the member;
-  - sell on Nad.fun, with proceeds to the member;
+---
+
+## Features
+
+**Accounts and funding**
+- Sign in with Google or an existing wallet. Privy creates an embedded wallet that the
+  member owns.
+- One dollar balance across the wallet, the Perpl trading account and predictions.
+- Deposit MON, USDC or AUSD. USDC converts to AUSD automatically, and perp margin is topped
+  up from the wallet when a trade needs it.
+- New wallets can receive a small amount of MON for network fees (when a gas wallet is configured).
+- Withdrawals are protected by a 4-digit PIN.
+
+**Trading**
+- Perpetual futures on Perpl: long or short, stake times leverage, take-profit and stop-loss
+  as on-chain trigger orders, and closing one trade, part of it, or a whole market.
+- Nad.fun tokens: buy and sell, paid in MON on testnet and in dollars on mainnet.
+- One searchable market list with live charts.
+- **Post to:** each trade can go to all of a member's cults, some of them, or none.
+
+**Cults**
+- Private cults are joined with a code such as `ABC-DEF`; public cults are listed in
+  Discover and joined in one tap.
+- Owners and admins: only admins' trades are shared with the cult, and the owner can't be
+  removed or demoted.
+- Every cult has a group chat that doubles as its activity feed, with replies, reactions,
+  photos, shared charts and live trade cards.
+- A shared chart shows every member's entries with live PnL. Members can suggest
+  take-profit and stop-loss levels by dragging on a cult-mate's position.
+
+**Social**
+- Rooms for everyone (Global) and for each country.
+- Leaderboards: global, per country, per cult, and public cults, over 7 days, 30 days or
+  all time.
+- Profiles with win rate, realized PnL, streak, average win and recent performance.
+- A home feed of the week's best trades, and shareable PnL cards.
+- Phone notifications.
+
+**Mainnet-only** (built, and switched on with the mainnet cutover)
+- Prediction markets through Polymarket, funded from the same dollar balance.
+- Deposits and withdrawals from 30+ chains through Aurora Intents.
+
+---
+
+## How copy trading works
+
+1. **Joining a cult never touches money.** Auto-follow is off by default.
+2. **Turning on Auto-follow is a signed consent.** The member signs their limits once: the
+   maximum dollars per trade and the maximum share of their balance. They are never asked
+   again per trade.
+3. **When an admin trades,** every follower gets a pending copy with a **20-second window
+   to skip it**. The copy is sized from the follower's own balance and limits, and placed
+   from the follower's own account.
+4. **Copies track the trade.** When the admin adds, copies add the same share after the
+   skip window. When the admin sells part, copies sell the same share straight away. When
+   the admin exits, copies exit, unless the member has turned **Follow exits** off.
+5. **Manual copies** ("stack on this trade") are always the member's own choice and never
+   follow automatically.
+6. **When a copy can't run,** the member sees why in plain words and what to do next, for
+   example adding funds, finishing perps setup, or renewing trading permission. Nothing is
+   sent that the venue would refuse.
+
+---
+
+## Verified track records
+
+An Envio HyperIndex indexer reads Perpl position events and Nad.fun router events for Cult
+members and computes each member's record.
+
+- **Every close counts:** closing one trade, part of a position, or selling part of a token
+  is recorded straight away with its realized PnL.
+- Records count a member's **own** trades. Copied trades are shown separately.
+- Return is realized PnL over what went in, so a winning trade never shows a negative return.
+- Records feed profiles, leaderboards, the home feed and PnL cards, and refresh within
+  seconds of a close.
+
+---
+
+## Integrations
+
+| Service | Role in Cult |
+|---|---|
+| **Monad** | The chain. |
+| **Perpl** | Perpetual futures. Each member enrolls a delegated Ed25519 API key, signed by the owner in the browser (EIP-712). The key can trade but can never withdraw. |
+| **Nad.fun** | Token trading through the v2 router, from the member's own wallet. Trades are detected from the router's `Buy`/`Sell` logs. |
+| **Kuru Flow** | Swaps: USDC→AUSD on arrival, MON→AUSD for perp margin, and AUSD↔MON for token trades paid in dollars. |
+| **Privy** | Sign-in, embedded wallets and the policy engine. The backend is an additional signer on each wallet, limited by a per-member policy. |
+| **Envio HyperIndex** | The indexer behind verified track records. |
+| **Polymarket** | Prediction markets (mainnet). |
+| **Aurora Intents** | Cross-chain deposits and withdrawals (mainnet). |
+| **Vercel / Railway** | Frontend hosting / backend, indexer and Postgres hosting. |
+
+---
+
+## Security model
+
+Cult is non-custodial. The backend can never move a member's money anywhere except into
+that member's own positions.
+
+- **Privy policy.** The backend signer may only:
+  - approve and deposit AUSD into the member's own Perpl account, within a cap;
+  - buy on Nad.fun within a cap, with tokens delivered to the member;
+  - sell on Nad.fun, with proceeds paid to the member;
   - approve tokens to the Nad.fun router;
-  - swap AUSD↔MON and USDC→AUSD on Kuru Flow, capped, with zero fees and output
-    to the member.
+  - swap on Kuru Flow within a cap, with zero fees and output to the member.
 
-  Everything else is refused **by Privy, before anything is signed**: withdrawals,
-  transfers out, swaps routed to someone else, account creation, and key enrollment.
-  This was proven with 24 refusals and 9 allows against real Privy.
-- **Perpl keys** can trade but can't withdraw. Their secrets are sealed at rest
-  (AES-256-GCM).
-- **Consent is signed.** Auto-follow limits are a `personal_sign` message that
-  spells out what will happen, and the signed text is stored.
-- **Feedback loops are impossible.** Every order or tx the engine sends is tagged
-  before it leaves, so a copy is never mistaken for a new leader trade.
-- **Retries never double a position.** A copy is only retried if nothing reached
-  the venue.
-- **Crash-safe.** After a restart, anything caught mid-send is settled from what
-  actually landed on-chain (receipts, or Perpl order history), and an exit is never
-  sold twice.
-- **Gas reserve.** The last 0.25 MON is never spent, so a member can always exit.
-- **Rate limits:** per member, per IP, and stricter on order routes. A
-  `npm run preflight` check guards every deploy.
+  Anything else is refused by Privy before it is signed: withdrawals, transfers out, swaps
+  to another recipient, account creation and key enrollment. This was verified against
+  live Privy (24 refused, 9 allowed).
+- **Perpl keys** can trade but not withdraw, and are sealed at rest (AES-256-GCM).
+- **Signed consent.** Auto-follow limits are a human-readable signed message, stored with
+  the member's settings.
+- **Withdrawals** require the member's PIN; a reset requires signing in again.
+- **No feedback loops.** Every order the engine sends is tagged before it leaves, so a copy
+  is never mistaken for a new trade.
+- **No double fills.** A copy is retried only if nothing reached the venue.
+- **Crash-safe.** After a restart, anything caught mid-send is settled from what actually
+  landed on-chain, and an exit is never sold twice.
+- **Gas reserve.** The last 0.25 MON in a wallet is never spent, so a member can always exit.
+- **Rate limits** per member and per IP, stricter on order routes. A preflight check guards
+  every deploy.
 
 ---
 
@@ -105,107 +162,122 @@ but back into that member's own positions.
 flowchart LR
   U[Member's browser] -->|Privy sign-in| FE[Frontend<br/>Next.js on Vercel]
   FE -->|REST + SSE| BE[Backend<br/>Node / Hono on Railway]
-  BE -->|WebSocket + REST, Ed25519 key| PERPL[Perpl]
-  BE -->|signed txs via Privy policy| MONAD[(Monad)]
-  BE -->|quotes| KURU[Kuru Flow]
-  BE -->|market lists| NAD[Nad.fun API]
+  BE -->|WebSocket + REST, delegated key| PERPL[Perpl]
+  BE -->|transactions under Privy policy| MONAD[(Monad)]
+  BE -->|routes and quotes| KURU[Kuru Flow]
+  BE -->|markets| NAD[Nad.fun API]
   BE -->|wallets, policies, signing| PRIVY[Privy]
+  BE -->|mainnet| PM[Polymarket / Aurora]
   IDX[Indexer<br/>Envio HyperIndex] -->|HyperSync| MONAD
   IDX --> PG[(Postgres)]
   BE -->|verified records| PG
 ```
 
-```
-/frontend   Next.js app (Vercel). Talks only to the backend API.
-/backend    Node + Hono + SQLite. Copy-trading engine, venue adapters, Privy signer,
-            funding, chats, leaderboards, API + live updates (SSE). See backend/README.md
-/indexer    Envio HyperIndex project: verified per-wallet stats. See indexer/README.md
-CONTRACTS.md  The API contract between the three.
-```
+| Path | Contents |
+|---|---|
+| `frontend/` | Next.js application (Vercel). Talks only to the backend API. |
+| `backend/` | Node, Hono and SQLite: the copy-trading engine, venue adapters, Privy signer, funding, chats, leaderboards and the API with live updates (SSE). See [`backend/README.md`](backend/README.md). |
+| `indexer/` | Envio HyperIndex project for verified per-wallet records. See [`indexer/README.md`](indexer/README.md). |
+| `CONTRACTS.md` | The API contract between the three, including error codes. |
 
-**The backend in one breath:**
-- One `VenueAdapter` interface covers Perpl and Nad.fun.
-- The copy engine (`backend/src/mirror`) detects leader trades: from Perpl's
-  WebSocket, or from Nad.fun router logs.
-- It schedules copies with a skip window, sizes them from each follower's balance
-  and caps, and places them through the adapter.
-- It follows adds, partial sells and exits.
-- Manual "stack on this trade" is a separate code path.
-- Chats, notices, leaderboards, the home feed and profiles live in
-  `backend/src/api`.
+**Backend design.** A single `VenueAdapter` interface covers Perpl and Nad.fun. The copy
+engine (`backend/src/mirror`) detects shared trades from Perpl's WebSocket and from Nad.fun
+router logs, schedules copies with a skip window, sizes them from each follower's balance
+and limits, places them through the adapter, and follows adds, partial sells and exits.
+Errors are translated into plain language with stable codes in `backend/src/errors`.
 
 ---
 
-## Run it locally
+## Getting started
 
-You need Node 24 (the backend also runs on 22.5+) and a Monad testnet RPC (the
-public one works).
+Requirements: Node 24 (the backend also runs on 22.5+) and a Monad testnet RPC (the public
+endpoint works).
 
 ```bash
-# backend: http://localhost:8787
+# Backend: http://localhost:8787
 cd backend && npm ci
-cp .env.example .env         # fill in Privy + key-sealing secret, see backend/README.md
-npm run preflight            # checks every setting and outside service
+cp .env.example .env               # Privy credentials and the key-sealing secret; see backend/README.md
+npm run preflight                  # checks every setting and external service
 npm run start:dev
 
-# frontend: http://localhost:3000
+# Frontend: http://localhost:3000
 cd frontend && npm ci
 cp .env.local.example .env.local   # NEXT_PUBLIC_CULT_API_BASE_URL=http://localhost:8787
 npm run dev
 
-# indexer (optional locally: members show as "unverified" without it)
+# Indexer (optional locally; without it, records show as unverified)
 cd indexer && npm ci
-# needs a Postgres; see indexer/README.md "Without Docker"
-ENVIO_HASURA=false ENVIO_PG_HOST=... ENVIO_API_TOKEN=... npx envio start
+ENVIO_HASURA=false ENVIO_PG_HOST=... ENVIO_API_TOKEN=... npx envio start   # see indexer/README.md
 ```
 
-Point the backend at the indexer with `INDEXER_PG_URL` (read-only user) or
+Point the backend at the indexer with `INDEXER_PG_URL` (a read-only user) or
 `INDEXER_GRAPHQL_URL`.
-
-## Deploy
-
-- **Frontend:** a Vercel project with Root Directory `frontend`, building from
-  `main`. It needs `NEXT_PUBLIC_CULT_API_BASE_URL`, `NEXT_PUBLIC_PRIVY_APP_ID` and
-  `NEXT_PUBLIC_MONAD_CHAIN_ID`.
-- **Backend:** Railway.
-  - Root `/backend`, config file `/backend/railway.json`, which holds build, start,
-    the pre-deploy preflight, health check and restart policy.
-  - A volume at `/data`, with `DB_PATH=/data/cult.db`.
-  - **One replica.**
-- **Indexer:** Railway, in the same project: a Postgres plus a service with root
-  `/indexer`, config file `/indexer/railway.json`, `ENVIO_HASURA=false`,
-  `ENVIO_PG_*` taken from the Postgres, and `ENVIO_API_TOKEN`. Then give the backend
-  `INDEXER_PG_URL`.
-  - For mainnet, set `ENVIO_CONFIG=config.mainnet.yaml`. The indexer then starts
-    over on its own.
-
-**Switching to mainnet.** Point the backend at mainnet (`PERPL_API_URL`,
-`PERPL_WS_URL`, `PERPL_CHAIN_ID=143`, a mainnet RPC) and the frontend at chain 143,
-then run `npm run preflight`.
-- On its first start on the new chain, the backend resets trading state: Perpl
-  accounts and keys, signer policies, trades, copies and block cursors.
-- It keeps members, usernames, photos, cults and chats.
-- It turns Auto-follow off, so nobody copies with real money until they turn it
-  on again.
 
 ---
 
-## What's been verified
+## Deployment
 
-Every "passed" has real transactions or a reproducible check behind it; the tx
-hashes are in the commit messages.
+- **Frontend (Vercel):** root directory `frontend`, built from `main`. Requires
+  `NEXT_PUBLIC_CULT_API_BASE_URL`, `NEXT_PUBLIC_PRIVY_APP_ID` and `NEXT_PUBLIC_MONAD_CHAIN_ID`.
+- **Backend (Railway):** root `/backend`, config `/backend/railway.json` (build, start,
+  pre-deploy preflight, health check, restart policy), a volume at `/data` with
+  `DB_PATH=/data/cult.db`, and a single replica.
+- **Indexer (Railway):** a Postgres database plus a service with root `/indexer`, config
+  `/indexer/railway.json`, `ENVIO_HASURA=false`, `ENVIO_PG_*` from the database and
+  `ENVIO_API_TOKEN`. Give the backend `INDEXER_PG_URL`.
+
+---
+
+## Moving to mainnet
+
+1. **Indexer:** set `ENVIO_CONFIG=config.mainnet.yaml`. It starts a fresh index on its own.
+2. **Backend:** set `PERPL_API_URL=https://app.perpl.xyz/api`,
+   `PERPL_WS_URL=wss://app.perpl.xyz`, `PERPL_CHAIN_ID=143` and a mainnet RPC, then run
+   `npm run preflight`.
+3. **Frontend:** set `NEXT_PUBLIC_MONAD_CHAIN_ID=143` and redeploy.
+
+On its first start on the new chain, the backend resets trading state (Perpl accounts and
+keys, signer policies, trades, copies and block cursors). It keeps members, usernames,
+photos, PINs, cults and chats, and turns Auto-follow off so that nobody copies with real
+money until they choose to again.
+
+---
+
+## Testing and verification
+
+```bash
+cd backend && npm test && npx tsc --noEmit && npx tsx scripts/smoke-api.ts && npm run preflight
+cd indexer && npm test
+cd frontend && npx tsc --noEmit && npx next lint && npm run build
+```
+
+- **Backend:** 382 unit tests, plus an API smoke test that exercises every route, including
+  refusals.
+- **Indexer:** handler tests on simulated chain events (averaged entries, funding, partial
+  closes, liquidations, Nad.fun average cost).
+- **Preflight:** checks configuration and every external service. It passes on testnet and
+  against mainnet settings.
+
+Checks against live systems; transaction hashes are recorded in the commit history:
 
 | Check | Status |
 |---|---|
-| Perpl markets and request signing | ✅ against the live servers |
-| Nad.fun buy and sell, signed by Privy under a member's policy | ✅ testnet; an over-cap buy was refused by Privy with nothing broadcast |
-| Privy policy: what the backend may and may not sign | ✅ 24 refused / 9 allowed, real Privy |
-| Copy trading on Nad.fun through real Privy wallets | ✅ testnet: leader buys, sells half, adds, exits. Both followers copy each step, balances equal to the wei |
-| Crash recovery reading real fills back from the chain | ✅ testnet txs |
-| Indexer vs an independent decoder (Nad.fun) | ✅ equal to the wei, including partial sells and adds |
-| Indexer handler rules (Perpl averaged entry, funding, fills; Nad.fun average cost) | ✅ simulated events |
-| Kuru Flow USDC→AUSD and "memes paid in $" | 🟡 simulated on mainnet with real routes (`eth_call`); no real swap yet |
-| Perpl orders through a delegated key, TP/SL, Perpl copy trading, indexer Perpl check | ⏳ built; needs a funded Perpl account to run |
+| Perpl markets, request signing and key enrollment | ✅ live on testnet; mainnet endpoints checked by preflight |
+| Nad.fun buy and sell signed by Privy under a member's policy | ✅ testnet; an over-cap buy was refused by Privy with nothing broadcast |
+| Privy policy: what the backend may and may not sign | ✅ 24 refused / 9 allowed |
+| Copy trading on Nad.fun through real Privy wallets | ✅ testnet: open, partial sell, add and exit copied, balances equal to the wei |
+| Crash recovery from on-chain fills | ✅ testnet |
+| Indexer against an independent decoder (Nad.fun) | ✅ equal to the wei, including partial sells and adds |
+| Perpl trading from the app | ✅ testnet: members open and close perpetuals through their delegated keys |
+| Kuru Flow USDC→AUSD and token trades paid in dollars | 🟡 simulated against mainnet routes |
+| Perpl copy trading end to end | 🟡 built and unit-tested; live run pending |
 
-**Tests:** the backend has 82 unit tests plus an API smoke test that covers every
-route, including the refusals. The indexer has handler tests on simulated events.
+---
+
+## License
+
+Copyright (c) 2026 Cult. All rights reserved.
+
+This repository is proprietary. It is publicly viewable for evaluation and reference only;
+no right to use, copy, modify, deploy or distribute it is granted. See [`LICENSE`](LICENSE)
+for the full terms.
