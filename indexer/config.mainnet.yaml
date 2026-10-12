@@ -41,9 +41,10 @@ contracts:
 chains:
   - id: 143 # Monad mainnet
     # Members only (src/members.ts), and a record starts when they join, so no
-    # history before the mainnet switch is scanned. 2026-09-28. (Nad.fun router
-    # deploy block: 73857231.)
-    start_block: 108600000
+    # history before the mainnet switch is scanned. Head on 2026-10-12 was
+    # 112840194; move this to the head again on switch day so the first sync
+    # is minutes, not hours. (Nad.fun router deploy block: 73857231.)
+    start_block: 112800000
     rpc:
       - url: https://rpc.monad.xyz
         for: fallback
