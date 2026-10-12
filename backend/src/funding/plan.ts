@@ -42,7 +42,7 @@ export class FundingUnavailable extends Error {}
 
 export async function prepareUsdcFunding(wallet: string, usdcIn: bigint, depositToPerpl = true): Promise<FundingPlan> {
   if (env.chainId !== 143) {
-    throw new FundingUnavailable('Paying with USDC works on Monad mainnet only (Kuru routes mainnet liquidity). Deposit AUSD directly.');
+    throw new FundingUnavailable('Paying with USDC works on Monad mainnet only. Deposit AUSD directly.');
   }
   const { exchange, collateralToken, minAccountOpen, minDeposit } = await getExchangeInfo();
   let q;

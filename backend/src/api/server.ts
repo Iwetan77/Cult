@@ -43,7 +43,7 @@ import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { LeverageError, OrderFailed } from '../trading/positions.js';
 import { explain, memberView, perplOrderProblem, sentence } from '../errors/friendly.js';
-import { indexerStatus } from '../indexer/stats.js';
+import { freshenRecords, indexerStatus } from '../indexer/stats.js';
 import { recentConversion } from '../funding/usdc.js';
 import { FundsError } from '../funding/margin.js';
 import { SwapUnavailable } from '../swap/kuruFlow.js';
@@ -78,6 +78,16 @@ function consentMessage(cultName: string, inviteCode: string, wallet: string, p:
 
 export function createApp(engine: MirrorEngine) {
   engine.setMaxListeners(0); // each open clan SSE stream listens; many is normal
+  // Whoever just closed something (themselves, or a copy following a trader
+  // out) gets their record read fresh while the indexer catches up.
+  const freshen = (userId: string) => {
+    const wallet = members.get(userId)?.wallet;
+    if (wallet) freshenRecords(wallet);
+  };
+  engine.on('tradeClosed', (t: LeaderTrade) => freshen(t.userId));
+  engine.on('tradeChanged', (t: LeaderTrade) => freshen(t.userId));
+  engine.on('mirror', (m: Mirror) => m.status === 'closed' && freshen(m.userId));
+  engine.on('adjustment', (a: Adjustment) => a.status === 'done' && freshen(a.userId));
   const app = new Hono<Vars>();
   app.use('*', cors({ origin: env.corsOrigins, allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'DELETE'], exposeHeaders: ['Retry-After'] }));
 
@@ -110,7 +120,10 @@ export function createApp(engine: MirrorEngine) {
 
   app.onError((err, c) => {
     if (err instanceof HTTPException) return c.json({ message: sentence(err.message) }, err.status);
-    if (err instanceof AuthError) return c.json({ message: sentence(err.message) }, 401);
+    if (err instanceof AuthError) {
+      console.warn('[api] signed out:', err.message);
+      return c.json({ message: 'Your session ended. Sign in again.', code: 'signed_out' }, 401);
+    }
     if (err instanceof PinError) return c.json({ message: sentence(err.message), code: err.code }, err.status);
     // A transaction the member's wallet couldn't pay the fee for (no MON).
     if (ethers.isError(err, 'INSUFFICIENT_FUNDS') || /insufficient (balance|funds)/i.test(String((err as Error)?.message ?? ''))) return c.json({ message: NO_GAS, code: 'needs_gas' }, 409);
@@ -629,7 +642,7 @@ export function createApp(engine: MirrorEngine) {
       if (!m.perplAccountId || !m.forwarding) throw bad(409, 'Finish setting up perps first.');
       if (body.side === 'buy') throw bad(400, 'perpl side must be long or short');
       await getMarket(Number(body.marketId));
-    } else if (body.side !== 'buy') throw bad(400, 'nad.fun side must be buy');
+    } else if (body.side !== 'buy') throw bad(400, 'Memes can only be bought, not shorted.');
     return c.json(await engine.executeOwnOpen({ userId, market: body.marketId, side: body.side,
       notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage }, body.cultIds));
   });
@@ -653,7 +666,9 @@ export function createApp(engine: MirrorEngine) {
     const userId = c.get('userId');
     const v = venueOf(body.marketId);
     if (v === 'perpl' && !members.get(userId)?.perplAccountId) throw bad(409, 'Finish setting up perps first.');
-    return c.json(await engine.executeOwnClose({ userId, market: body.marketId, sizeRaw: body.sizeRaw }, body.markerId));
+    const fill = await engine.executeOwnClose({ userId, market: body.marketId, sizeRaw: body.sizeRaw }, body.markerId);
+    freshenRecords(c.get('wallet'));
+    return c.json(fill);
   });
 
   // "Pay with USDC": ordered wallet actions (Kuru swap -> Perpl deposit) for
