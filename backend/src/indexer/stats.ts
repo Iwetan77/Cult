@@ -31,6 +31,9 @@ export interface MemberStats {
   avgWinPct: number | null; // mean return % of own winning trades
   recent: { d7: RecentWindow; d30: RecentWindow }; // own trades closed in the last 7 / 30 days
   copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null }; // mirrors + stacks
+  // Changes whenever a closed trade lands (own or copied, even a $0.00 one):
+  // the app polls after a close until it moves.
+  revision: string;
 }
 
 export interface RecentWindow {
@@ -45,8 +48,9 @@ export interface ClosedTrade {
   market: string; // perpl market id | token address
   symbol: string | null; // perpl symbol; tokens are looked up by the caller
   side: string; // long | short | buy
-  returnPct: number | null; // perpl: price move in the trade's direction; nad.fun: proceeds / cost - 1
+  returnPct: number | null; // realized PnL / what went in: perpl notional at entry, nad.fun MON cost. Same sign as the PnL.
   pnlUsd: number | null; // nad.fun converted at the MON price used
+  costUsd: number | null; // what went in: perpl notional at entry, nad.fun MON cost in $ (null without a MON price)
   entryPrice: number | null; // perpl only ($ per unit, size-weighted over adds)
   exitPrice: number | null; // perpl only
   isWin: boolean;
@@ -74,44 +78,53 @@ const UNVERIFIED: MemberStats = {
   avgWinPct: null,
   recent: { d7: { tradeCount: 0, winRate: null, realizedPnlUsd: null }, d30: { tradeCount: 0, winRate: null, realizedPnlUsd: null } },
   copied: { tradeCount: 0, winRate: null, realizedPnlUsd: null },
+  revision: 'unverified',
 };
 
 const QUERY = `query CultMemberStats($ids: [String!]!) {
   Trader(where: { id: { _in: $ids } }) {
     id
-    trades { openTx realizedPnlUsd isWin closedAt openedAt marketId symbol side entryPrice exitPrice }
-    nadFunTrades { openTx realizedPnlMon isWin closedAt openedAt token costMon proceedsMon }
+    trades { openTx closeTx realizedPnlUsd isWin closedAt openedAt marketId symbol side entryPrice exitPrice notionalUsd }
+    nadFunTrades { openTx closeTx realizedPnlMon isWin closedAt openedAt token costMon proceedsMon }
   }
 }`;
 
 type Num = number | string;
 export interface TraderRow {
   id: string;
-  trades: { openTx: string; realizedPnlUsd: Num; isWin: boolean; closedAt: Num; openedAt?: Num; marketId?: Num; symbol?: string; side?: string; entryPrice?: Num; exitPrice?: Num }[];
-  nadFunTrades: { openTx: string; realizedPnlMon: Num; isWin: boolean; closedAt: Num; openedAt?: Num; token?: string; costMon?: Num; proceedsMon?: Num }[];
+  trades: { openTx: string; closeTx?: string; realizedPnlUsd: Num; isWin: boolean; closedAt: Num; openedAt?: Num; marketId?: Num; symbol?: string; side?: string; entryPrice?: Num; exitPrice?: Num; notionalUsd?: Num }[];
+  nadFunTrades: { openTx: string; closeTx?: string; realizedPnlMon: Num; isWin: boolean; closedAt: Num; openedAt?: Num; token?: string; costMon?: Num; proceedsMon?: Num }[];
 }
 
 const num = (x: Num | undefined | null) => (x == null || x === '' ? null : Number(x));
 
+// Copied if Cult sent the tx that opened the position or the one that closed
+// this part of it (a copy's exit out of a position the member also holds).
+const wasCopied = (t: { openTx: string; closeTx?: string }, sentByUs: Set<string>) =>
+  sentByUs.has(t.openTx.toLowerCase()) || (!!t.closeTx && sentByUs.has(t.closeTx.toLowerCase()));
+
 export function closedTrades(row: TraderRow, monPx: number | null, sentByUs: Set<string>): ClosedTrade[] {
   const out: ClosedTrade[] = [];
   for (const t of row.trades ?? []) {
-    const [entry, exit] = [num(t.entryPrice), num(t.exitPrice)];
+    const [entry, exit, notional] = [num(t.entryPrice), num(t.exitPrice), num(t.notionalUsd)];
     const short = /short/i.test(t.side ?? '');
+    const pnl = Number(t.realizedPnlUsd);
     out.push({
       venue: 'perpl',
       market: String(t.marketId ?? ''),
       symbol: t.symbol ?? null,
       side: short ? 'short' : 'long',
-      returnPct: entry && exit != null ? ((exit - entry) / entry) * 100 * (short ? -1 : 1) : null,
-      pnlUsd: Number(t.realizedPnlUsd),
+      // From the PnL (funding included), so a win never shows a negative return.
+      returnPct: notional && notional > 0 ? (pnl / notional) * 100 : entry && exit != null ? ((exit - entry) / entry) * 100 * (short ? -1 : 1) : null,
+      pnlUsd: pnl,
+      costUsd: notional,
       entryPrice: entry,
       exitPrice: exit,
       isWin: t.isWin,
       openedAt: num(t.openedAt),
       closedAt: Number(t.closedAt),
       openTx: t.openTx,
-      copied: sentByUs.has(t.openTx.toLowerCase()),
+      copied: wasCopied(t, sentByUs),
     });
   }
   for (const t of row.nadFunTrades ?? []) {
@@ -123,16 +136,38 @@ export function closedTrades(row: TraderRow, monPx: number | null, sentByUs: Set
       side: 'buy',
       returnPct: cost && proceeds != null ? (proceeds / cost - 1) * 100 : null,
       pnlUsd: monPx != null ? Number(t.realizedPnlMon) * monPx : null,
+      costUsd: monPx != null && cost != null ? cost * monPx : null,
       entryPrice: null,
       exitPrice: null,
       isWin: t.isWin,
       openedAt: num(t.openedAt),
       closedAt: Number(t.closedAt),
       openTx: t.openTx,
-      copied: sentByUs.has(t.openTx.toLowerCase()),
+      copied: wasCopied(t, sentByUs),
     });
   }
   return out.sort((a, b) => b.closedAt - a.closedAt);
+}
+
+// Every close is its own closed trade (a position closed in three parts is
+// three). Where a position should read as one trade (the home feed, a trade
+// sheet), its closes are combined: PnL summed, return over everything that
+// went in, latest close time.
+export function combineCloses(trades: ClosedTrade[]): ClosedTrade[] {
+  const groups = new Map<string, ClosedTrade[]>();
+  for (const t of trades) {
+    const k = `${t.venue}:${t.openTx.toLowerCase()}:${t.copied}`;
+    groups.set(k, [...(groups.get(k) ?? []), t]);
+  }
+  return [...groups.values()]
+    .map((g) => {
+      if (g.length === 1) return g[0]!;
+      const last = g.reduce((a, b) => (b.closedAt > a.closedAt ? b : a));
+      const pnl = g.some((t) => t.pnlUsd == null) ? null : g.reduce((a, t) => a + t.pnlUsd!, 0);
+      const cost = g.some((t) => t.costUsd == null) ? null : g.reduce((a, t) => a + t.costUsd!, 0);
+      return { ...last, pnlUsd: pnl, costUsd: cost, isWin: pnl != null ? pnl > 0 : last.isWin, returnPct: pnl != null && cost ? (pnl / cost) * 100 : last.returnPct };
+    })
+    .sort((a, b) => b.closedAt - a.closedAt);
 }
 
 // Own vs copied, split by the tx that opened each round trip.
@@ -148,8 +183,8 @@ export function toStats(row: TraderRow | undefined, monPx: number | null, sentBy
     a.mon += mon;
     a.last = Math.max(a.last ?? 0, Number(closedAt));
   };
-  for (const t of row.trades ?? []) add(sentByUs.has(t.openTx.toLowerCase()) ? copied : own, t.isWin, t.closedAt, Number(t.realizedPnlUsd), 0);
-  for (const t of row.nadFunTrades ?? []) add(sentByUs.has(t.openTx.toLowerCase()) ? copied : own, t.isWin, t.closedAt, 0, Number(t.realizedPnlMon));
+  for (const t of row.trades ?? []) add(wasCopied(t, sentByUs) ? copied : own, t.isWin, t.closedAt, Number(t.realizedPnlUsd), 0);
+  for (const t of row.nadFunTrades ?? []) add(wasCopied(t, sentByUs) ? copied : own, t.isWin, t.closedAt, 0, Number(t.realizedPnlMon));
   const inUsd = (a: ReturnType<typeof acc>) => (monPx != null ? a.usd + a.mon * monPx : a.mon === 0 ? a.usd : null);
   const mine = closedTrades(row, monPx, sentByUs).filter((t) => !t.copied);
   let streak = 0;
@@ -181,6 +216,7 @@ export function toStats(row: TraderRow | undefined, monPx: number | null, sentBy
     avgWinPct: winPcts.length ? winPcts.reduce((a, b) => a + b, 0) / winPcts.length : null,
     recent: { d7: window(7), d30: window(30) },
     copied: { tradeCount: copied.n, winRate: copied.n > 0 ? copied.wins / copied.n : null, realizedPnlUsd: inUsd(copied) },
+    revision: `${own.n}.${copied.n}.${Math.max(own.last ?? 0, copied.last ?? 0)}`,
   };
 }
 
@@ -193,9 +229,15 @@ function sentByUsFor(wallets: string[]): Set<string> {
   const marks = wallets.map(() => '?').join(',');
   for (const r of db.prepare(`SELECT tx_hash AS h FROM engine_txs WHERE wallet IN (${marks})`).all(...wallets) as { h: string }[]) out.add(r.h.toLowerCase());
   const byUser = `SELECT user_id FROM members WHERE wallet IN (${marks})`;
-  for (const t of ['mirrors', 'stacks']) {
-    for (const r of db.prepare(`SELECT open_tx AS h FROM ${t} WHERE open_tx IS NOT NULL AND user_id IN (${byUser})`).all(...wallets) as { h: string }[]) out.add(r.h.toLowerCase());
-  }
+  // Perpl txs are only known after they land, so they come from the rows the
+  // engine filled in: opens, copy exits, and copy adds/partial exits.
+  const txs = [
+    `SELECT open_tx AS h FROM mirrors WHERE open_tx IS NOT NULL AND user_id IN (${byUser})`,
+    `SELECT close_tx AS h FROM mirrors WHERE close_tx IS NOT NULL AND user_id IN (${byUser})`,
+    `SELECT open_tx AS h FROM stacks WHERE open_tx IS NOT NULL AND user_id IN (${byUser})`,
+    `SELECT tx AS h FROM mirror_adjustments WHERE tx IS NOT NULL AND user_id IN (${byUser})`,
+  ];
+  for (const sql of txs) for (const r of db.prepare(sql).all(...wallets) as { h: string }[]) out.add(r.h.toLowerCase());
   return out;
 }
 
@@ -255,8 +297,8 @@ async function viaPostgres(url: string, ids: string[]): Promise<TraderRow[]> {
   const q = (sql: string) => pgPool(url).query(sql, [ids]).then((r) => r.rows as Record<string, unknown>[]);
   const [traders, perpl, nad] = await Promise.all([
     q(`SELECT id FROM "${schema}"."Trader" WHERE id = ANY($1)`),
-    q(`SELECT trader_id, "openTx", "realizedPnlUsd", "isWin", "closedAt", "openedAt", "marketId", symbol, side, "entryPrice", "exitPrice" FROM "${schema}"."Trade" WHERE trader_id = ANY($1)`),
-    q(`SELECT trader_id, "openTx", "realizedPnlMon", "isWin", "closedAt", "openedAt", token, "costMon", "proceedsMon" FROM "${schema}"."NadFunTrade" WHERE trader_id = ANY($1)`),
+    q(`SELECT trader_id, "openTx", "closeTx", "realizedPnlUsd", "isWin", "closedAt", "openedAt", "marketId", symbol, side, "entryPrice", "exitPrice", "notionalUsd" FROM "${schema}"."Trade" WHERE trader_id = ANY($1)`),
+    q(`SELECT trader_id, "openTx", "closeTx", "realizedPnlMon", "isWin", "closedAt", "openedAt", token, "costMon", "proceedsMon" FROM "${schema}"."NadFunTrade" WHERE trader_id = ANY($1)`),
   ]);
   const rows = new Map<string, TraderRow>(traders.map((t) => [String(t.id), { id: String(t.id), trades: [], nadFunTrades: [] }]));
   for (const t of perpl) rows.get(String(t.trader_id))?.trades.push(t as never);
@@ -266,6 +308,17 @@ async function viaPostgres(url: string, ids: string[]): Promise<TraderRow[]> {
 
 const cache = new Map<string, { at: number; record: MemberRecord }>();
 const TTL_MS = 15_000;
+// Right after a member closes something the indexer has it within seconds,
+// so for a short while their record is read fresh instead of from cache.
+const hotUntil = new Map<string, number>();
+const HOT_MS = 90_000;
+const HOT_TTL_MS = 1_500;
+
+export function freshenRecords(wallet: string) {
+  const id = wallet.toLowerCase();
+  cache.delete(id);
+  hotUntil.set(id, Date.now() + HOT_MS);
+}
 const UNVERIFIED_RECORD: MemberRecord = { stats: UNVERIFIED, trades: [] };
 
 // Records (stats + closed trades) for many wallets in one indexer round trip.
@@ -277,7 +330,8 @@ export async function recordsFor(wallets: string[]): Promise<Map<string, MemberR
   const pgUrl = process.env.INDEXER_PG_URL;
   const fresh = ids.filter((id) => {
     const hit = cache.get(id);
-    if (hit && Date.now() - hit.at < TTL_MS) {
+    const ttl = (hotUntil.get(id) ?? 0) > Date.now() ? HOT_TTL_MS : TTL_MS;
+    if (hit && Date.now() - hit.at < ttl) {
       out.set(id, hit.record);
       return false;
     }

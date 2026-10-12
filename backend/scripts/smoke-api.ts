@@ -206,7 +206,7 @@ await call('policy change, wrong signer', 'POST', `/v1/clans/${clan.id}/policy`,
 const jc = await call('a join challenge…', 'POST', '/v1/cults/join/challenge', auth(bob, 'bob'), { cultId: openCult.id, policy: newPolicy });
 await call('…reused as a policy change', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: jc.challengeId, signature: await bob.signMessage(jc.message) });
 const updated = await call('policy change, signed', 'POST', `/v1/clans/${clan.id}/policy`, auth(bob, 'bob'), { challengeId: polCh.challengeId, signature: await bob.signMessage(polCh.message) });
-if (JSON.stringify(updated.myPolicy) !== JSON.stringify(newPolicy)) throw new Error('policy not updated');
+if (Object.entries(newPolicy).some(([k, v]) => updated.myPolicy?.[k] !== v)) throw new Error('policy not updated');
 if (!polCh.message.startsWith('Update my copy limits in the Cult')) throw new Error('policy consent text wrong');
 await call('leave clan', 'POST', `/v1/clans/${clan.id}/leave`, auth(bob, 'bob'));
 await call('chart after leaving', 'GET', `/v1/clans/${clan.id}/chart`, auth(bob, 'bob'));

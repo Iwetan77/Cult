@@ -14,6 +14,7 @@ import { clans } from '../store/clans.js';
 import { members } from '../store/members.js';
 import { venue as defaultVenue, venueOf, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
 import { isEngineOrder, isEngineTx, recordRef } from './origin.js';
+import { UnderwaterError } from '../funding/errors.js';
 import { adjustments, mirrors, sizeFactor, tradeCults, trades, type Adjustment, type LeaderTrade, type Mirror } from './repo.js';
 import { takeAudience } from './audience.js';
 import { leaderDollarFraction, mirrorNotional } from './sizing.js';
@@ -395,7 +396,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     return this.inLane('fill:' + id, async () => {
       const order = memberOrders.get(id);
       if (!order) throw new MirrorError(404, 'Trade request not found.');
-      if (fill.venue !== order.venue || fill.market.toLowerCase() !== order.market || fill.side !== order.side) throw new MirrorError(409, 'Fill does not match this trade request.');
+      if (fill.venue !== order.venue || fill.market.toLowerCase() !== order.market || fill.side !== order.side) throw new MirrorError(409, "That fill doesn't match this trade. Refresh your positions.");
       const cumulative = BigInt(fill.sizeRaw);
       const booked = BigInt(order.bookedSize);
       if (cumulative <= 0n) throw new MirrorError(409, 'The order did not fill. Refresh your positions before trying again.');
@@ -614,12 +615,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
   skipAdjustment(id: string, userId: string): Adjustment {
     const a = adjustments.get(id);
-    if (!a || a.userId !== userId) throw new MirrorError(404, 'adjustment not found');
-    if (a.kind !== 'add') throw new MirrorError(409, 'partial exits follow the leader straight away');
-    if (a.status !== 'pending') throw new MirrorError(409, `adjustment is ${a.status}, not pending`);
-    if (Date.now() >= a.skipUntil) throw new MirrorError(409, 'skip window has passed');
+    if (!a || a.userId !== userId) throw new MirrorError(404, 'That copy no longer exists.');
+    if (a.kind !== 'add') throw new MirrorError(409, "Exits follow the trader straight away and can't be skipped.");
+    if (a.status !== 'pending') throw new MirrorError(409, `This copy has already gone out.`);
+    if (Date.now() >= a.skipUntil) throw new MirrorError(409, 'Too late to skip: this copy has already gone out.');
     const updated = adjustments.transition(id, 'pending', 'skipped');
-    if (!updated) throw new MirrorError(409, 'adjustment already moved on');
+    if (!updated) throw new MirrorError(409, 'This copy has already gone out.');
     this.unschedule(`adj:${id}`);
     this.emit('adjustment', updated);
     return updated;
@@ -743,7 +744,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       });
     } catch (e) {
       const msg = String(e).slice(0, 450);
-      if (!sent && !(e instanceof NotSized) && attempt <= MAX_RETRIES) {
+      if (!sent && !(e instanceof NotSized) && !(e instanceof UnderwaterError) && attempt <= MAX_RETRIES) {
         const again = adjustments.transition(id, 'submitting', 'pending', { skipUntil: Date.now() + RETRY_BACKOFF_MS * attempt, error: `retrying (${attempt}/${MAX_RETRIES}): ${msg}` })!;
         this.emit('adjustment', again);
         this.scheduleAdjustment(again);
@@ -990,11 +991,11 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
 
   skip(mirrorId: string, userId: string): Mirror {
     const m = mirrors.get(mirrorId);
-    if (!m || m.userId !== userId) throw new MirrorError(404, 'mirror not found');
-    if (m.status !== 'pending') throw new MirrorError(409, `mirror is ${m.status}, not pending`);
-    if (Date.now() >= m.skipUntil) throw new MirrorError(409, 'skip window has passed');
+    if (!m || m.userId !== userId) throw new MirrorError(404, 'That copy no longer exists.');
+    if (m.status !== 'pending') throw new MirrorError(409, `This copy has already gone out.`);
+    if (Date.now() >= m.skipUntil) throw new MirrorError(409, 'Too late to skip: this copy has already gone out.');
     const updated = mirrors.transition(mirrorId, 'pending', 'skipped');
-    if (!updated) throw new MirrorError(409, 'mirror already moved on');
+    if (!updated) throw new MirrorError(409, 'This copy has already gone out.');
     this.unschedule(mirrorId);
     this.emit('mirror', updated);
     return updated;
@@ -1089,7 +1090,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       }
     } catch (e) {
       const msg = String(e).slice(0, 450);
-      if (!sent && !(e instanceof NotSized) && attempt <= MAX_RETRIES) {
+      if (!sent && !(e instanceof NotSized) && !(e instanceof UnderwaterError) && attempt <= MAX_RETRIES) {
         // Transient and nothing left: back to pending, try again shortly.
         const again = mirrors.transition(m.id, 'submitting', 'pending', { skipUntil: Date.now() + RETRY_BACKOFF_MS * attempt, error: `retrying (${attempt}/${MAX_RETRIES}): ${msg}` })!;
         this.emit('mirror', again);

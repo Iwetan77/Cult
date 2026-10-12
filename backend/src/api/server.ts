@@ -10,7 +10,7 @@ import { completeEnrollment, setupStatus, startEnrollment } from '../accounts/cl
 import { sessionFor } from '../accounts/lifecycle.js';
 import { env, numEnv } from '../config/env.js';
 import { MirrorError, type MirrorEngine } from '../mirror/engine.js';
-import { mirrors, trades, tradeCults, type LeaderTrade } from '../mirror/repo.js';
+import { mirrors, trades, tradeCults, type Adjustment, type LeaderTrade, type Mirror } from '../mirror/repo.js';
 import { allocatedHoldings } from '../mirror/allocations.js';
 import { stackOnTrade } from '../mirror/stack.js';
 import { getContext, getMarket } from '../perpl/context.js';
@@ -18,6 +18,7 @@ import { listMonMarkets } from '../nadfun/trading.js';
 import { monPriceAusd } from '../prices.js';
 import { venue, venueOf } from '../venues/index.js';
 import { invalidatePerplReads } from '../venues/perpl.js';
+import type { Holding } from '../venues/types.js';
 import { AuthError, identify, privyLastSignIn } from '../privy/auth.js';
 import { backendSignerStatus, forgetSignerStatus, memberSignerGrant } from '../privy/policy.js';
 import { clans, MirrorPolicySchema, type MirrorPolicy, AUTO_FOLLOW_DEFAULTS } from '../store/clans.js';
@@ -42,7 +43,8 @@ import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { LeverageError, OrderFailed } from '../trading/positions.js';
-import { indexerStatus } from '../indexer/stats.js';
+import { explain, memberView, perplOrderProblem, sentence } from '../errors/friendly.js';
+import { freshenRecords, indexerStatus } from '../indexer/stats.js';
 import { recentConversion } from '../funding/usdc.js';
 import { FundsError } from '../funding/margin.js';
 import { SwapUnavailable } from '../swap/kuruFlow.js';
@@ -77,6 +79,16 @@ function consentMessage(cultName: string, inviteCode: string, wallet: string, p:
 
 export function createApp(engine: MirrorEngine) {
   engine.setMaxListeners(0); // each open clan SSE stream listens; many is normal
+  // Whoever just closed something (themselves, or a copy following a trader
+  // out) gets their record read fresh while the indexer catches up.
+  const freshen = (userId: string) => {
+    const wallet = members.get(userId)?.wallet;
+    if (wallet) freshenRecords(wallet);
+  };
+  engine.on('tradeClosed', (t: LeaderTrade) => freshen(t.userId));
+  engine.on('tradeChanged', (t: LeaderTrade) => freshen(t.userId));
+  engine.on('mirror', (m: Mirror) => m.status === 'closed' && freshen(m.userId));
+  engine.on('adjustment', (a: Adjustment) => a.status === 'done' && freshen(a.userId));
   const app = new Hono<Vars>();
   app.use('*', cors({ origin: env.corsOrigins, allowHeaders: ['Authorization', 'Content-Type'], allowMethods: ['GET', 'POST', 'DELETE'], exposeHeaders: ['Retry-After'] }));
 
@@ -108,35 +120,50 @@ export function createApp(engine: MirrorEngine) {
   });
 
   app.onError((err, c) => {
-    if (err instanceof HTTPException) return c.json({ message: err.message }, err.status);
-    if (err instanceof AuthError) return c.json({ message: err.message }, 401);
-    if (err instanceof PinError) return c.json({ message: err.message, code: err.code }, err.status);
+    if (err instanceof HTTPException) return c.json({ message: sentence(err.message) }, err.status);
+    if (err instanceof AuthError) {
+      console.warn('[api] signed out:', err.message);
+      return c.json({ message: 'Your session ended. Sign in again.', code: 'signed_out' }, 401);
+    }
+    if (err instanceof PinError) return c.json({ message: sentence(err.message), code: err.code }, err.status);
     // A transaction the member's wallet couldn't pay the fee for (no MON).
     if (ethers.isError(err, 'INSUFFICIENT_FUNDS') || /insufficient (balance|funds)/i.test(String((err as Error)?.message ?? ''))) return c.json({ message: NO_GAS, code: 'needs_gas' }, 409);
-    if (err instanceof MirrorError) return c.json({ message: err.message }, err.status as 400);
-    if (err instanceof ShareError) return c.json({ message: err.message }, err.status);
-    if (err instanceof ChatError) return c.json({ message: err.message }, err.status);
-    if (err instanceof PushError) return c.json({ message: err.message }, err.status);
-    if (err instanceof LeaderboardError) return c.json({ message: err.message }, err.status);
-    if (err instanceof ProfileError) return c.json({ message: err.message }, err.status);
-    if (err instanceof MarketError) return c.json({ message: err.message }, err.status);
-    if (err instanceof TpSlError) return c.json({ message: err.message }, 400);
-    if (err instanceof FundsError) return c.json({ message: err.message }, 409);
+    if (err instanceof MirrorError) return c.json({ message: sentence(err.message) }, err.status as 400);
+    if (err instanceof ShareError) return c.json({ message: sentence(err.message) }, err.status);
+    if (err instanceof ChatError) return c.json({ message: sentence(err.message) }, err.status);
+    if (err instanceof PushError) return c.json({ message: sentence(err.message) }, err.status);
+    if (err instanceof LeaderboardError) return c.json({ message: sentence(err.message) }, err.status);
+    if (err instanceof ProfileError) return c.json({ message: sentence(err.message) }, err.status);
+    if (err instanceof MarketError) return c.json({ message: sentence(err.message) }, err.status);
+    if (err instanceof TpSlError) {
+      const why = explain(err);
+      if (why) console.warn('[api] take-profit/stop-loss not set:', err.message);
+      return c.json(why ? { message: why.message, code: why.code } : { message: err.message }, 400);
+    }
+    if (err instanceof FundsError) return c.json({ message: sentence(err.message), code: explain(err)?.code ?? 'needs_funds' }, 409);
     if (err instanceof LeverageError) return c.json({ message: err.message, code: 'unsupported_leverage' }, 400);
     if (err instanceof OrderFailed) {
       console.warn('[api] Perpl order not completed:', err.message);
-      return c.json({ message: `Perpl could not complete this order (status ${err.order.st}, reason ${err.order.sr}, fill reason ${err.order.fr ?? '-'}). Refresh your positions before placing another trade.`, code: 'order_failed' }, 502);
+      const why = perplOrderProblem(err.order.sr, err.order.fr, Number(err.order.fs ?? 0) > 0);
+      return c.json({ message: why.message, code: why.code }, why.code === 'needs_margin' ? 409 : 502);
     }
-    if (err instanceof WithdrawError) return c.json({ message: err.message }, err.status);
-    if (err instanceof SwapUnavailable) return c.json({ message: `Couldn't swap for this trade right now (${err.message}). Try again shortly.` }, 503);
-    if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
+    if (err instanceof WithdrawError) return c.json({ message: sentence(err.message) }, err.status);
+    if (err instanceof SwapUnavailable) {
+      console.warn('[api] swap unavailable:', err.message);
+      return c.json({ message: "We couldn't swap for this trade right now. Try again shortly.", code: 'swap_unavailable' }, 503);
+    }
+    if (err instanceof z.ZodError) return c.json({ message: 'Something in that request was missing or invalid. Refresh and try again.', code: 'invalid_request', issues: err.issues }, 400);
     // Upstream (Perpl / Nad.fun / Kuru / RPC) unreachable: say so, let the client retry.
     if (err instanceof UpstreamError || (err instanceof TypeError && /fetch failed/.test(err.message)) || (err as { name?: string })?.name === 'TimeoutError') {
       console.warn('[api] upstream unavailable:', err.message);
-      return c.json({ message: 'a trading service is unreachable right now, retry shortly' }, 503);
+      return c.json({ message: "The exchange isn't responding right now. Try again in a minute.", code: 'service_unavailable' }, 503);
     }
+    // Anything else that we recognise (venue and funding messages) still gets
+    // plain words; the raw error is only logged.
     console.error('[api]', err);
-    return c.json({ message: 'internal error' }, 500);
+    const why = explain(err);
+    if (why) return c.json({ message: why.message, code: why.code }, 422);
+    return c.json({ message: 'Something went wrong on our side. Try again in a moment.', code: 'internal' }, 500);
   });
 
   const bad = (status: 400 | 403 | 404 | 409, message: string) => new HTTPException(status, { message });
@@ -499,7 +526,7 @@ export function createApp(engine: MirrorEngine) {
   authed.get('/leaderboards/global', async (c) => c.json(await globalBoard(c.get('userId'), boardLimit(c), parsePeriod(c.req.query('period')))));
   authed.get('/leaderboards/country/:code?', async (c) => {
     const code = c.req.param('code') ?? members.get(c.get('userId'))?.country;
-    if (!code) throw bad(409, 'pick your country first (POST /v1/me/country)');
+    if (!code) throw bad(409, 'Pick your country first.');
     return c.json(await countryBoard(code, c.get('userId'), boardLimit(c), parsePeriod(c.req.query('period'))));
   });
   authed.get('/leaderboards/cults', async (c) => c.json(await cultsBoard(c.get('userId'), Math.min(boardLimit(c), 100))));
@@ -519,7 +546,7 @@ export function createApp(engine: MirrorEngine) {
     // cults, not for following strangers' trades.
     if (body.markerId?.startsWith('cult:')) {
       const shared = clans.get(body.markerId.slice(5));
-      if (!shared || shared.visibility !== 'public' || !clans.membership(shared.id, c.get('userId'))) throw bad(400, 'only a public cult you are in can be shared');
+      if (!shared || shared.visibility !== 'public' || !clans.membership(shared.id, c.get('userId'))) throw bad(400, "You can only share a public cult you're in.");
     } else if (body.markerId && !room.startsWith('cult:')) throw bad(400, 'trades are shared in cults');
     return c.json(postMessage(room, c.get('userId'), body), 201);
   });
@@ -586,8 +613,24 @@ export function createApp(engine: MirrorEngine) {
       venue('perpl').holdings(userId).catch(() => []),
       venue('nadfun').holdings(userId, heldMarkets(userId, 'nadfun')).catch(() => []),
     ]);
-    return c.json({ positions: allocatedHoldings(userId, [...p, ...n]) });
+    return c.json({ positions: allocatedHoldings(userId, [...p, ...n]).map(lotLabels) });
   });
+  // What tells two lots on one market apart in the Open list: when it was
+  // opened and, for a copy, whose trade it copies and in which cult.
+  const lotLabels = (h: Holding) => {
+    const [kind, id] = (h.markerId ?? '').split(':', 2);
+    const trade = h.tradeId ? trades.get(h.tradeId) : undefined;
+    let openedAt: number | null = trade?.openedAt ?? null;
+    if (kind === 'mirror') openedAt = mirrors.get(id!)?.createdAt ?? openedAt;
+    if (kind === 'stack') openedAt = (getDb().prepare('SELECT created_at AS t FROM stacks WHERE id = ?').get(id!) as { t: number } | undefined)?.t ?? openedAt;
+    const leader = (kind === 'mirror' || kind === 'stack') && trade ? members.get(trade.userId) : undefined;
+    const cultId = kind === 'mirror' || kind === 'stack' ? h.cultIds?.[0] : undefined;
+    return {
+      ...h,
+      openedAt,
+      copiedFrom: leader ? { userId: leader.userId, name: displayName(leader), cultId: cultId ?? null, cultName: cultId ? clans.get(cultId)?.name ?? null : null } : null,
+    };
+  };
 
   // A member's own trade, on either venue. Not tagged as an engine order, so
   // it's a leader trade and clan-mates get auto-mirrored. marketId is a Perpl
@@ -613,10 +656,10 @@ export function createApp(engine: MirrorEngine) {
       if (notMine) throw bad(400, `you're not in cult ${notMine}`);
     }
     if (v === 'perpl') {
-      if (!m.perplAccountId || !m.forwarding) throw bad(409, 'finish Perpl setup first');
+      if (!m.perplAccountId || !m.forwarding) throw bad(409, 'Finish setting up perps first.');
       if (body.side === 'buy') throw bad(400, 'perpl side must be long or short');
       await getMarket(Number(body.marketId));
-    } else if (body.side !== 'buy') throw bad(400, 'nad.fun side must be buy');
+    } else if (body.side !== 'buy') throw bad(400, 'Memes can only be bought, not shorted.');
     return c.json(await engine.executeOwnOpen({ userId, market: body.marketId, side: body.side,
       notionalAusd: body.marginUsd * body.leverage, leverage: body.leverage }, body.cultIds));
   });
@@ -626,10 +669,10 @@ export function createApp(engine: MirrorEngine) {
   authed.post('/positions/tpsl', async (c) => {
     const leg = z.number().positive().nullable().optional();
     const body = z.object({ marketId: z.coerce.string(), takeProfit: leg, stopLoss: leg }).parse(await c.req.json());
-    if (venueOf(body.marketId) !== 'perpl') throw bad(400, 'TP/SL is Perpl only; Nad.fun is spot');
+    if (venueOf(body.marketId) !== 'perpl') throw bad(400, 'Take-profit and stop-loss are for perps only.');
     const userId = c.get('userId');
     const m = members.get(userId)!;
-    if (!m.perplAccountId) throw bad(409, 'no Perpl account');
+    if (!m.perplAccountId) throw bad(409, 'Finish setting up perps first.');
     const out = await setTpSl(await sessionFor(userId), m.perplAccountId, Number(body.marketId), { takeProfit: body.takeProfit, stopLoss: body.stopLoss });
     invalidatePerplReads(userId);
     return c.json(out);
@@ -639,8 +682,10 @@ export function createApp(engine: MirrorEngine) {
     const body = z.object({ marketId: z.coerce.string(), sizeRaw: z.string().regex(/^\d+$/).optional(), markerId: z.string().max(160).optional() }).parse(await c.req.json());
     const userId = c.get('userId');
     const v = venueOf(body.marketId);
-    if (v === 'perpl' && !members.get(userId)?.perplAccountId) throw bad(409, 'no Perpl account');
-    return c.json(await engine.executeOwnClose({ userId, market: body.marketId, sizeRaw: body.sizeRaw }, body.markerId));
+    if (v === 'perpl' && !members.get(userId)?.perplAccountId) throw bad(409, 'Finish setting up perps first.');
+    const fill = await engine.executeOwnClose({ userId, market: body.marketId, sizeRaw: body.sizeRaw }, body.markerId);
+    freshenRecords(c.get('wallet'));
+    return c.json(fill);
   });
 
   // "Pay with USDC": ordered wallet actions (Kuru swap -> Perpl deposit) for
@@ -712,9 +757,9 @@ export function createApp(engine: MirrorEngine) {
     }
     const body = z.object({ challengeId: z.string(), signature: z.string() }).parse(raw);
     const ch = joinChallenges.get(body.challengeId);
-    if (!ch || ch.kind !== 'join' || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'challenge missing or expired');
+    if (!ch || ch.kind !== 'join' || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'That request expired. Try again.');
     const signer = ethers.verifyMessage(ch.message, body.signature);
-    if (signer.toLowerCase() !== c.get('wallet')) throw bad(403, 'signature is not from your wallet');
+    if (signer.toLowerCase() !== c.get('wallet')) throw bad(403, "That signature didn't come from your wallet. Try again.");
     clans.join(ch.clanId, ch.userId, ch.policy);
     postSystem(cultRoom(ch.clanId), ch.userId, ch.policy.enabled ? 'joined the cult with Auto-follow on' : 'joined the cult');
     getDb()
@@ -744,8 +789,8 @@ export function createApp(engine: MirrorEngine) {
     const clan = clanFor(c);
     const body = z.object({ challengeId: z.string(), signature: z.string() }).parse(await c.req.json());
     const ch = joinChallenges.get(body.challengeId);
-    if (!ch || ch.kind !== 'policy' || ch.clanId !== clan.id || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'challenge missing or expired');
-    if (ethers.verifyMessage(ch.message, body.signature).toLowerCase() !== c.get('wallet')) throw bad(403, 'signature is not from your wallet');
+    if (!ch || ch.kind !== 'policy' || ch.clanId !== clan.id || ch.userId !== c.get('userId') || Date.now() > ch.expires) throw bad(400, 'That request expired. Try again.');
+    if (ethers.verifyMessage(ch.message, body.signature).toLowerCase() !== c.get('wallet')) throw bad(403, "That signature didn't come from your wallet. Try again.");
     const wasOn = clans.membership(clan.id, ch.userId)?.policy.enabled ?? false;
     clans.setPolicy(clan.id, ch.userId, ch.policy);
     engine.setFollowExits(clan.id, ch.userId, clans.membership(clan.id, ch.userId)!.policy.followExits !== false);
@@ -764,7 +809,7 @@ export function createApp(engine: MirrorEngine) {
   cultRoutes.post('/:clanId/auto-follow', async (c) => {
     const clan = clanFor(c);
     const body = z.object({ enabled: z.boolean() }).parse(await c.req.json());
-    if (body.enabled) throw bad(400, 'turning Auto-follow on needs your signed limits: POST /policy/challenge with enabled: true, then /policy');
+    if (body.enabled) throw bad(400, 'Set your copy limits to turn on Auto-follow.');
     const m = clans.membership(clan.id, c.get('userId'))!;
     clans.setPolicy(clan.id, c.get('userId'), { ...m.policy, enabled: false });
     engine.memberLeft(clan.id, c.get('userId')); // cancels anything still pending for them here
@@ -889,7 +934,7 @@ export function createApp(engine: MirrorEngine) {
     const tradeId = resolveTradeId(markerId);
     const trade = trades.get(tradeId);
     if (!trade || trade.closedAt || !clans.membership(clan.id, trade.userId) || !tradeCults(trade, clans.adminCultIds(trade.userId)).includes(clan.id)) throw bad(404, 'marker not found');
-    if (trade.venue !== 'perpl') throw bad(400, 'TP/SL is Perpl only');
+    if (trade.venue !== 'perpl') throw bad(400, 'Take-profit and stop-loss are for perps only.');
     return c.json(addSuggestion(clan.id, tradeId, markerId, c.get('userId'), body.takeProfit ?? null, body.stopLoss ?? null), 201);
   });
 
@@ -921,8 +966,8 @@ export function createApp(engine: MirrorEngine) {
       const onTrade = (t: LeaderTrade) => postedHere(t) && send('trade', t);
       const onChanged = (t: LeaderTrade) => postedHere(t) && send('trade_changed', t);
       const onClosed = (t: LeaderTrade) => postedHere(t) && send('trade_closed', t);
-      const onMirror = (m: { clanId: string }) => m.clanId === clan.id && send('mirror', m);
-      const onAdjust = (a: { clanId: string }) => a.clanId === clan.id && send('adjustment', a);
+      const onMirror = (m: Mirror) => m.clanId === clan.id && send('mirror', memberView(m));
+      const onAdjust = (a: Adjustment) => a.clanId === clan.id && send('adjustment', memberView(a));
       engine.on('trade', onTrade);
       engine.on('tradeChanged', onChanged);
       engine.on('tradeClosed', onClosed);

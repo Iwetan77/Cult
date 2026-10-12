@@ -190,7 +190,7 @@ export class SignatureBroker {
   // the parked flow, and answer with the step after.
   async resume<T = unknown>(userId: string, flowId: string, challengeId: string, signature: string): Promise<FlowStep<T>> {
     const flow = this.flows.get(flowId);
-    if (!flow || flow.userId !== userId) throw new FlowError(404, 'this request has expired, start again');
+    if (!flow || flow.userId !== userId) throw new FlowError(404, 'That request expired. Start again.');
     const p = flow.pending;
     if (!p || p.request.challengeId !== challengeId) throw new FlowError(409, 'nothing is waiting for this signature');
     if (Date.now() > p.expires) {
@@ -207,7 +207,7 @@ export class SignatureBroker {
   // "Still working?" for a flow that answered `working`.
   async poll<T = unknown>(userId: string, flowId: string): Promise<FlowStep<T>> {
     const flow = this.flows.get(flowId);
-    if (!flow || flow.userId !== userId) throw new FlowError(404, 'this request has expired, start again');
+    if (!flow || flow.userId !== userId) throw new FlowError(404, 'That request expired. Start again.');
     return this.settle<T>(flow);
   }
 

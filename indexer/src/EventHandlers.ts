@@ -2,6 +2,7 @@ import { indexer } from "envio";
 import {
   market,
   symbolFor,
+  exitPriceFromPnl,
   cnsToUsd,
   pnsToPrice,
   lnsToSize,
@@ -280,25 +281,27 @@ indexer.onEvent(
     const pos = await getPosition(context, perpId, accountId);
     if (!pos) return;
 
-    // PositionDecreased doesn't carry a fill price, so use the current entry
-    // price as a display-only fallback. Realized PnL comes from deltaPnlCNS +
-    // fundingCNS regardless.
-    const pricePNS = pos.entryPricePNS;
+    // Every reduce is a closed slice of the position with its own realized
+    // PnL: Cult closes trades lot by lot (and copies exit in parts), so most
+    // closes never take the whole Perpl position to zero. PositionDecreased
+    // carries no fill price; it follows from the PnL the slice realized.
     const closedSize = startLotLNS - endLotLNS;
-    const newPnl = pos.realizedPnlCNS + deltaPnlCNS + fundingCNS;
+    const pricePNS = exitPriceFromPnl(pos.entryPricePNS, deltaPnlCNS, closedSize, pos.side, market(perpId));
+    const slicePnl = pos.realizedPnlCNS + deltaPnlCNS + fundingCNS;
 
     recordEvent(
       context, tx, block, event.logIndex, ts, pos.owner, perpId, pos.side, "DECREASED",
       pricePNS, -closedSize, deltaPnlCNS, fundingCNS,
     );
 
+    await recordClosedTrade(
+      context, { ...pos, realizedPnlCNS: slicePnl }, pricePNS, "CLOSED", ts, tx, block, event.logIndex, closedSize,
+    );
     if (endLotLNS === 0n) {
-      await recordClosedTrade(
-        context, { ...pos, realizedPnlCNS: newPnl }, pricePNS, "CLOSED", ts, tx, block, event.logIndex, closedSize,
-      );
       context.PerplPosition.set({ ...pos, sizeLNS: 0n, realizedPnlCNS: 0n, status: "CLOSED" });
     } else {
-      context.PerplPosition.set({ ...pos, sizeLNS: endLotLNS, realizedPnlCNS: newPnl });
+      // Funding settled on adds went out with this slice; the rest starts clean.
+      context.PerplPosition.set({ ...pos, sizeLNS: endLotLNS, realizedPnlCNS: 0n });
     }
   },
 );
@@ -407,14 +410,13 @@ indexer.onEvent(
       pricePNS, -liqLotLNS, deltaPnlCNS, fundingCNS,
     );
 
-    if (remaining <= 0n) {
-      await recordClosedTrade(
-        context, { ...pos, realizedPnlCNS: newPnl }, pricePNS, "LIQUIDATED", ts, tx, block, event.logIndex, liqLotLNS,
-      );
-      context.PerplPosition.set({ ...pos, sizeLNS: 0n, realizedPnlCNS: 0n, status: "CLOSED" });
-    } else {
-      context.PerplPosition.set({ ...pos, sizeLNS: remaining, realizedPnlCNS: newPnl });
-    }
+    // A partial liquidation is a closed slice too.
+    await recordClosedTrade(
+      context, { ...pos, realizedPnlCNS: newPnl }, pricePNS, "LIQUIDATED", ts, tx, block, event.logIndex, liqLotLNS,
+    );
+    context.PerplPosition.set(
+      remaining <= 0n ? { ...pos, sizeLNS: 0n, realizedPnlCNS: 0n, status: "CLOSED" } : { ...pos, sizeLNS: remaining, realizedPnlCNS: 0n },
+    );
   },
 );
 
@@ -443,14 +445,12 @@ async function handleDeleveraged(context: any, event: any) {
     pricePNS, -closedSize, deltaPnlCNS, fundingCNS,
   );
 
-  if (endLotLNS === 0n) {
-    await recordClosedTrade(
-      context, { ...pos, realizedPnlCNS: newPnl }, pricePNS, "DELEVERAGED", ts, tx, block, event.logIndex, closedSize,
-    );
-    context.PerplPosition.set({ ...pos, sizeLNS: 0n, realizedPnlCNS: 0n, status: "CLOSED" });
-  } else {
-    context.PerplPosition.set({ ...pos, sizeLNS: endLotLNS, realizedPnlCNS: newPnl });
-  }
+  await recordClosedTrade(
+    context, { ...pos, realizedPnlCNS: newPnl }, pricePNS, "DELEVERAGED", ts, tx, block, event.logIndex, closedSize,
+  );
+  context.PerplPosition.set(
+    endLotLNS === 0n ? { ...pos, sizeLNS: 0n, realizedPnlCNS: 0n, status: "CLOSED" } : { ...pos, sizeLNS: endLotLNS, realizedPnlCNS: 0n },
+  );
 }
 
 indexer.onEvent(

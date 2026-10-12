@@ -107,11 +107,11 @@ test('skip inside the window prevents the mirror; after the window it is refused
   const t = await engine.leaderOpened({ venue: 'nadfun', userId: 'B', market: '0x' + 'ab'.repeat(20), side: 'buy', sizeRaw: '1', entryPriceAusd: 1, leverageHundredths: 100, marginFraction: 0.02 });
   const forA = mirrors.forTrade(t!.id).find((m) => m.userId === 'A')!;
   engine.skip(forA.id, 'A');
-  assert.throws(() => engine.skip(forA.id, 'A'), /not pending/);
+  assert.throws(() => engine.skip(forA.id, 'A'), /already gone out/);
   const forC = mirrors.forTrade(t!.id).find((m) => m.userId === 'C')!;
   await wait(400);
   assert.equal(mirrors.get(forA.id)!.status, 'skipped');
-  assert.throws(() => engine.skip(forC.id, 'C'), /not pending|window/);
+  assert.throws(() => engine.skip(forC.id, 'C'), /already gone out|Too late/);
   // nadfun: leverage 1, 2% of balance, and C's 4 AUSD is above the 1 AUSD minimum
   const c = mirrors.get(forC.id)!;
   assert.equal(c.status, 'open');

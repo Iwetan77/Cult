@@ -2,6 +2,7 @@
   "name": "@cult/backend",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "engines": {
     "node": "24.x"

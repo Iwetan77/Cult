@@ -38,12 +38,12 @@ export interface StackResult {
 }
 
 export async function stackOnTrade(req: StackRequest, venueOf: (v: Venue) => VenueAdapter = defaultVenue): Promise<StackResult> {
-  if (!clans.membership(req.clanId, req.userId)) throw new MirrorError(403, 'not a member of this clan');
+  if (!clans.membership(req.clanId, req.userId)) throw new MirrorError(403, "You're not in this cult.");
   const trade = trades.get(req.tradeId);
-  if (!trade || trade.closedAt) throw new MirrorError(404, 'that position is not open');
-  if (!clans.membership(req.clanId, trade.userId) || !tradeCults(trade, clans.adminCultIds(trade.userId)).includes(req.clanId)) throw new MirrorError(404, 'that position is not in this cult');
-  if (trade.userId === req.userId) throw new MirrorError(400, 'cannot stack on your own position');
-  if (trade.venue === 'perpl' && !members.get(req.userId)?.perplAccountId) throw new MirrorError(409, 'finish Perpl setup first');
+  if (!trade || trade.closedAt) throw new MirrorError(404, 'That trade is already closed.');
+  if (!clans.membership(req.clanId, trade.userId) || !tradeCults(trade, clans.adminCultIds(trade.userId)).includes(req.clanId)) throw new MirrorError(404, "That trade isn't in this cult.");
+  if (trade.userId === req.userId) throw new MirrorError(400, "You can't copy your own trade.");
+  if (trade.venue === 'perpl' && !members.get(req.userId)?.perplAccountId) throw new MirrorError(409, 'Finish setting up perps first.');
 
   const adapter = venueOf(trade.venue);
   const leverage = trade.venue === 'perpl' ? Math.min(req.leverage ?? trade.leverage / 100, await adapter.maxLeverage(trade.market)) : 1;

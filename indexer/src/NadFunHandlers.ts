@@ -211,27 +211,22 @@ indexer.onEvent(
     const proceeds = pos.totalProceedsMonWei + amountOut;
     const sellCount = pos.sellCount + 1;
 
-    if (newQty <= 0n) {
-      const finalPos: NadPos = {
-        ...pos,
-        qtyRaw: 0n,
-        costMonWei: 0n,
-        realizedMonWei: newRealized,
-        totalProceedsMonWei: proceeds,
-        sellCount,
-        status: "CLOSED",
-      };
-      context.NadFunPosition.set(finalPos);
-      await closeRoundTrip(context, finalPos, tx, block, event.logIndex, ts);
-    } else {
-      context.NadFunPosition.set({
-        ...pos,
-        qtyRaw: newQty,
-        costMonWei: newCost,
-        realizedMonWei: newRealized,
-        totalProceedsMonWei: proceeds,
-        sellCount,
-      });
-    }
+    // Every sell is a closed slice with its own cost basis and proceeds:
+    // a partial sell (yours, or a copy following the trader out in parts)
+    // counts the moment it lands, not when the last token is gone.
+    await closeRoundTrip(context, {
+      ...pos,
+      qtyRaw: amountIn,
+      peakQtyRaw: amountIn,
+      totalCostMonWei: soldCost,
+      totalProceedsMonWei: amountOut,
+      realizedMonWei: realizedDelta,
+      sellCount: 1,
+    }, tx, block, event.logIndex, ts);
+    context.NadFunPosition.set(
+      newQty <= 0n
+        ? { ...pos, qtyRaw: 0n, costMonWei: 0n, realizedMonWei: newRealized, totalProceedsMonWei: proceeds, sellCount, status: "CLOSED" }
+        : { ...pos, qtyRaw: newQty, costMonWei: newCost, realizedMonWei: newRealized, totalProceedsMonWei: proceeds, sellCount },
+    );
   },
 );

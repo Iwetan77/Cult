@@ -6,6 +6,7 @@ import { checkLeverage, closePosition, openPosition, viewPositions } from '../tr
 import { readTpSl, type TpSl } from '../trading/tpsl.js';
 import type { CloseInput, Fill, Holding, OpenInput, VenueAdapter } from './types.js';
 import { PositionSide } from '../perpl/types.js';
+import { checkAddMargin } from '../trading/addMargin.js';
 import { MirrorError } from '../mirror/engine.js';
 
 // Perpl: orders go over the member's trading session with their Perpl API key.
@@ -63,9 +64,11 @@ export const perpl: VenueAdapter = {
       }
     };
     checkSide();
+    const notional = size * px;
+    const held = session.positions.get(`${accountId}:${m.id}`);
+    if (held && held.s > 0) checkAddMargin(held, m, px, notional, leverage, (await getExchangeInfo()).collateralDecimals);
     // Margin for this order plus a little for fees and price moves, moved in
     // from the wallet (AUSD, then MON via Kuru) if the Perpl account is short.
-    const notional = size * px;
     await ensurePerplMargin(i.userId, (notional / leverage) * 1.02 + notional * 0.001);
     checkSide(); // Funding can take several blocks; the position may have changed.
     const order = await openPosition(session, {
