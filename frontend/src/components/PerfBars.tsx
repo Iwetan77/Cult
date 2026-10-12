@@ -21,11 +21,12 @@ type Props = {
 
 // Cents only on small amounts.
 const money = (v: number, signed: boolean) => { const a = Math.abs(v), d = a >= 1000 ? 0 : 2; return `${v < 0 ? '-' : signed && v > 0 ? '+' : ''}${dollars(a, d)}`; };
-const compact = (v: number) => {
+const compact = (v: number, step: number) => {
   const a = Math.abs(v), sign = v < 0 ? '-' : '';
   if (a >= 1_000_000) return `${sign}$${(a / 1_000_000).toFixed(a >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`;
   if (a >= 1_000) return `${sign}$${(a / 1_000).toFixed(a >= 10_000 ? 0 : 1).replace(/\.0$/, '')}k`;
-  return `${sign}$${Math.round(a)}`;
+  const digits = step >= 1 ? Number.isInteger(step) ? 0 : 1 : Math.max(2, Math.min(8, Math.ceil(-Math.log10(step)) + 1));
+  return `${sign}${dollars(a, digits)}`;
 };
 
 // A clean axis: 3 to 6 steps of 1, 2, 2.5 or 5 × 10ⁿ covering every value.
@@ -37,7 +38,7 @@ function axis(values: number[]) {
   min = Math.floor(min / step + 1e-9) * step; max = Math.ceil(max / step - 1e-9) * step;
   const ticks: number[] = [];
   for (let v = min; v <= max + step / 2; v += step) ticks.push(Math.abs(v) < step / 1e6 ? 0 : v);
-  return { min, max, ticks };
+  return { min, max, ticks, step };
 }
 
 export function PerfBars({ bars, lit = () => true, valueLabel = 'PnL', totalLabel = 'Running total' }: Props) {
@@ -70,7 +71,7 @@ export function PerfBars({ bars, lit = () => true, valueLabel = 'PnL', totalLabe
   };
   useEffect(() => { setActive(start); setShown(false); }, [barsKey, start]);
 
-  const { min, max, ticks } = useMemo(() => axis(bars.flatMap(b => [b.value, b.total])), [bars]);
+  const { min, max, ticks, step } = useMemo(() => axis(bars.flatMap(b => [b.value, b.total])), [bars]);
   const y = (v: number) => ((v - min) / (max - min)) * 100;
   const span = (a: number, b: number) => ({ bottom: `${Math.min(y(a), y(b))}%`, height: `${Math.max(Math.abs(y(b) - y(a)), 0.8)}%` });
 
@@ -90,7 +91,7 @@ export function PerfBars({ bars, lit = () => true, valueLabel = 'PnL', totalLabe
 
   return <div className="pbars">
     <div className="pbars-plot">
-      <div className="pbars-axis" aria-hidden="true">{ticks.map(t => <span key={t} className={t === 0 ? 'is-zero' : undefined} style={{ bottom: `${y(t)}%` }}><b>{compact(t)}</b></span>)}</div>
+      <div className="pbars-axis" aria-hidden="true">{ticks.map(t => <span key={t} className={t === 0 ? 'is-zero' : undefined} style={{ bottom: `${y(t)}%` }}><b>{compact(t, step)}</b></span>)}</div>
       <div className="pbars-cols">
         {bars.map((b, i) => <button key={b.key} type="button" className={`pbars-col${i === active ? ' on' : ''}${lit(i) ? '' : ' is-dim'}`}
           aria-label={`${b.title}: ${valueLabel} ${signedDollars(b.value)}, ${totalLabel.toLowerCase()} ${signedDollars(b.total)}`}

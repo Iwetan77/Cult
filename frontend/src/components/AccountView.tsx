@@ -237,7 +237,7 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
         <div className="stat"><span>Realized PnL</span><strong className={`num ${(record.realizedPnlUsd ?? 0) >= 0 ? 'up' : 'down'}`}>{record.realizedPnlUsd == null ? '—' : signedDollars(record.realizedPnlUsd)}</strong></div>
         <div className="stat"><span>Win rate</span><strong className="num">{record.winRate == null ? '—' : percent(record.winRate * 100)}</strong></div>
         <div className="stat"><span>Trades</span><strong className="num">{record.tradeCount}<small> +{record.copied.tradeCount} copied</small></strong></div>
-        <div className="stat"><span>Avg win</span><strong className="num">{record.avgWinPct == null ? '—' : `+${record.avgWinPct.toFixed(1)}%`}</strong></div>
+        <div className="stat"><span>Avg win</span><strong className="num">{signedPct(record.avgWinPct, 1)}</strong></div>
       </div>
 
       <section className="card">
