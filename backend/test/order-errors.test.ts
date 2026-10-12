@@ -15,7 +15,9 @@ test('structured transaction fee failures prompt a MON top-up instead of an inte
   });
   const response = await app.request('/test/gas');
   assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), { message: 'Top up MON for gas.', code: 'needs_gas' });
+  const body = await response.json();
+  assert.equal(body.code, 'needs_gas');
+  assert.match(body.message, /faucet\.monad\.xyz/, 'testnet points at the free faucet');
 });
 
 test('Perpl rejections say what happened in plain words, never the raw codes', async () => {

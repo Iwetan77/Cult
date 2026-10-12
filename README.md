@@ -42,7 +42,7 @@ dollar stablecoin, redeemable 1:1 for USD); the token name appears only on the f
 - One dollar balance across the wallet, the Perpl trading account and predictions.
 - Deposit MON, USDC or AUSD. USDC converts to AUSD automatically, and perp margin is topped
   up from the wallet when a trade needs it.
-- New wallets can receive a small amount of MON for network fees (when a gas wallet is configured).
+- A wallet without MON for network fees is told how to get it: free from Monad's faucet on testnet, or by depositing MON on mainnet.
 - Withdrawals are protected by a 4-digit PIN.
 
 **Trading**

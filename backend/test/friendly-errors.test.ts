@@ -60,3 +60,10 @@ test('member choices and unknown internals', () => {
   assert.equal(explain(''), null);
   assert.equal(sentence('slow down a little'), 'Slow down a little.');
 });
+
+test('no MON for fees: testnet points at the free faucet, mainnet asks for a deposit', async () => {
+  const { gasMessage } = await import('../src/errors/friendly.js');
+  assert.match(gasMessage(10143), /faucet\.monad\.xyz/);
+  assert.doesNotMatch(gasMessage(143), /faucet|testnet/);
+  assert.match(gasMessage(143), /Deposit some MON/);
+});

@@ -9,6 +9,16 @@ export interface Friendly {
   message: string;
 }
 
+// Monad's public testnet faucet: free MON for network fees. There's no gas
+// top-up from Cult, so a wallet with no MON is pointed here on testnet.
+export const TESTNET_FAUCET_URL = 'https://faucet.monad.xyz';
+
+export function gasMessage(chainId = Number(process.env.PERPL_CHAIN_ID || 10143)): string {
+  return chainId === 143
+    ? 'Your wallet needs a little MON for network fees. Deposit some MON, then try again.'
+    : 'Your wallet needs a little MON for network fees. Get free testnet MON at faucet.monad.xyz, then try again.';
+}
+
 // Perpl's OrderStatusReason (`sr`) and OrderFailureReason (`fr`), from
 // https://docs.perpl.xyz/resources/for-developers/api/types-and-errors
 const SR = {
@@ -166,7 +176,7 @@ export function perplOrderProblem(sr: number, fr?: number | null, filled = false
 // Internal messages the engine, venues and funding code produce, matched to
 // what the member should read. First match wins.
 const RULES: [RegExp, Friendly][] = [
-  [/insufficient (balance|funds)|INSUFFICIENT_FUNDS|top up MON|for (gas|network fees)/i, { code: 'needs_gas', message: 'Top up MON for gas.' }],
+  [/insufficient (balance|funds)|INSUFFICIENT_FUNDS|top up MON|for (gas|network fees)/i, { code: 'needs_gas', get message() { return gasMessage(); } }],
   [/interrupted by a restart/i, { code: 'restarted', message: 'Cult restarted before your copy went out, so it was skipped. Nothing was traded.' }],
   [/detected \d+s late|at a stale price/i, { code: 'too_late', message: 'This trade reached us too late to copy at a fair price, so it was skipped.' }],
   [/leader (already )?closed|before mirror fired|exit covers it/i, { code: 'leader_closed', message: 'The trader closed this before your copy went out, so it was skipped.' }],

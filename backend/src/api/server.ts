@@ -43,7 +43,7 @@ import { isTradeRoute, MEMBER_LIMIT, PUBLIC_LIMIT, take, TRADE_LIMIT, type Limit
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { setTpSl, TpSlError } from '../trading/tpsl.js';
 import { LeverageError, OrderFailed } from '../trading/positions.js';
-import { explain, memberView, perplOrderProblem, sentence } from '../errors/friendly.js';
+import { explain, gasMessage, memberView, perplOrderProblem, sentence, TESTNET_FAUCET_URL } from '../errors/friendly.js';
 import { freshenRecords, indexerStatus } from '../indexer/stats.js';
 import { recentConversion } from '../funding/usdc.js';
 import { FundsError } from '../funding/margin.js';
@@ -140,7 +140,10 @@ export function createApp(engine: MirrorEngine) {
       if (why) console.warn('[api] take-profit/stop-loss not set:', err.message);
       return c.json(why ? { message: why.message, code: why.code } : { message: err.message }, 400);
     }
-    if (err instanceof FundsError) return c.json({ message: sentence(err.message), code: explain(err)?.code ?? 'needs_funds' }, 409);
+    if (err instanceof FundsError) {
+      const code = explain(err)?.code ?? 'needs_funds';
+      return c.json({ message: code === 'needs_gas' ? NO_GAS : sentence(err.message), code }, 409);
+    }
     if (err instanceof LeverageError) return c.json({ message: err.message, code: 'unsupported_leverage' }, 400);
     if (err instanceof OrderFailed) {
       console.warn('[api] Perpl order not completed:', err.message);
@@ -221,6 +224,8 @@ export function createApp(engine: MirrorEngine) {
       // What's switched on. predictions: Polymarket bets (needs the builder key);
       // crossChain: deposits from / withdrawals to other chains (Aurora Intents, mainnet).
       features: { predictions: predictionsEnabled(), crossChain: intentsEnabled() && env.chainId === 143, gasTopUp: gasToppingOn() },
+      // Testnet only: where to get free MON for network fees (null on mainnet).
+      faucetUrl: env.chainId === 143 ? null : TESTNET_FAUCET_URL,
     });
   });
 
@@ -1019,7 +1024,7 @@ async function gasCheckedBalances(userId: string, wallet: string) {
 }
 
 // What a member sees when their wallet can't pay a network fee.
-const NO_GAS = 'Top up MON for gas.';
+const NO_GAS = gasMessage(env.chainId);
 
 // A forgotten PIN can be reset this long after signing in again.
 const PIN_RESET_WINDOW_MS = 10 * 60_000;
