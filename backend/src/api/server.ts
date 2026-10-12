@@ -140,7 +140,7 @@ export function createApp(engine: MirrorEngine) {
       if (why) console.warn('[api] take-profit/stop-loss not set:', err.message);
       return c.json(why ? { message: why.message, code: why.code } : { message: err.message }, 400);
     }
-    if (err instanceof FundsError) return c.json({ message: sentence(err.message), code: explain(err)?.code === 'needs_permission' ? 'needs_permission' : 'needs_funds' }, 409);
+    if (err instanceof FundsError) return c.json({ message: sentence(err.message), code: explain(err)?.code ?? 'needs_funds' }, 409);
     if (err instanceof LeverageError) return c.json({ message: err.message, code: 'unsupported_leverage' }, 400);
     if (err instanceof OrderFailed) {
       console.warn('[api] Perpl order not completed:', err.message);

@@ -180,6 +180,7 @@ const RULES: [RegExp, Friendly][] = [
   [/no mark price|stale/i, { code: 'price_unavailable', message: "We couldn't get a live price for this market. Try again in a moment." }],
   [/swapp(ed|ing).*(failed|MON is)|MON swap returned less/i, { code: 'swap_failed', message: "The swap for this trade didn't finish. Your funds are safe in your wallet. Try again." }],
   [/Couldn't swap|SwapUnavailable|Kuru/i, { code: 'swap_unavailable', message: "We couldn't swap for this trade right now. Try again shortly." }],
+  [/position is down|near its margin limit/i, UNDERWATER],
   [/not enough funds|needs \$[\d.]+ (of testnet dollars|more)/i, NEEDS_MARGIN],
   [/fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|timeout|unreachable|HTTP 5\d\d/i, { code: 'service_unavailable', message: "The exchange isn't responding right now. Try again in a minute." }],
 ];

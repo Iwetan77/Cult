@@ -14,6 +14,7 @@ import { clans } from '../store/clans.js';
 import { members } from '../store/members.js';
 import { venue as defaultVenue, venueOf, type TradeSide, type Venue, type VenueAdapter } from '../venues/index.js';
 import { isEngineOrder, isEngineTx, recordRef } from './origin.js';
+import { UnderwaterError } from '../funding/errors.js';
 import { adjustments, mirrors, sizeFactor, tradeCults, trades, type Adjustment, type LeaderTrade, type Mirror } from './repo.js';
 import { takeAudience } from './audience.js';
 import { leaderDollarFraction, mirrorNotional } from './sizing.js';
@@ -743,7 +744,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       });
     } catch (e) {
       const msg = String(e).slice(0, 450);
-      if (!sent && !(e instanceof NotSized) && attempt <= MAX_RETRIES) {
+      if (!sent && !(e instanceof NotSized) && !(e instanceof UnderwaterError) && attempt <= MAX_RETRIES) {
         const again = adjustments.transition(id, 'submitting', 'pending', { skipUntil: Date.now() + RETRY_BACKOFF_MS * attempt, error: `retrying (${attempt}/${MAX_RETRIES}): ${msg}` })!;
         this.emit('adjustment', again);
         this.scheduleAdjustment(again);
@@ -1089,7 +1090,7 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       }
     } catch (e) {
       const msg = String(e).slice(0, 450);
-      if (!sent && !(e instanceof NotSized) && attempt <= MAX_RETRIES) {
+      if (!sent && !(e instanceof NotSized) && !(e instanceof UnderwaterError) && attempt <= MAX_RETRIES) {
         // Transient and nothing left: back to pending, try again shortly.
         const again = mirrors.transition(m.id, 'submitting', 'pending', { skipUntil: Date.now() + RETRY_BACKOFF_MS * attempt, error: `retrying (${attempt}/${MAX_RETRIES}): ${msg}` })!;
         this.emit('mirror', again);

@@ -7,3 +7,8 @@ export class FundingAuthorizationError extends FundsError {
     super('Trading permission refused the funding transaction. Renew trading permission in the app, then check your trading balance before trying again.', { cause });
   }
 }
+
+// Adding to a position that's down: Perpl checks the whole position against
+// the market's initial margin, and this order doesn't bring enough to cover
+// the loss. Retrying can't help, so the engine doesn't.
+export class UnderwaterError extends FundsError {}
