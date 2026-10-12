@@ -105,6 +105,7 @@ export type Holding = {
   sizeRaw: string; size: number; entryPriceAusd: number | null;
   markPriceAusd: number; valueAusd: number; pnlAusd: number | null; leverage: number;
   markerId?: string; tradeId?: string; origin?: MarkerOrigin | 'private'; cultIds?: string[]; isNetted?: boolean;
+  openedAt?: number | null; copiedFrom?: { userId: string; name: string; cultId: string; cultName: string } | null;
 };
 export type Fill = {
   venue: Venue; market: string; side: TradeSide; sizeRaw: string; size: number;

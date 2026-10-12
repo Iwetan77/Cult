@@ -8,7 +8,7 @@ import { HotPill, isHotMarket } from './HotPill';
 import { getHome, getMarkets, getProfile } from '@/lib/api';
 import { cachedList } from '@/lib/marketCache';
 import type { ChatRoom, ClosedTrade, Holding, Home, MarketListing, Me } from '@/lib/contracts';
-import { compactDollars, dollars, price, signedDollars, signedPct, messageLine, timeAgo } from '@/lib/format';
+import { compactDollars, displaySymbol, dollars, price, signedDollars, signedPct, messageLine, timeAgo } from '@/lib/format';
 import { Avatar } from './Avatar';
 import { TokenLogo } from './TokenLogo';
 import { RoomBadge } from './RoomBadge';
@@ -94,7 +94,7 @@ export function PositionsCard({ holdings, onMarket, title = 'Open positions' }: 
     <div className="card-head"><h2>{title}</h2></div>
     {holdings.length ? <div className="pos-list">{holdings.slice(0, 8).map(item => <button className="pos-row" key={`${item.venue}:${item.market}`} onClick={() => onMarket(item.market)}>
       <TokenLogo symbol={item.symbol} />
-      <span className="pos-name"><strong>{item.symbol}</strong><small><span className={`side-chip ${item.side}`}>{item.side.toUpperCase()}{item.venue === 'perpl' && item.leverage ? ` ${item.leverage}x` : ''}</span> {dollars(item.valueAusd)}</small></span>
+      <span className="pos-name"><strong>{displaySymbol(item.symbol, item.venue)}</strong><small><span className={`side-chip ${item.side}`}>{item.side.toUpperCase()}{item.venue === 'perpl' && item.leverage ? ` ${item.leverage}x` : ''}</span> {dollars(item.valueAusd)}</small></span>
       <span className="pos-pnl num"><b className={item.venue === 'perpl' ? ((item.pnlAusd ?? 0) >= 0 ? 'up' : 'down') : ''}>{item.venue === 'perpl' ? (item.pnlAusd == null ? 'Pending' : signedDollars(item.pnlAusd)) : dollars(item.valueAusd)}</b>{item.venue === 'perpl' && item.entryPriceAusd != null && item.pnlAusd != null && <small className={(item.pnlAusd ?? 0) >= 0 ? 'up' : 'down'}>{signedPct(((item.pnlAusd) / Math.max(1e-9, item.valueAusd - item.pnlAusd)) * 100, 1)}</small>}</span>
     </button>)}</div> : <div className="empty compact"><span>No open positions yet.</span><button className="link" onClick={() => onMarket('')}>Find a market <ArrowRight size={13} /></button></div>}
   </section>;

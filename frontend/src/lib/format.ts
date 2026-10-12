@@ -7,6 +7,7 @@ export const signedMon = (value: number) => `${value > 0 ? '+' : ''}${new Intl.N
 export const price = (value: number | null | undefined) => value == null ? '—' : value >= 1 ? dollars(value) : `$${value.toPrecision(value >= 0.01 ? 4 : 3)}`;
 export const compactDollars = (value: number | null | undefined) => value == null ? '—' : `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: value >= 1e9 ? 2 : 1 }).format(value)}`;
 export const signedPct = (value: number | null | undefined, digits = 2) => value == null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(digits)}%`;
+export const displaySymbol = (symbol: string, venue: 'perpl' | 'nadfun') => venue === 'perpl' ? `${symbol.replace(/-PERP$/i, '')}-PERP` : symbol;
 export const timeAgo = (ms: number) => {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return 'now';

@@ -883,6 +883,7 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
 .ttable-main > span { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .ttable-main strong { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 500; }
 .ttable-main small { font-size: 13px; color: var(--dim); }
+.ttable-main small.lot-meta { display: flex; flex-wrap: wrap; gap: 3px 8px; }
 .ttable-main .pm-art { width: 32px; height: 32px; border-radius: 50%; }
 .ttable-main .pm-art b { font-size: 13px; }
 .ttable-main strong.ttable-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1444,6 +1445,7 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
   .ttable-row--open { grid-template-columns: minmax(0, 1fr) 76px auto; gap: 10px; }
   .ttable-row--open .ttable-when { display: none; }
   .ttable-row--open .ttable-main small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ttable-row--open .ttable-main small.lot-meta { white-space: normal; overflow: visible; }
   .ttable-row--open > :nth-child(2) { display: none; }
   .ttable-row--open .ttable-side-sm { display: inline; }
   .ttable-row--open .btn-sm { padding: 0 12px; }
