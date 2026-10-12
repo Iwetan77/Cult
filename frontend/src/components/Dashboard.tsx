@@ -141,6 +141,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
   const [perpsPrompt, setPerpsPrompt] = useState(false);
   const [monBalance, setMonBalance] = useState<number | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [statsRefreshAt, setStatsRefreshAt] = useState(0);
   const netHoldings = useMemo(() => [...new Map(holdings.map(holding => [`${holding.venue}:${holding.market.toLowerCase()}`, holding])).values()].flatMap(holding => {
     const combined = combinedMarketHolding(holdings, holding.market, holding.venue);
     return combined ? [combined] : [];
@@ -545,6 +546,10 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         if (message.event === 'mirror' || message.event === 'adjustment') {
           const failure = copyFailureFromEvent(message.data, me?.id, clanId);
           if (failure) { setCopyFailure(failure); setError(failure.reason); }
+          try {
+            const change = JSON.parse(message.data) as { userId?: string; status?: string; kind?: string };
+            if (change.userId === me?.id && (message.event === 'mirror' && change.status === 'closed' || message.event === 'adjustment' && change.kind === 'reduce' && change.status === 'done')) setStatsRefreshAt(Date.now());
+          } catch { /* Ignore malformed copy events. */ }
         }
         if (message.event === 'message') {
           try {
@@ -909,6 +914,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       if (!wholeMarket && !holding.markerId) throw new Error('This trade has no lot identifier. Refresh positions, or use Close all on the market.');
       const part = positionCloseSizeRaw(holding, share);
       const fill = await closePosition(await token(), holding.market, part, wholeMarket ? undefined : holding.markerId);
+      setStatsRefreshAt(Date.now());
       setSelectedId(null);
       if (clanId) await loadChart(clanId, chartMarket).catch(() => undefined);
       setHoldings((await getHoldings(await token())).positions);
@@ -1258,7 +1264,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         : view === 'groups' ? <div className="view one-col"><section className="view-main"><header className="page-head"><div><h1 className="display">Cults</h1></div><div className="page-actions"><button className="btn btn-ghost btn-sm" onClick={() => setFormOpen('join')}><Link2 size={15} /> Invite code</button><button className="btn btn-primary btn-sm" onClick={() => setFormOpen('create')}><Plus size={15} /> Create</button></div></header><div className="card flush">{[...latestFirst(me.rooms.filter(room => room.kind === 'cult')), ...me.rooms.filter(room => room.kind !== 'cult')].filter(room => room.name.toLowerCase().includes(search.trim().toLowerCase())).map(room => <RoomRow key={room.id} room={room} unread={unread[room.id]} mention={mentioned[room.id]} onOpen={() => openRoom(room.id)} />)}</div></section></div>
         : view === 'discover' ? <DiscoverCults busy={!!busy} onJoin={joinPublic} country={me.country ?? null} cultId={clanId} onProfile={openAccount} search={search} onCreate={() => setFormOpen('create')} onInvite={() => setFormOpen('join')} onOpenRoom={openRoom} />
         : view === 'leaderboards' ? <Leaderboards country={me.country ?? null} cultId={clanId} onProfile={openAccount} />
-        : view === 'account' ? <AccountView id={profileId} usernameChangedAt={me.usernameChangedAt} holdings={holdings} onCloseHolding={closeTrade} onShareHolding={shareHolding} onMarket={openMarket} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
+        : view === 'account' ? <AccountView id={profileId} usernameChangedAt={me.usernameChangedAt} holdings={holdings} statsRefreshAt={statsRefreshAt} onCloseHolding={closeTrade} onShareHolding={shareHolding} onMarket={openMarket} onDeposit={() => setDepositOpen(true)} onWithdraw={() => setWithdrawOpen(true)} onSignOut={signOut} tab={accountTab} onTab={tab => navigate({ view: 'account', profile: profileId, tab }, true)} predictionRevision={predictionRev} onOpenPrediction={openPrediction} onSellPrediction={sellPredictionPosition} onRedeemPrediction={demo ? undefined : redeemPredictionPosition} signOutLabel={demo ? 'Exit demo' : 'Sign out'} onTrade={setTradeSheetTarget} onAvatarSaved={loadMe} onRoom={openRoom} />
         : <div className="view two-col room-view">
           <section className="view-main room-main">
             <div className="room-mobile"><button className="icon-btn" title="Back to cults" onClick={() => goUp({ view: 'groups' })}><ArrowLeft size={18} /></button><span>{activeRoom && <RoomBadge icon={activeRoom.icon} kind={activeRoom.kind} size="sm" />}{activeRoom?.name ?? 'Room'}</span><button className="btn btn-ghost btn-sm room-more" aria-label={activeRoom?.kind === 'cult' ? 'More: positions, members and settings' : 'More: rankings'} onClick={() => setGroupPanelOpen(true)}><Menu size={15} /> More</button></div>

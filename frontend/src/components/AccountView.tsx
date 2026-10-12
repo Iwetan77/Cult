@@ -54,6 +54,7 @@ type Props = {
   onShareHolding?: (holding: Holding) => void; onMarket?: (marketId: string) => void;
   signOutLabel?: string;
   usernameChangedAt?: string | null; // your last username change (one every 3 months)
+  statsRefreshAt?: number;
 };
 
 export type { AccountTab } from '@/lib/routes';
@@ -93,8 +94,12 @@ function performanceBars(trades: ClosedTrade[], now: number): PerfBar[] {
   return bars.slice(-8);
 }
 
-export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out', usernameChangedAt }: Props) {
+export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdraw, onSignOut, onTrade, onAvatarSaved, onRoom, tab, onTab: setTab, predictionRevision, onOpenPrediction, onSellPrediction, onRedeemPrediction, onShareHolding, onMarket, signOutLabel = 'Sign out', usernameChangedAt, statsRefreshAt = 0 }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const profileRef = useRef<Profile | null>(null);
+  const [statsUpdating, setStatsUpdating] = useState(false);
+  const [statsDelayed, setStatsDelayed] = useState(false);
+  useEffect(() => { profileRef.current = profile; }, [profile]);
   const fileInput = useRef<HTMLInputElement>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,16 +140,48 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
     return () => { active = false; window.clearInterval(timer); };
   }, [slugsKey]);
 
-  // Your positions changed (a close, a partial close, a new trade): refresh the lists quietly.
+  // A reduced lot can take a few blocks to appear in the verified record.
   const holdingsKey = holdings.map(h => `${holdingIdentity(h)}:${h.tradeId ?? ''}:${h.sizeRaw}`).sort().join(',');
-  const firstHoldings = useRef(holdingsKey);
+  const holdingsRef = useRef(holdings);
+  useEffect(() => { holdingsRef.current = holdings; }, [holdings]);
+  const lastHoldings = useRef(new Map(holdings.map(h => [holdingIdentity(h), BigInt(h.sizeRaw)])));
+  const lastStatsRefresh = useRef(0);
   useEffect(() => {
-    if (id !== 'me' || holdingsKey === firstHoldings.current) return;
-    firstHoldings.current = holdingsKey;
+    const current = new Map(holdingsRef.current.map(h => [holdingIdentity(h), BigInt(h.sizeRaw)]));
+    const reduced = [...lastHoldings.current].some(([key, size]) => (current.get(key) ?? BigInt(0)) < size);
+    lastHoldings.current = current;
+    const requested = statsRefreshAt !== lastStatsRefresh.current && Date.now() - statsRefreshAt < 90_000;
+    lastStatsRefresh.current = statsRefreshAt;
+    if (id !== 'me' || (!reduced && !requested)) return;
     let active = true;
-    getAccessToken().then(token => token ? getProfile(token, id) : null).then(value => { if (active && value) setProfile(value); }).catch(() => undefined);
-    return () => { active = false; };
-  }, [id, holdingsKey]);
+    let timer: number | undefined;
+    let baseline = profileRef.current?.record ?? null;
+    const delays = [2_000, 5_000, 10_000, 20_000, 40_000, 60_000];
+    let attempt = 0;
+    setStatsUpdating(true); setStatsDelayed(false);
+    const poll = async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) { if (active) setStatsUpdating(false); return; }
+        const next = await getProfile(token, id);
+        if (!active) return;
+        setProfile(next);
+        if (baseline && (baseline.revision && next.record.revision ? next.record.revision !== baseline.revision
+          : next.record.tradeCount !== baseline.tradeCount || next.record.copied.tradeCount !== baseline.copied.tradeCount || next.record.lastTradeAt !== baseline.lastTradeAt || next.record.realizedPnlUsd !== baseline.realizedPnlUsd)) {
+          setStatsUpdating(false);
+          return;
+        }
+        baseline ??= next.record;
+      } catch { /* Keep checking while the result is settling. */ }
+      if (!active) return;
+      if (attempt >= delays.length) { setStatsUpdating(false); setStatsDelayed(true); return; }
+      const wait = delays[attempt]! - (attempt ? delays[attempt - 1]! : 0);
+      attempt++;
+      timer = window.setTimeout(() => { void poll(); }, wait);
+    };
+    void poll();
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [id, holdingsKey, statsRefreshAt]);
   // Settings sits below the fold; bring it up when it is picked (e.g. from the side panel).
   const loaded = profile != null;
   useEffect(() => {
@@ -238,6 +275,8 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
         <div className="stat"><span>Trades</span><strong className="num">{record.tradeCount}<small> +{record.copied.tradeCount} copied</small></strong></div>
         <div className="stat"><span>Avg win</span><strong className="num">{signedPct(record.avgWinPct, 1)}</strong></div>
       </div>
+      {profile.isMe && statsUpdating && <p className="profile-stat-update" role="status">Updating your stats…</p>}
+      {profile.isMe && statsDelayed && <p className="profile-stat-update" role="status">Your results are taking longer to update. Check back shortly.</p>}
 
       <section className="card">
         <div className="card-head"><h2>Performance</h2><span className="count">Realized, closed trades</span></div>

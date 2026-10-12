@@ -869,6 +869,7 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .username-edit .btn { min-height: 44px; }
 .username-edit small { grid-column: 1 / -1; min-height: 18px; }
 .profile-photo-note { position: relative; display: flex; gap: 14px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.profile-stat-update { margin: -4px 0 16px; color: var(--muted); font-size: 12px; }
 .ttable { display: flex; flex-direction: column; gap: 2px; margin: 0 -10px; }
 .ttable-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 96px 64px; align-items: center; gap: 17px; padding: 12px 10px; border: 0; border-radius: var(--r-ctl); background: none; text-align: left; font-size: 14px; }
 button.ttable-row:hover, .ttable-row:hover { background: var(--hover); }

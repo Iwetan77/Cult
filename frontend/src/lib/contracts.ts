@@ -21,7 +21,7 @@ export type Member = {
   id: string; name: string; avatarUrl: string | null; address: string; admin?: boolean; owner?: boolean; winRate: number | null;
   realizedPnlUsd: number | null; tradeCount: number; verified: boolean;
   stats: {
-    verified: boolean; tradeCount: number; winRate: number | null;
+    verified: boolean; tradeCount: number; winRate: number | null; revision?: string;
     realizedPnlPerplUsd: number; realizedPnlMon: number; realizedPnlUsd: number | null;
     monPriceUsed: number | null; lastTradeAt: number | null; streak: number; avgWinPct: number | null;
     copied: { tradeCount: number; winRate: number | null; realizedPnlUsd: number | null };
