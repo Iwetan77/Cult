@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createTestIndexer } from 'envio';
 
 const OWNER = '0x00000000000000000000000000000000000000aa';
-const blk = (n: number) => ({ number: 66_310_000 + n, timestamp: 1_790_000_000 + n });
+const blk = (n: number) => ({ number: 68_810_000 + n, timestamp: 1_790_000_000 + n });
 const tx = (n: number) => ({ hash: '0x' + n.toString(16).padStart(64, '0') });
 
 test('open, add at a higher price, close: averaged entry, funding from the add, one round trip', async () => {
@@ -15,8 +15,8 @@ test('open, add at a higher price, close: averaged entry, funding from the add, 
   await t.process({
     chains: {
       10143: {
-        startBlock: 66_310_001,
-        endBlock: 66_310_005,
+        startBlock: 68_810_001,
+        endBlock: 68_810_005,
         simulate: [
           { contract: 'Exchange', event: 'AccountCreated', block: blk(1), transaction: tx(1), params: { account: OWNER, id: 7n } },
           // BTC (priceDecimals 1, sizeDecimals 5): open 1.00000 at 100000.0
@@ -51,8 +51,8 @@ test('closing part of a position counts at once, with the exit price its PnL imp
   await t.process({
     chains: {
       10143: {
-        startBlock: 66_310_001,
-        endBlock: 66_310_006,
+        startBlock: 68_810_001,
+        endBlock: 68_810_006,
         simulate: [
           { contract: 'Exchange', event: 'AccountCreated', block: blk(1), transaction: tx(11), params: { account: OWNER, id: 9n } },
           // SOL (priceDecimals 2, sizeDecimals 3): long 2.000 at 150.00

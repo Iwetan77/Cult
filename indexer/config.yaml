@@ -48,10 +48,12 @@ contracts:
 chains:
   - id: 10143 # Monad testnet
     # Only Cult members are tracked (src/members.ts), and a record starts when
-    # they join, so there's no point scanning months of other people's trades.
-    # 2026-09-28, when the hosted indexer went live. (Perpl testnet exchange
-    # deploy block: 62953; Nad.fun router: 30418626.)
-    start_block: 66270000
+    # they join, so there's no point scanning other people's trades. Every
+    # member wallet comes from the Privy app made on 2026-10-05; the earliest
+    # own tx of any member is block 68824884 (2026-10-07 00:13 UTC), found by
+    # binary-searching each member's nonce. (Perpl testnet exchange deploy
+    # block: 62953; Nad.fun router: 30418626.)
+    start_block: 68800000
     rpc:
       - url: https://testnet-rpc.monad.xyz
         for: fallback
