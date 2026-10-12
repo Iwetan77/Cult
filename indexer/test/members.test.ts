@@ -28,7 +28,7 @@ process.env.INDEXER_API_KEY = 'k';
 
 const { createTestIndexer } = await import('envio');
 
-const blk = (n: number) => ({ number: 66_320_000 + n, timestamp: 1_790_000_000 + n });
+const blk = (n: number) => ({ number: 68_820_000 + n, timestamp: 1_790_000_000 + n });
 const tx = (n: number) => ({ hash: '0x' + (n + 500).toString(16).padStart(64, '0') });
 const perpl = (n: number, event: string, params: object) => ({ contract: 'Exchange', event, block: blk(n), transaction: tx(n), params });
 const open = (n: number, accountId: bigint) =>
@@ -48,8 +48,8 @@ test('only members are indexed; a member account from before the start block sti
   await t.process({
     chains: {
       10143: {
-        startBlock: 66_320_001,
-        endBlock: 66_320_008,
+        startBlock: 68_820_001,
+        endBlock: 68_820_008,
         simulate: [
           // a stranger's account, created in range, trades a round trip
           perpl(1, 'AccountCreated', { account: STRANGER, id: 7n }),

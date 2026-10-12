@@ -13,7 +13,7 @@
 // Reads the same ENVIO_PG_* settings as Envio, with Envio's local defaults.
 import postgres from 'postgres';
 
-const INDEX_VERSION = '2026-10-12 every close is a trade';
+const INDEX_VERSION = '2026-10-12 every close is a trade, from the first member tx';
 
 const limitMs = Number(process.env.WAIT_FOR_DB_SECONDS || 300) * 1000;
 const ssl = process.env.ENVIO_PG_SSL_MODE;
