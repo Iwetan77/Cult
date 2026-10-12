@@ -50,6 +50,7 @@ export interface ClosedTrade {
   side: string; // long | short | buy
   returnPct: number | null; // realized PnL / what went in: perpl notional at entry, nad.fun MON cost. Same sign as the PnL.
   pnlUsd: number | null; // nad.fun converted at the MON price used
+  costUsd: number | null; // what went in: perpl notional at entry, nad.fun MON cost in $ (null without a MON price)
   entryPrice: number | null; // perpl only ($ per unit, size-weighted over adds)
   exitPrice: number | null; // perpl only
   isWin: boolean;
@@ -116,6 +117,7 @@ export function closedTrades(row: TraderRow, monPx: number | null, sentByUs: Set
       // From the PnL (funding included), so a win never shows a negative return.
       returnPct: notional && notional > 0 ? (pnl / notional) * 100 : entry && exit != null ? ((exit - entry) / entry) * 100 * (short ? -1 : 1) : null,
       pnlUsd: pnl,
+      costUsd: notional,
       entryPrice: entry,
       exitPrice: exit,
       isWin: t.isWin,
@@ -134,6 +136,7 @@ export function closedTrades(row: TraderRow, monPx: number | null, sentByUs: Set
       side: 'buy',
       returnPct: cost && proceeds != null ? (proceeds / cost - 1) * 100 : null,
       pnlUsd: monPx != null ? Number(t.realizedPnlMon) * monPx : null,
+      costUsd: monPx != null && cost != null ? cost * monPx : null,
       entryPrice: null,
       exitPrice: null,
       isWin: t.isWin,
@@ -144,6 +147,27 @@ export function closedTrades(row: TraderRow, monPx: number | null, sentByUs: Set
     });
   }
   return out.sort((a, b) => b.closedAt - a.closedAt);
+}
+
+// Every close is its own closed trade (a position closed in three parts is
+// three). Where a position should read as one trade (the home feed, a trade
+// sheet), its closes are combined: PnL summed, return over everything that
+// went in, latest close time.
+export function combineCloses(trades: ClosedTrade[]): ClosedTrade[] {
+  const groups = new Map<string, ClosedTrade[]>();
+  for (const t of trades) {
+    const k = `${t.venue}:${t.openTx.toLowerCase()}:${t.copied}`;
+    groups.set(k, [...(groups.get(k) ?? []), t]);
+  }
+  return [...groups.values()]
+    .map((g) => {
+      if (g.length === 1) return g[0]!;
+      const last = g.reduce((a, b) => (b.closedAt > a.closedAt ? b : a));
+      const pnl = g.some((t) => t.pnlUsd == null) ? null : g.reduce((a, t) => a + t.pnlUsd!, 0);
+      const cost = g.some((t) => t.costUsd == null) ? null : g.reduce((a, t) => a + t.costUsd!, 0);
+      return { ...last, pnlUsd: pnl, costUsd: cost, isWin: pnl != null ? pnl > 0 : last.isWin, returnPct: pnl != null && cost ? (pnl / cost) * 100 : last.returnPct };
+    })
+    .sort((a, b) => b.closedAt - a.closedAt);
 }
 
 // Own vs copied, split by the tx that opened each round trip.

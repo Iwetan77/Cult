@@ -1,4 +1,4 @@
-import { recordsFor, type ClosedTrade, type MemberStats } from '../indexer/stats.js';
+import { combineCloses, recordsFor, type ClosedTrade, type MemberStats } from '../indexer/stats.js';
 import { getDb } from '../store/db.js';
 import { cultImages } from '../store/media.js';
 import { clans } from '../store/clans.js';
@@ -150,7 +150,8 @@ export async function home(viewerId: string, limit = 10): Promise<Home> {
   const since = Date.now() - 7 * DAY;
   const candidates: (ClosedTrade & { member: Member })[] = [];
   for (const m of everyone) {
-    for (const t of records.get(m.wallet.toLowerCase())?.trades ?? []) {
+    // A position closed in parts is one entry here, not one per part.
+    for (const t of combineCloses(records.get(m.wallet.toLowerCase())?.trades ?? [])) {
       if (!t.copied && t.closedAt >= since && t.returnPct != null) candidates.push({ ...t, member: m });
     }
   }
@@ -223,7 +224,7 @@ export async function tradeView(tradeId: string, viewerId: string): Promise<Trad
     .get(t.user_id, t.venue, t.id, t.id, t.open_tx);
   if (t.closed_at && t.open_tx && !lot) {
     const rec = (await recordsFor([m.wallet])).get(m.wallet.toLowerCase());
-    const rt = rec?.trades.find((x) => x.openTx.toLowerCase() === t.open_tx!.toLowerCase());
+    const rt = combineCloses(rec?.trades.filter((x) => x.openTx.toLowerCase() === t.open_tx!.toLowerCase()) ?? [])[0];
     if (rt) result = { returnPct: rt.returnPct, pnlUsd: rt.pnlUsd, entryPrice: rt.entryPrice, exitPrice: rt.exitPrice, isWin: rt.isWin };
   }
   const youCopied =

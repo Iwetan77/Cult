@@ -33,3 +33,29 @@ test("a copy's exit out of a position the member also holds counts as copied", (
   assert.equal(stats.copied.tradeCount, 1);
   assert.deepEqual(closedTrades(row, 1, new Set(['0xcopyexit'])).map((t) => t.copied), [false, true]);
 });
+
+test('a position closed in three parts reads as one trade where a feed shows positions', async () => {
+  const { combineCloses } = await import('../src/indexer/stats.js');
+  const row: Row = {
+    id: W,
+    trades: [
+      perp({ closeTx: '0xa', realizedPnlUsd: '2.4', isWin: true, notionalUsd: '75', closedAt: '1790000001000' }),
+      perp({ closeTx: '0xb', realizedPnlUsd: '-1', isWin: false, notionalUsd: '75', closedAt: '1790000002000' }),
+      perp({ closeTx: '0xc', realizedPnlUsd: '10', isWin: true, notionalUsd: '150', closedAt: '1790000003000' }),
+      perp({ openTx: '0xother', closeTx: '0xd', realizedPnlUsd: '-3', isWin: false, notionalUsd: '100', closedAt: '1790000000500' }),
+    ],
+    nadFunTrades: [],
+  };
+  const each = closedTrades(row, 1, new Set());
+  assert.equal(each.length, 4, 'every close is listed and counted');
+  assert.equal(toStats(row, 1, new Set()).tradeCount, 4);
+  const positions = combineCloses(each);
+  assert.equal(positions.length, 2);
+  const [sol] = positions;
+  assert.equal(sol!.openTx, '0xopen');
+  assert.equal(Math.round(sol!.pnlUsd! * 100) / 100, 11.4);
+  assert.equal(sol!.costUsd, 300);
+  assert.equal(Math.round(sol!.returnPct! * 100) / 100, 3.8);
+  assert.equal(sol!.isWin, true);
+  assert.equal(sol!.closedAt, 1790000003000);
+});
