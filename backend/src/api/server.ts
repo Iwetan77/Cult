@@ -18,6 +18,7 @@ import { listMonMarkets } from '../nadfun/trading.js';
 import { monPriceAusd } from '../prices.js';
 import { venue, venueOf } from '../venues/index.js';
 import { invalidatePerplReads } from '../venues/perpl.js';
+import type { Holding } from '../venues/types.js';
 import { AuthError, identify, privyLastSignIn } from '../privy/auth.js';
 import { backendSignerStatus, forgetSignerStatus, memberSignerGrant } from '../privy/policy.js';
 import { clans, MirrorPolicySchema, type MirrorPolicy, AUTO_FOLLOW_DEFAULTS } from '../store/clans.js';
@@ -612,8 +613,24 @@ export function createApp(engine: MirrorEngine) {
       venue('perpl').holdings(userId).catch(() => []),
       venue('nadfun').holdings(userId, heldMarkets(userId, 'nadfun')).catch(() => []),
     ]);
-    return c.json({ positions: allocatedHoldings(userId, [...p, ...n]) });
+    return c.json({ positions: allocatedHoldings(userId, [...p, ...n]).map(lotLabels) });
   });
+  // What tells two lots on one market apart in the Open list: when it was
+  // opened and, for a copy, whose trade it copies and in which cult.
+  const lotLabels = (h: Holding) => {
+    const [kind, id] = (h.markerId ?? '').split(':', 2);
+    const trade = h.tradeId ? trades.get(h.tradeId) : undefined;
+    let openedAt: number | null = trade?.openedAt ?? null;
+    if (kind === 'mirror') openedAt = mirrors.get(id!)?.createdAt ?? openedAt;
+    if (kind === 'stack') openedAt = (getDb().prepare('SELECT created_at AS t FROM stacks WHERE id = ?').get(id!) as { t: number } | undefined)?.t ?? openedAt;
+    const leader = (kind === 'mirror' || kind === 'stack') && trade ? members.get(trade.userId) : undefined;
+    const cultId = kind === 'mirror' || kind === 'stack' ? h.cultIds?.[0] : undefined;
+    return {
+      ...h,
+      openedAt,
+      copiedFrom: leader ? { userId: leader.userId, name: displayName(leader), cultId: cultId ?? null, cultName: cultId ? clans.get(cultId)?.name ?? null : null } : null,
+    };
+  };
 
   // A member's own trade, on either venue. Not tagged as an engine order, so
   // it's a leader trade and clan-mates get auto-mirrored. marketId is a Perpl
