@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useState } from 'react';
 import { disablePhonePush, phonePushOwner, phonePushSupported, preparePhonePush, subscribePhonePush } from '@/lib/phonePush';
@@ -29,7 +30,7 @@ export function PhoneNotifications({ owner }: { owner: string }) {
     try {
       if (enabled) { await disablePhonePush(); setEnabled(false); setNote('Phone alerts are off on this device.'); }
       else { await subscribePhonePush(owner, prepared); setNotifyPref(owner, true); setEnabled(true); setNote('On for this device: liquidations and new cult trades.'); }
-    } catch (error) { if (phonePushOwner() !== owner) setEnabled(false); setNote(error instanceof Error ? error.message : 'Could not update phone alerts.'); }
+    } catch (error) { if (phonePushOwner() !== owner) setEnabled(false); setNote(friendlyError(error, 'Phone alerts could not be updated. Try again.')); }
     finally { setBusy(false); }
   };
   const test = async () => {
@@ -39,7 +40,7 @@ export function PhoneNotifications({ owner }: { owner: string }) {
       if (!token) throw new Error('Sign in again to send a test alert.');
       await testPhonePush(token);
       setNote('Test alert queued. Check your phone notifications.');
-    } catch (error) { setNote(error instanceof Error ? error.message : 'Test alert could not be sent.'); }
+    } catch (error) { setNote(friendlyError(error, 'The test alert could not be sent. Check notification permission and try again.')); }
     finally { setBusy(false); }
   };
   return <div className="setting"><div><strong>Phone alerts</strong><small role="status">{note}</small></div>

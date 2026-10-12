@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
@@ -28,7 +29,7 @@ export function DepositSheet({ onClose, signerReady, permissionBusy, onGrantPerm
       if (!token) throw new Error('Sign in again to see your deposit address.');
       return getDeposit(token);
     }).then(value => { if (active) { setInfo(value); setError(null); } })
-      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Deposit details unavailable.'); })
+      .catch(reason => { if (active) setError(friendlyError(reason, 'Deposit details are unavailable. Try again shortly.')); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [revision]);

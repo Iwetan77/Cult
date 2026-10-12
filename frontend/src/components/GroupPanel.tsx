@@ -13,6 +13,7 @@ import { squareImage } from '@/lib/image';
 import { SharedChart } from './SharedChart';
 import { Avatar } from './Avatar';
 import { RoomBadge } from './RoomBadge';
+import { friendlyError } from '@/lib/friendlyError';
 
 type Props = {
   room: ChatRoom; cult: Clan | null; config: BackendConfig | null; snapshot: ChartSnapshot | null;
@@ -40,7 +41,7 @@ function RoomRanking({ room, cultId, onProfile }: { room: ChatRoom; cultId?: str
       if (!token) throw new Error('Sign in again to view rankings.');
       return getLeaderboard(token, room.kind === 'cult' ? 'cult' : room.kind, cultId);
     }).then(result => { if (active) setBoard(result); }).catch(reason => {
-      if (active) setError(reason instanceof Error ? reason.message : 'Rankings unavailable.');
+      if (active) setError(friendlyError(reason, 'Rankings are unavailable. Try again shortly.'));
     });
     return () => { active = false; };
   }, [room.id, room.kind, cultId]);
@@ -78,7 +79,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
     try {
       await onFollowOn(mirrorPolicyFromDraft(maxUsd, balancePct, cult?.myPolicy?.followExits !== false));
       setFollowSheet(false);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Auto-follow limits could not be saved.'); }
+    } catch (reason) { setError(friendlyError(reason, 'Auto-follow limits could not be saved. Check them and try again.')); }
   };
 
   if (room.kind !== 'cult' || !cult) return <aside className="group">
@@ -103,7 +104,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
   return <aside className="group">
     <section className="card group-hero">
       {cult.isAdmin && onImage ? <button type="button" className="cult-image-pick" title="Change the cult picture" aria-label="Change the cult picture" disabled={busy} onClick={() => imageInput.current?.click()}><RoomBadge icon={room.icon} kind="cult" size="lg" /><span className="cult-image-cam"><Camera size={12} /></span></button> : <RoomBadge icon={room.icon} kind="cult" size="lg" />}
-      {cult.isAdmin && onImage && <input ref={imageInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void squareImage(file).then(onImage, reason => setError(reason instanceof Error ? reason.message : 'That picture could not be used.')); }} />}
+      {cult.isAdmin && onImage && <input ref={imageInput} type="file" accept="image/*" hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void squareImage(file).then(onImage, reason => setError(friendlyError(reason, 'That picture could not be used. Choose another and try again.'))); }} />}
       <div><h2>{cult.name}</h2><small className="group-hero-meta">{cult.visibility === 'public' ? <Globe2 size={12} /> : <Lock size={12} />}{cult.visibility === 'public' ? 'Public' : 'Private'} · {cult.memberCount} {cult.memberCount === 1 ? 'member' : 'members'} · {openPositions} open</small></div>
       <button className="btn btn-ghost btn-sm" onClick={onInvite}><Copy size={14} /> Invite</button>
     </section>
@@ -122,7 +123,7 @@ export function GroupPanel({ room, cult, config, snapshot, selected, busy, signe
       {cult.autoFollow && signerPrompt && <div className="follow-alert"><p>{signerPrompt}. New meme copies are cancelled until your wallet permission is confirmed.</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onGrantSigner}><ShieldCheck size={14} /> Approve signer</button></div>}
       {cult.autoFollow && !perpsReady && <div className="follow-alert"><p>Perp copying is not ready. Enable your perps account and trading key once to copy new perp trades.</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onEnablePerps}><ShieldCheck size={14} /> Enable perp copying</button></div>}
       {cult.autoFollow && perpsReady && !perpsFunded && <div className="follow-alert"><p>Perp copies need dollars in your wallet or trading account.{config?.chainId === 10143 ? ' MON alone cannot fund testnet perps.' : ''}</p><button className="btn btn-ghost btn-sm btn-block" disabled={busy} onClick={onDeposit}>Deposit</button></div>}
-      {copyFailure && <div className="follow-alert" role="status"><p>Last copy did not run: {copyFailure}</p><button className="link" onClick={onDismissCopyFailure}>Dismiss</button></div>}
+      {copyFailure && <div className="follow-alert" role="status"><p>{friendlyError(copyFailure)}</p><button className="link" onClick={onDismissCopyFailure}>Dismiss</button></div>}
       {followSheet && <form className="follow-sheet" noValidate onSubmit={event => { event.preventDefault(); void turnOn(); }}>
         <div className="follow-sheet-head"><strong>Your limits in this cult</strong><button type="button" className="icon-btn icon-btn--sm" title="Close limits" aria-label="Close limits" disabled={busy} onClick={() => setFollowSheet(false)}><X size={14} /></button></div>
         <label className="field follow-field"><span className="field-top">Maximum copy value ($)</span>

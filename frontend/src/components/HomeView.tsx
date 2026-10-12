@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
@@ -152,7 +153,7 @@ export function HomeView({ me, holdings, unread, mentioned, search, onMarket, on
       void getProfile(token, 'me').then(p => { if (active) setClosed(p.closedTrades); }).catch(() => { if (active) setClosed([]); });
       return getHome(token);
     }).then(value => { if (active) setHome(value); })
-      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Home is unavailable.'); });
+      .catch(reason => { if (active) setError(friendlyError(reason, 'Home is unavailable. Try again shortly.')); });
     return () => { active = false; };
   }, []);
   const scroll = (dir: number) => rail.current?.scrollBy({ left: dir * (rail.current.clientWidth * 0.8), behavior: 'smooth' });

@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { usernameAvailability } from '@/lib/api';
@@ -35,7 +36,7 @@ export function UsernameGate({ onSave }: { onSave: (username: string) => Promise
     if (!valid || !available || saving) return;
     setSaving(true); setError(null);
     try { await onSave(username); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'Username could not be saved.'); }
+    catch (reason) { setError(friendlyError(reason, 'Username could not be saved. Choose another and try again.')); }
     finally { setSaving(false); }
   };
 

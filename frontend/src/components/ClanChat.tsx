@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type TouchEvent } from 'react';
 import { getAccessToken } from '@/lib/auth';
@@ -52,7 +53,7 @@ const sharedCultOf = (message: { markerId: string | null; body: string }) =>
 // A message as shown: sent ones, plus ours still on their way (or failed).
 type Shown = ChatMessage & { local?: 'sending' | 'failed' };
 
-const messageError = (error: unknown) => error instanceof Error ? error.message : 'Messages are unavailable.';
+const messageError = (error: unknown) => friendlyError(error, 'Messages are unavailable. Try again shortly.');
 const GROUP_MS = 5 * 60_000;
 // A reply's quote, or a pinned line, for a message that may be just a photo.
 const preview = (message: { body: string; imageUrl?: string | null }) => message.body || (message.imageUrl ? 'Photo' : '');

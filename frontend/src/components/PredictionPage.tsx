@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Share2 } from './icons';
@@ -46,7 +47,7 @@ export function PredictionPage({ slug, pick, me, canTrade, busy, revision, cults
   // The event, refreshed for live odds.
   useEffect(() => {
     let active = true;
-    const load = () => getEvent(slug).then(e => { if (active) { setEvent(e); setError(null); } }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'This market is unavailable.'); });
+    const load = () => getEvent(slug).then(e => { if (active) { setEvent(e); setError(null); } }).catch(reason => { if (active) setError(friendlyError(reason, 'This market is unavailable. Try again shortly.')); });
     void load();
     const timer = window.setInterval(load, 20_000);
     return () => { active = false; window.clearInterval(timer); };

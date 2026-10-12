@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { getAccessToken } from '@/lib/auth';
@@ -34,7 +35,7 @@ export function DiscoverCults({ busy, onJoin, country, cultId, onProfile, search
       const [list, ranks] = await Promise.all([discoverCults(token), getCultStandings(token).catch(() => ({ entries: [] as CultStanding[] }))]);
       if (active) { setCults(list.cults); setStandings(ranks.entries); setError(null); }
     }).catch(reason => {
-      if (active) setError(reason instanceof Error ? reason.message : 'Discovery is unavailable.');
+      if (active) setError(friendlyError(reason, 'Discovery is unavailable. Try again shortly.'));
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [revision]);

@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
@@ -41,7 +42,7 @@ export function Leaderboards({ country, cultId, embedded = false, onProfile }: P
           if (active) { setBoard(result); setCults([]); }
         }
       } catch (reason) {
-        if (active) setError(reason instanceof Error ? reason.message : 'Rankings are unavailable.');
+        if (active) setError(friendlyError(reason, 'Rankings are unavailable. Try again shortly.'));
       } finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };

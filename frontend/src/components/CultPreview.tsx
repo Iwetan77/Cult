@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useMemo, useState } from 'react';
 import { CandlestickChart, Lock, MessageCircle, Repeat2, X } from './icons';
@@ -57,7 +58,7 @@ export function CultPreview({ cult, standing, busy, onJoin, onClose, onProfile }
       if (!token) throw new Error('Sign in again to see this cult.');
       const [all, d30, d7] = await Promise.all((['all', '30d', '7d'] as const).map(p => getLeaderboard(token, 'cult', cult.id, p)));
       if (active) setBoards({ all, '30d': d30, '7d': d7 });
-    }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Cult details unavailable.'); });
+    }).catch(reason => { if (active) setError(friendlyError(reason, 'Cult details are unavailable. Try again shortly.')); });
     return () => { active = false; };
   }, [cult.id]);
 

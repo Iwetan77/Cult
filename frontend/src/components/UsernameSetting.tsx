@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { getAccessToken } from '@/lib/auth';
@@ -57,7 +58,7 @@ export function UsernameSetting({ current, changedAt, onSaved }: { current: stri
       setConfirming(false);
       await onSaved();
       setNote('Username updated.');
-    } catch (error) { setNote(error instanceof Error ? error.message : 'Could not save your username.'); setConfirming(false); }
+    } catch (error) { setNote(friendlyError(error, 'Your username could not be saved. Try again.')); setConfirming(false); }
     finally { setSaving(false); }
   };
   const submit = (event: FormEvent<HTMLFormElement>) => {

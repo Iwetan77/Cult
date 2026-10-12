@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -19,7 +20,7 @@ const token = async () => {
   if (!value) throw new Error('Sign in again to continue.');
   return value;
 };
-const message = (reason: unknown) => reason instanceof Error ? reason.message : 'Something went wrong.';
+const message = friendlyError;
 
 function useChains() {
   const [chains, setChains] = useState<IntentChain[] | null>(null);
@@ -172,7 +173,7 @@ export function CrossChainWithdraw({ walletUsd, onSend, onDone }: { walletUsd: n
     setBusy('review'); setError(null); setPinError(null);
     try { setPlan(await prepareIntentWithdraw(await token(), assetId, amount, recipient.trim(), pin)); setAskPin(false); }
     catch (reason) {
-      if (reason instanceof ApiError && reason.code?.startsWith('pin_')) setPinError(reason.message);
+      if (reason instanceof ApiError && reason.code?.startsWith('pin_')) setPinError(friendlyError(reason));
       else { setAskPin(false); setError(message(reason)); }
     }
     finally { setBusy(null); }

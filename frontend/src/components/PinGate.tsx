@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useState } from 'react';
 import { PinPad, weakPin } from './PinPad';
@@ -24,7 +25,7 @@ export function PinGate({ mode, onSave, onSignOut, onCancel }: Props) {
     if (pin !== first) { setFirst(null); setError('Those didn’t match. Start again.'); return; }
     setSaving(true); setError(null);
     try { await onSave(pin); }
-    catch (reason) { setFirst(null); setError(reason instanceof Error ? reason.message : 'Your PIN could not be saved.'); }
+    catch (reason) { setFirst(null); setError(friendlyError(reason, 'Your PIN could not be saved. Try again.')); }
     finally { setSaving(false); }
   };
 

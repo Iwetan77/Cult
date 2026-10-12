@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
@@ -37,7 +38,7 @@ export function PinSetting({ onSignOut }: { onSignOut: () => void }) {
       setOpen(false); setDone(true);
     } catch (reason) {
       // A wrong current PIN starts over from it.
-      setError(reason instanceof Error ? reason.message : 'Your PIN could not be changed.');
+      setError(friendlyError(reason, 'Your PIN could not be changed. Try again.'));
       setStep('current');
     } finally { setBusy(false); }
   };

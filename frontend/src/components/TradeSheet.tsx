@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useState } from 'react';
 import { getAccessToken } from '@/lib/auth';
@@ -66,7 +67,7 @@ export function TradeSheet({ target, onClose, onProfile, onChart }: Props) {
       if (!token) throw new Error('Sign in again to view this trade.');
       return getTrade(token, tradeId);
     }).then(value => { if (active) setTrade(value); })
-      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Trade unavailable.'); })
+      .catch(reason => { if (active) setError(friendlyError(reason, 'Trade details are unavailable. Try again shortly.')); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [tradeId]);

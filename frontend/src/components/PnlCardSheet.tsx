@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Download, Link2, Shuffle, Share2, X } from './icons';
@@ -58,7 +59,7 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
       setGif({ pick, frames });
     }).catch(reason => {
       // Say why (a busy or refused GIF search, a failed download), so it can be fixed.
-      const why = reason instanceof GifError ? reason.message : 'Something went wrong';
+      const why = reason instanceof GifError ? friendlyError(reason) : 'The card could not be made. Try again.';
       if (active) setNote(current => current ?? `${why}, so this card is a still image. Tap New GIF to try again.`);
     })
       .finally(() => { if (active) setGifLoading(false); });
@@ -74,7 +75,7 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
   latestResult.current = result;
   useEffect(() => {
     let active = true;
-    prepareCard(latestResult.current, 0.8).then(card => { if (active) setRenderer(card); }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Could not draw the card.'); });
+    prepareCard(latestResult.current, 0.8).then(card => { if (active) setRenderer(card); }).catch(reason => { if (active) setError(friendlyError(reason, 'The card could not be drawn. Try again.')); });
     return () => { active = false; };
   }, [resultKey]);
 
@@ -105,7 +106,7 @@ export function PnlCardSheet({ result, mode = 'closed', busy = false, confirmLab
     setBlob(null); setProgress(gif ? 0 : null);
     (gif ? encodePnlGif(result, gif.frames, done => { if (active) setProgress(done); }) : drawPnlCard(result))
       .then(made => { if (active) { setBlob(made); setProgress(null); } })
-      .catch(reason => { if (active) { setProgress(null); setError(reason instanceof Error ? reason.message : 'Could not make the card.'); } });
+      .catch(reason => { if (active) { setProgress(null); setError(friendlyError(reason, 'The card could not be made. Try again.')); } });
     return () => { active = false; };
   }, [exporting, gifLoading, gif, result]);
   useEffect(() => { setNote(null); }, [mode]);

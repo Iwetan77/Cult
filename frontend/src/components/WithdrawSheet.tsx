@@ -1,4 +1,5 @@
 'use client';
+import { friendlyError } from '@/lib/friendlyError';
 
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Check, RefreshCw, X } from './icons';
@@ -48,7 +49,7 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
       setBringing('sent');
       // Lands in about half a minute; then the wallet's tokens refresh.
       window.setTimeout(() => setRevision(value => value + 1), 35_000);
-    } catch (reason) { setBringing(null); setError(reason instanceof Error ? reason.message : 'Could not move it back.'); }
+    } catch (reason) { setBringing(null); setError(friendlyError(reason, 'Your funds could not be moved back yet. Try again shortly.')); }
   };
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
       if (!active) return;
       setInfo(value); setError(null);
       setSymbol(current => current ?? value.tokens.find(token => token.depositSupported !== false && token.balance != null && token.balance > 0)?.symbol ?? null);
-    }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Wallet details unavailable.'); })
+    }).catch(reason => { if (active) setError(friendlyError(reason, 'Wallet details are unavailable. Try again shortly.')); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [revision]);
@@ -94,7 +95,7 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
       let sent;
       try { sent = await withdraw(authToken, { symbol: token.symbol, amount, to: to.trim(), pin }); }
       catch (reason) {
-        if (reason instanceof ApiError && reason.code?.startsWith('pin_')) { setPinError(reason.message); return; }
+        if (reason instanceof ApiError && reason.code?.startsWith('pin_')) { setPinError(friendlyError(reason)); return; }
         throw reason;
       }
       if ('tx' in sent) setResult(sent);
@@ -104,7 +105,7 @@ export function WithdrawSheet({ onClose, onDone, gasReserveMon, onSend, crossCha
       }
       setStep('done');
       onDone();
-    } catch (reason) { setAskPin(false); setError(reason instanceof Error ? reason.message : 'Withdrawal failed.'); }
+    } catch (reason) { setAskPin(false); setError(friendlyError(reason, 'The withdrawal did not complete. Check your balance and try again.')); }
     finally { setSending(false); }
   };
 

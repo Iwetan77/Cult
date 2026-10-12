@@ -21,6 +21,7 @@ import { PinSetting } from './PinSetting';
 import { isDemo } from '@/lib/demo';
 import { UsernameSetting } from './UsernameSetting';
 import { PhoneNotifications } from './PhoneNotifications';
+import { friendlyError } from '@/lib/friendlyError';
 
 // Settings: notifications. On, every alert and new cult message shows in the
 // app, and as a system notification in the background where the browser allows.
@@ -106,7 +107,7 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
       if (!token) throw new Error('Sign in again to see this profile.');
       return getProfile(token, id);
     }).then(value => { if (active) setProfile(value); })
-      .catch(reason => { if (active) setError(reason instanceof Error ? reason.message : 'Profile unavailable.'); });
+      .catch(reason => { if (active) setError(friendlyError(reason, 'Profile unavailable. Try again shortly.')); });
     return () => { active = false; };
   }, [id]);
   // Your prediction bets (open and sold), with live odds for the open ones.
@@ -176,7 +177,7 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
       await uploadAvatar(token, canvas.toDataURL('image/jpeg', 0.85));
       setProfile(await getProfile(token, 'me'));
       await onAvatarSaved();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Photo upload failed.'); }
+    } catch (reason) { setError(friendlyError(reason, 'Photo upload failed. Choose another photo and try again.')); }
     finally { setPhotoBusy(false); if (fileInput.current) fileInput.current.value = ''; }
   };
   const removePhoto = async () => {
@@ -187,7 +188,7 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
       await deleteAvatar(token);
       setProfile(await getProfile(token, 'me'));
       await onAvatarSaved();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Photo removal failed.'); }
+    } catch (reason) { setError(friendlyError(reason, 'Photo removal failed. Try again shortly.')); }
     finally { setPhotoBusy(false); }
   };
   const refreshProfile = async () => {

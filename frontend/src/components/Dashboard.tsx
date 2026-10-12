@@ -59,13 +59,9 @@ import { SideRail, type NavItem } from './SideRail';
 import { Ticker } from './Ticker';
 import { parseRoute, routePath, type AccountTab, type Route, type View } from '@/lib/routes';
 import './dashboard.css';
+import { friendlyError } from '@/lib/friendlyError';
 
-const errorText = (error: unknown) => {
-  const text = error instanceof Error ? error.message : 'Something went wrong.';
-  if (error instanceof ApiError) return text;
-  // A wallet that can't pay a network fee: one plain line, not the raw wallet error.
-  return /insufficient (balance|funds)/i.test(text) ? 'Top up MON for gas.' : text;
-};
+const errorText = friendlyError;
 const PREDICTIONS_UNAVAILABLE = 'Predictions are being switched on. Check back soon.';
 const collateralMessage = (minimumRaw: string, chainId?: number) => chainId === 143
   ? `Add MON, USDC or AUSD to your wallet to open your perps account (about ${dollars(Number(minimumRaw) / 1e6)}).`
@@ -483,7 +479,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       void loadMe().catch(reason => {
         if (reason instanceof ApiError && reason.status === 429) {
           window.clearInterval(interval);
-          setError(reason.message);
+          setError(friendlyError(reason));
         }
       });
     }, 20000);
@@ -548,7 +544,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       onmessage: message => {
         if (message.event === 'mirror' || message.event === 'adjustment') {
           const failure = copyFailureFromEvent(message.data, me?.id, clanId);
-          if (failure) { setCopyFailure(failure); setError(`Your copy did not run: ${failure.reason}`); }
+          if (failure) { setCopyFailure(failure); setError(failure.reason); }
         }
         if (message.event === 'message') {
           try {
@@ -564,7 +560,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
         if (error instanceof AuthError || error instanceof RateLimitError) throw error;
         return 3000;
       },
-    }).catch(error => { if (!controller.signal.aborted) { setLiveConnected(false); if (error instanceof RateLimitError) setError(error.message); } });
+    }).catch(error => { if (!controller.signal.aborted) { setLiveConnected(false); if (error instanceof RateLimitError) setError(friendlyError(error)); } });
     return () => { controller.abort(); window.clearTimeout(refreshTimer); setLiveConnected(false); };
   }, [demo, authenticated, clanId, marketId, loadChart, loadMe, me?.id]);
   useEffect(() => {
