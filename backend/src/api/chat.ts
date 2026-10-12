@@ -39,6 +39,27 @@ export interface ChatMessage {
   createdAt: string; // ISO
   imageUrl: string | null; // a photo sent with it (the body is then its caption, maybe empty)
   reactions: Reaction[];
+  // For a message about a trade (markerId trade:/mirror:/stack:): is it still
+  // open, closed, or gone (no longer exists, e.g. testnet trades after the
+  // mainnet switch)? null for anything else.
+  tradeState: TradeState;
+}
+
+export type TradeState = 'open' | 'closed' | 'gone' | null;
+
+export function tradeStateOf(markerId: string | null): TradeState {
+  const [kind, id] = (markerId ?? '').split(':', 2);
+  if (!id) return null;
+  const db = getDb();
+  if (kind === 'trade') {
+    const t = db.prepare('SELECT closed_at AS c FROM leader_trades WHERE id = ?').get(id) as { c: number | null } | undefined;
+    return !t ? 'gone' : t.c == null ? 'open' : 'closed';
+  }
+  if (kind === 'mirror' || kind === 'stack') {
+    const r = db.prepare(`SELECT status FROM ${kind === 'mirror' ? 'mirrors' : 'stacks'} WHERE id = ?`).get(id) as { status: string } | undefined;
+    return !r ? 'gone' : r.status === 'open' ? 'open' : 'closed';
+  }
+  return null;
 }
 
 export const MAX_MESSAGE_CHARS = 1000;
@@ -76,6 +97,7 @@ const toApi = (r: Row, reactions: Reaction[] = []): ChatMessage => ({
   createdAt: new Date(r.created_at).toISOString(),
   imageUrl: chatImages.url(r.image_id),
   reactions,
+  tradeState: tradeStateOf(r.marker_id),
 });
 
 // Reactions on these messages, as the viewer sees them: emojis in the order
