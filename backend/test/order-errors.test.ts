@@ -18,20 +18,27 @@ test('structured transaction fee failures prompt a MON top-up instead of an inte
   assert.deepEqual(await response.json(), { message: 'Top up MON for gas.', code: 'needs_gas' });
 });
 
-test('Perpl rejections retain their reason instead of becoming an internal error', async () => {
+test('Perpl rejections say what happened in plain words, never the raw codes', async () => {
   const { createApp } = await import('../src/api/server.js');
   const { OrderFailed } = await import('../src/trading/positions.js');
   const engine = new EventEmitter() as import('../src/mirror/engine.js').MirrorEngine;
   const app = createApp(engine);
-  app.get('/test/order', () => {
-    throw new OrderFailed({ st: 9, sr: 12, fr: 3, rq: 41, fs: 0 } as import('../src/perpl/types.js').Order);
+  app.get('/test/paused', () => {
+    throw new OrderFailed({ st: 7, sr: 12, fr: 3, rq: 41, fs: 0 } as import('../src/perpl/types.js').Order);
   });
-  const response = await app.request('/test/order');
-  assert.equal(response.status, 502);
-  const body = await response.json();
-  assert.equal(body.code, 'order_failed');
-  assert.match(body.message, /status 9, reason 12, fill reason 3/);
-  assert.match(body.message, /Refresh your positions/);
+  // The failure the user hit: TakerOrderSettlementFailed + InsufficientCollateralIncrease.
+  app.get('/test/margin', () => {
+    throw new OrderFailed({ st: 7, sr: 44, fr: 2, rq: 1791767686885, fs: 0 } as import('../src/perpl/types.js').Order);
+  });
+  const paused = await app.request('/test/paused');
+  assert.equal(paused.status, 502);
+  const pausedBody = await paused.json();
+  assert.equal(pausedBody.code, 'market_paused');
+  const margin = await app.request('/test/margin');
+  assert.equal(margin.status, 409);
+  const marginBody = await margin.json();
+  assert.equal(marginBody.code, 'needs_margin');
+  for (const body of [pausedBody, marginBody]) assert.doesNotMatch(body.message, /rq=|st=|sr=|fr=|status \d|reason \d|Error/);
 });
 
 test('an incomplete order is not reported as unsubmitted or automatically retried', async () => {

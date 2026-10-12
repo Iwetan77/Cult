@@ -108,7 +108,7 @@ test('an add waits out the skip window; a skip keeps that member out of it', asy
   const pendB = repo.adjustments.forMirror(mirrorOf(t.id, 'B').id)[0]!;
   assert.equal(pendB.kind, 'add');
   assert.equal(pendB.status, 'pending');
-  assert.throws(() => engine.skipAdjustment(pendB.id, 'C'), /not found/, 'only the owner can skip');
+  assert.throws(() => engine.skipAdjustment(pendB.id, 'C'), /no longer exists/, 'only the owner can skip');
   engine.skipAdjustment(pendB.id, 'B');
   await wait(350);
   assert.equal(repo.adjustments.get(pendB.id)!.status, 'skipped');

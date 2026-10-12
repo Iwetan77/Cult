@@ -107,7 +107,10 @@ export const forgetBalance = (wallet: string) => balances.delete(wallet);
 async function bridgePost<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(`${BRIDGE}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) });
   const text = await r.text();
-  if (!r.ok) throw new FlowError(409, `Polymarket's bridge said no: ${text.slice(0, 160)}`);
+  if (!r.ok) {
+    console.warn(`[predictions] bridge ${path} ${r.status}: ${text.slice(0, 300)}`);
+    throw new FlowError(409, "Moving dollars to or from predictions didn't go through. Your funds didn't move; try again in a minute.");
+  }
   return JSON.parse(text) as T;
 }
 

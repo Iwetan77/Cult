@@ -36,17 +36,17 @@ export function predictionRoutes() {
       const m = /^(needs_setup|needs_funds): (.*)$/.exec(err.message);
       return c.json(m ? { message: m[2], code: m[1] } : { message: err.message }, err.status);
     }
-    if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
+    if (err instanceof z.ZodError) return c.json({ message: 'Something in that request was missing or invalid. Refresh and try again.', code: 'invalid_request', issues: err.issues }, 400);
     const name = (err as { name?: string }).name ?? '';
     if (/CancelledSigning/.test(name)) return c.json({ message: 'Cancelled in your wallet.' }, 409);
     if (/RateLimit/.test(name)) return c.json({ message: 'Polymarket is busy, try again in a moment.' }, 503);
     if (/Transport|Timeout|UnexpectedResponse/.test(name)) return c.json({ message: 'Polymarket is unreachable right now, try again shortly.' }, 503);
     if (/RequestRejected|TransactionFailed|UserInput|Signing|Invariant/.test(name)) {
       console.warn(`[predictions] ${name}: ${err.message}`);
-      return c.json({ message: `Polymarket said no: ${err.message.slice(0, 200)}` }, 409);
+      return c.json({ message: "Polymarket didn't accept this bet. Check the price and your balance, then try again.", code: 'bet_refused' }, 409);
     }
     console.error('[predictions]', err);
-    return c.json({ message: 'internal error' }, 500);
+    return c.json({ message: 'Something went wrong on our side. Try again in a moment.', code: 'internal' }, 500);
   });
 
   r.get('/account', async (c) => {

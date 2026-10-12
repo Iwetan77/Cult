@@ -150,7 +150,7 @@ for (const base of ['/v1/cults', '/v1/clans']) {
       for (const admin of [true, false]) {
         const response = await request(path, 'admin', { memberId, admin, owner: true, createdBy: 'admin' });
         assert.equal(response.status, 403);
-        assert.deepEqual(await response.json(), { message: 'only the cult owner can change admins' });
+        assert.deepEqual(await response.json(), { message: 'Only the cult owner can change admins.' });
       }
     }
     assert.equal(clans.membership(clan.id, 'member')?.role, 'member');

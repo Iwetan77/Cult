@@ -23,13 +23,13 @@ type Vars = { Variables: { userId: string; wallet: string } };
 
 const onError = (err: Error, c: { json: (b: object, s: number) => Response }) => {
   if (err instanceof IntentsError) return c.json({ message: err.message }, err.status);
-  if (err instanceof z.ZodError) return c.json({ message: 'invalid request', issues: err.issues }, 400);
+  if (err instanceof z.ZodError) return c.json({ message: 'Something in that request was missing or invalid. Refresh and try again.', code: 'invalid_request', issues: err.issues }, 400);
   if (err instanceof UpstreamError || /fetch failed|timeout/i.test(err.message) || err.name === 'TimeoutError' || /SwapUnavailable/.test(err.name)) {
     console.warn('[intents] upstream unavailable:', err.message);
-    return c.json({ message: 'a service this needs is unreachable right now, retry shortly' }, 503);
+    return c.json({ message: "The cross-chain service isn't responding right now. Try again in a minute.", code: 'service_unavailable' }, 503);
   }
   console.error('[intents]', err);
-  return c.json({ message: 'internal error' }, 500);
+  return c.json({ message: 'Something went wrong on our side. Try again in a moment.', code: 'internal' }, 500);
 };
 
 export function intentRoutes() {
