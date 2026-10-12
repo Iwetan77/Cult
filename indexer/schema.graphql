@@ -37,7 +37,7 @@ Aggregate verified stats for one wallet, combined across venues.
 """
 type Trader {
   id: String!
-  "Number of fully-closed round-trip trades (both venues)."
+  "Number of closed trades, each close or partial close counted (both venues)."
   tradeCount: Int!
   "Closed trades with a positive realized PnL."
   winningTrades: Int!
@@ -65,7 +65,9 @@ type Trader {
 }
 
 """
-A single closed round-trip trade (a Perpl position opened then fully closed).
+A closed trade: all or part of a Perpl position, closed by one event (a close,
+a reduce, a liquidation, ...). Cult closes trades lot by lot, so every reduce
+counts with its own realized PnL; `openTx` is the tx that opened the position.
 """
 type Trade {
   id: ID!
@@ -146,8 +148,8 @@ type PerplPosition @internal {
 }
 
 """
-A single closed Nad.fun round trip (buy a token back to zero). Realized PnL is
-in native MON. `qtyRaw` is in the token's own decimals; MON fields are scaled
+One Nad.fun sell, closed at the running average cost: every sell counts as it
+lands, partial or not. Realized PnL is in native MON. `qtyRaw` is in the token's own decimals; MON fields are scaled
 by 1e18.
 """
 type NadFunTrade {

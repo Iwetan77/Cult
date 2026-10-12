@@ -25,7 +25,8 @@ export const MARKETS: Record<string, MarketConfig> = {
   "256": { symbol: "ZEC", priceDecimals: 3, sizeDecimals: 3 },
   "272": { symbol: "LIT", priceDecimals: 5, sizeDecimals: 1 },
   "320": { symbol: "PUMP", priceDecimals: 6, sizeDecimals: 0 },
-  // mainnet (app.perpl.xyz/api/v1/pub/context, 2026-09-27)
+  "336": { symbol: "NEAR", priceDecimals: 4, sizeDecimals: 2 },
+  // mainnet (app.perpl.xyz/api/v1/pub/context, 2026-10-12)
   "1": { symbol: "BTC", priceDecimals: 1, sizeDecimals: 5 },
   "10": { symbol: "MON", priceDecimals: 6, sizeDecimals: 0 },
   "20": { symbol: "ETH", priceDecimals: 2, sizeDecimals: 3 },
@@ -35,6 +36,8 @@ export const MARKETS: Record<string, MarketConfig> = {
   "60": { symbol: "LIT", priceDecimals: 5, sizeDecimals: 1 },
   "70": { symbol: "VVV", priceDecimals: 4, sizeDecimals: 2 },
   "90": { symbol: "PUMP", priceDecimals: 6, sizeDecimals: 0 },
+  "100": { symbol: "NEAR", priceDecimals: 4, sizeDecimals: 2 },
+  "110": { symbol: "UNI", priceDecimals: 4, sizeDecimals: 2 },
 };
 
 export function market(perpId: bigint): MarketConfig {
@@ -48,6 +51,17 @@ export function symbolFor(perpId: bigint): string {
 // raw CNS (signed, USD * 1e6) -> USD BigDecimal
 export function cnsToUsd(cns: bigint): BigDecimal {
   return new BigDecimal(cns.toString()).div(CNS_DIVISOR);
+}
+
+// The price a reduce filled at, from the PnL it realized: Perpl's
+// PositionDecreased carries deltaPnlCNS but no price. pnl = (exit - entry) *
+// size for a long (the reverse for a short), so
+// exitPNS = entryPNS +/- pnlCNS * 10^(priceDecimals + sizeDecimals) / (lotLNS * 1e6).
+export function exitPriceFromPnl(entryPNS: bigint, deltaPnlCNS: bigint, lotLNS: bigint, side: string, cfg: MarketConfig): bigint {
+  if (lotLNS <= 0n) return entryPNS;
+  const move = (deltaPnlCNS * 10n ** BigInt(cfg.priceDecimals + cfg.sizeDecimals)) / (lotLNS * 1_000_000n);
+  const exit = side === "SHORT" ? entryPNS - move : entryPNS + move;
+  return exit > 0n ? exit : 0n;
 }
 
 // raw PNS -> human price
