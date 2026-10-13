@@ -45,13 +45,15 @@ export class NadWatcher extends EventEmitter<{ trade: [NadTradeEvent] }> {
 
   async start() {
     if (this.running) return;
-    this.running = true;
     const db = getDb();
     const row = db.prepare('SELECT value FROM cursors WHERE name = ?').get(CURSOR) as { value: number } | undefined;
     if (!row) {
       // First start: begin at the head. History before Cult isn't a trade to mirror.
+      // (Read before marking it running, so a failed read can be retried.)
       db.prepare('INSERT INTO cursors (name, value) VALUES (?, ?)').run(CURSOR, await rpc().getBlockNumber());
     }
+    if (this.running) return;
+    this.running = true;
     const loop = async () => {
       let behind = false;
       try {

@@ -1157,7 +1157,9 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
   private async recover() {
     for (const m of mirrors.byStatus('pending')) this.schedule(m);
     for (const a of adjustments.byStatus('pending')) this.scheduleAdjustment(a);
-    this.recovering = this.reconcileAll();
+    // Nothing awaits this in production: an error here must be logged, not
+    // left as an unhandled rejection that kills the process.
+    this.recovering = this.reconcileAll().catch((e) => this.log('reconcile after restart', e));
   }
 
   // Resolves once the post-restart reconcile pass is done (tests, health).
