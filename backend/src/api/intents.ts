@@ -15,7 +15,7 @@ import { UpstreamError } from '../http.js';
 import { chainOptions, depositQuote, recentSwaps, swapStatus, tellDeposit, withdrawPlan } from '../intents/crosschain.js';
 
 // /v1/intents: money in from / out to other chains (Aurora Intents), and
-// /v1/wallet/withdraw: plain sends on Monad. See CONTRACTS.md.
+// /v1/wallet/withdraw: plain sends on Monad.
 // Withdrawals come back as wallet actions the member signs in the browser:
 // the backend can never move a member's funds itself.
 

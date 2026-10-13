@@ -3,8 +3,7 @@
 The orchestration service behind Cult's trading clans. It holds each member's
 trading session, runs the auto-mirror engine across two venues (**Perpl** perps
 and **Nad.fun** memes), scopes everything it signs through **Privy** policies,
-and serves the API the frontend and indexer read. The shared API contract lives
-in [`../CONTRACTS.md`](../CONTRACTS.md).
+and serves the API the frontend and indexer read.
 
 ## Run it
 

@@ -5,8 +5,7 @@ import { isMember } from "./members";
 // Nad.fun is native-MON quoted. The router's Buy/Sell events carry the trader's
 // wallet directly (indexed), so no account-id indirection is needed.
 //
-// Cost basis is average cost per (wallet, token), exactly as CONTRACTS.md spells
-// out:
+// Cost basis is average cost per (wallet, token):
 //   Buy:  qty += amountOut; cost += amountIn
 //   Sell: realized += amountOut - cost * amountIn / qty;
 //         cost -= cost * amountIn / qty; qty -= amountIn

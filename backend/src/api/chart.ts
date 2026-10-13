@@ -19,8 +19,8 @@ import { chartResolution, nadHistory, perplHistory, type Candle } from './chart-
 
 export type { Candle } from './chart-history.js';
 
-// Shapes follow frontend/src/lib/contracts.ts (ChartSnapshot, ChartMarker, ...)
-// and are published in CONTRACTS.md. Every money figure is in dollars (settled
+// Shapes follow frontend/src/lib/contracts.ts (ChartSnapshot, ChartMarker, ...).
+// Every money figure is in dollars (settled
 // in AUSD 1:1 under the hood; the UI shows $, never the word AUSD).
 
 export type MarkerOrigin = 'leader' | 'auto_mirror' | 'manual_stack';

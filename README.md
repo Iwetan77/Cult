@@ -10,7 +10,6 @@ from the chain**, not self-reported.
 |---|---|
 | **App** | https://cult-trades.vercel.app |
 | **API** | https://cult-production-e803.up.railway.app (`GET /v1/health`, `GET /v1/status`) |
-| **API contract** | [`CONTRACTS.md`](CONTRACTS.md) |
 | **Network** | Monad testnet (10143) today; mainnet (143) is configured and checked |
 
 Balances and results are always shown in US dollars. Everything settles in AUSD (Agora's
@@ -178,7 +177,6 @@ flowchart LR
 | `frontend/` | Next.js application (Vercel). Talks only to the backend API. |
 | `backend/` | Node, Hono and SQLite: the copy-trading engine, venue adapters, Privy signer, funding, chats, leaderboards and the API with live updates (SSE). See [`backend/README.md`](backend/README.md). |
 | `indexer/` | Envio HyperIndex project for verified per-wallet records. See [`indexer/README.md`](indexer/README.md). |
-| `CONTRACTS.md` | The API contract between the three, including error codes. |
 
 **Backend design.** A single `VenueAdapter` interface covers Perpl and Nad.fun. The copy
 engine (`backend/src/mirror`) detects shared trades from Perpl's WebSocket and from Nad.fun

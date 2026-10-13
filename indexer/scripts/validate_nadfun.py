@@ -8,7 +8,7 @@ Usage:
   python3 scripts/validate_nadfun.py --wallet 0x... --token 0x... [--from-block N]
   python3 scripts/validate_nadfun.py --wallet 0x... --token 0x... --check-api
 
-Cost-basis rules (from CONTRACTS.md): average cost per (wallet, token) in MON wei.
+Cost-basis rules: average cost per (wallet, token) in MON wei.
   Buy:  qty += amountOut; cost += amountIn
   Sell: realized += amountOut - cost * amountIn / qty; cost -= cost * amountIn / qty; qty -= amountIn
 A "trade" is a round trip from qty 0 back to qty 0. A win is realized > 0.

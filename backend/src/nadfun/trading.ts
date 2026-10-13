@@ -40,7 +40,7 @@ export interface NadMarket {
 }
 
 // Live token list from Nad.fun's API, filtered to MON-quoted tokens, the only
-// ones Cult trades (see CONTRACTS.md, decision 2).
+// ones Cult trades.
 export async function listMonMarkets(order: 'latest_trade' | 'market_cap' | 'creation_time' = 'latest_trade', limit = 50): Promise<NadMarket[]> {
   const body = await getJson<{ tokens: { token_info: any; market_info: any }[] }>(`${NADFUN.apiUrl}/order/${order}?page=1&limit=${limit}`);
   return toNadMarkets(body.tokens);

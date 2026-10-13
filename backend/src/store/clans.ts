@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb } from './db.js';
 
 // MirrorPolicy, as the frontend sends it at clan-join (frontend/src/lib/contracts.ts).
-// Units and bounds are defined here and published in CONTRACTS.md.
+// Units and bounds are defined here.
 export const MirrorPolicySchema = z.object({
   enabled: z.boolean(),
   followExits: z.boolean().optional(), // absent in older clients: preserve the saved choice

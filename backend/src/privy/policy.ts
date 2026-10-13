@@ -29,7 +29,7 @@ import { broadcastSigned, rpc, type Eip712TypedData, type SendOptions, type TxRe
 // Rule formats here are the ones verified against Privy's API (see scripts/e2e/phase3.ts):
 // tuple params use `fn.params.field`, and bool calldata params can't be matched.
 // Perpl orders are signed with the Perpl API key, not this wallet, so the Perpl
-// per-trade cap lives in mirror/sizing.ts (CONTRACTS.md, decision 5).
+// per-trade cap lives in mirror/sizing.ts.
 
 const perplAbi = [
   { type: 'function', name: 'depositCollateral', stateMutability: 'nonpayable', inputs: [{ name: 'amountCNS', type: 'uint256' }], outputs: [] },

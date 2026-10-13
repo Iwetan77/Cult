@@ -173,7 +173,7 @@ export type WithdrawResult = WithdrawRequest & { tx: string };
 
 // Steps only the member's own wallet may sign (opening the Polymarket account,
 // a bet without a session key, moving money out) come back as a FlowStep:
-// sign `signature`, POST it, repeat until `done`. See CONTRACTS.md.
+// sign `signature`, POST it, repeat until `done`.
 export type SignatureRequest = {
   challengeId: string; label: string; kind: 'typedData' | 'message';
   typedData: { domain: Record<string, unknown>; types: Record<string, { name: string; type: string }[]>; primaryType: string; message: Record<string, unknown> } | null;

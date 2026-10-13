@@ -6,7 +6,7 @@ import { FlowError, type FlowStep } from '../polymarket/broker.js';
 import { accessFor, countryOfIp } from '../polymarket/geo.js';
 import { buy, cultBets, positions, redeem, sell } from '../polymarket/trading.js';
 
-// /v1/predictions: Polymarket bets for members (see CONTRACTS.md, Predictions).
+// /v1/predictions: Polymarket bets for members.
 //
 // Steps that need the member's own signature answer with a FlowStep:
 //   { status: 'needs_signature', flowId, signature: { challengeId, label, kind, typedData | message } }
