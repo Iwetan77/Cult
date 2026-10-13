@@ -782,6 +782,20 @@ button.mtable-row:hover .mtable-go { background: var(--accent); color: var(--acc
 .chat-trade-main small b { font-weight: 500; font-variant-numeric: tabular-nums; }
 .chat-trade-main small b.positive { color: var(--up) !important; }
 .chat-trade-open { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 13px; border: 0; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 500; }
+/* Everyone who copied one trade, as one card (CopyCard). */
+.copy-card { align-self: center; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; width: min(540px, 100%); margin: 14px 0 6px; padding: 14px 16px; border-radius: 16px; background: var(--s3); border: 1px solid rgba(147, 51, 234, 0.22); box-shadow: 0 8px 24px rgba(10, 6, 20, 0.35); animation: rise 0.3s ease both; }
+.copy-card--close { border-color: var(--s4); box-shadow: none; }
+.copy-card-faces { flex: none; display: flex; align-items: center; padding-left: 8px; }
+.copy-card-face { position: relative; display: inline-flex; margin-left: -10px; border-radius: 99px; box-shadow: 0 0 0 2px var(--s3); animation: copy-pop 0.36s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.copy-card-face .room-avatar { width: 32px; height: 32px; font-size: 11px; }
+.copy-card-more { align-items: center; justify-content: center; width: 32px; height: 32px; background: var(--accent-soft); color: var(--accent-text); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.copy-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.copy-card-text { font-size: 14px; color: var(--text); line-height: 1.35; }
+.copy-card-main small { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); white-space: nowrap; }
+.copy-card-main small .token-logo { width: 16px; height: 16px; font-size: 8px; }
+@keyframes copy-pop { from { opacity: 0; transform: scale(0.4); } to { opacity: 1; transform: none; } }
+@media (max-width: 760px) { .copy-card { grid-template-columns: auto minmax(0, 1fr); gap: 10px 12px; padding: 12px 14px; } .copy-card .chat-trade-open { grid-column: 2; justify-self: start; } }
+@media (prefers-reduced-motion: reduce) { .copy-card, .copy-card-face { animation: none; } }
 .chat-latest { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border: 0; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 500; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45); }
 .chat-error { margin: 0 14px 10px; }
 .chat-compose { padding: 17px 19px 19px; }

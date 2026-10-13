@@ -39,7 +39,12 @@ export type ChatMessage = {
   replyTo: string | null; markerId: string | null; createdAt: string;
   reactions?: Reaction[];
   imageUrl?: string | null; // a photo sent with the message (the body is its caption, or empty)
+  // A trade card's trade: still open, closed, or gone (no longer exists). null if not about a trade.
+  tradeState?: 'open' | 'closed' | 'gone' | null;
+  // A copy notice's trade: which trade it copied and whose, so copies group into one card.
+  copyOf?: CopyOf | null;
 };
+export type CopyOf = { tradeId: string; markerId: string; leaderId: string; leaderName: string };
 // An emoji reaction on a message: how many, and whether one is yours.
 export type Reaction = { emoji: string; count: number; mine: boolean };
 export type ChatPage = { messages: ChatMessage[]; hasMore: boolean; pinned: { id: string; memberName: string; body: string } | null };

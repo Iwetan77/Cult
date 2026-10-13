@@ -43,9 +43,26 @@ export interface ChatMessage {
   // open, closed, or gone (no longer exists, e.g. testnet trades after the
   // mainnet switch)? null for anything else.
   tradeState: TradeState;
+  // For a copy notice (markerId mirror:/stack:): the trade it copied, so the
+  // app can show "You and 23 others copied 23daddy's SOL long" as one card.
+  copyOf: CopyOf | null;
 }
 
 export type TradeState = 'open' | 'closed' | 'gone' | null;
+export type CopyOf = { tradeId: string; markerId: string; leaderId: string; leaderName: string };
+
+export function copyOfMarker(markerId: string | null): CopyOf | null {
+  const [kind, id] = (markerId ?? '').split(':', 2);
+  if (!id || (kind !== 'mirror' && kind !== 'stack')) return null;
+  const db = getDb();
+  const row = (kind === 'mirror'
+    ? db.prepare('SELECT trade_id AS t FROM mirrors WHERE id = ?').get(id)
+    : db.prepare('SELECT target_trade AS t FROM stacks WHERE id = ?').get(id)) as { t: string } | undefined;
+  if (!row) return null;
+  const leader = db.prepare('SELECT user_id AS u FROM leader_trades WHERE id = ?').get(row.t) as { u: string } | undefined;
+  if (!leader) return null;
+  return { tradeId: row.t, markerId: `trade:${row.t}`, leaderId: leader.u, leaderName: nameOf(leader.u) };
+}
 
 export function tradeStateOf(markerId: string | null): TradeState {
   const [kind, id] = (markerId ?? '').split(':', 2);
@@ -98,6 +115,7 @@ const toApi = (r: Row, reactions: Reaction[] = []): ChatMessage => ({
   imageUrl: chatImages.url(r.image_id),
   reactions,
   tradeState: tradeStateOf(r.marker_id),
+  copyOf: copyOfMarker(r.marker_id),
 });
 
 // Reactions on these messages, as the viewer sees them: emojis in the order

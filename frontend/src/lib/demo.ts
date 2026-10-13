@@ -408,7 +408,18 @@ function cultActivity(s: State) {
   s.seeds = s.seeds.filter(x => !(x.memberId === memberId && x.cultId === clan.id && x.symbol === symbol));
   s.seeds.push({ id, cultId: clan.id, memberId, symbol, origin: 'leader', side, entryRatio: priceOf(symbol) / baseOf(s, symbol), notional: 100 + Math.round(Math.random() * 900), leverage, openedAgoMin: 0, tp: null, sl: null, suggestions: [] });
   post(s, `cult:${clan.id}`, memberId, `opened ${symbol} ${side} ${leverage}x`, 'system', id);
-  autoFollow(s, clan, memberId, symbol, side, leverage);
+  copiedByOthers(s, clan, memberId, id, symbol, side);
+  autoFollow(s, clan, memberId, symbol, side, leverage, id);
+}
+
+// Other (fictional) members of the cult copy it too, a moment apart, so the
+// chat shows one card filling up: "Ada and 3 others copied ...".
+function copiedByOthers(s: State, clan: Clan, leaderId: string, leaderMarkerId: string, symbol: string, side: 'long' | 'short') {
+  const fans = previewMembers(clan.id).filter(id => id !== leaderId).slice(0, 1 + Math.floor(Math.random() * 4));
+  fans.forEach((fanId, i) => setTimeout(() => {
+    const note = post(s, `cult:${clan.id}`, fanId, `opened an automatic copy of ${symbol} ${side}`, 'system', `mirror:${leaderMarkerId}:${fanId}`);
+    note.copyOf = { tradeId: leaderMarkerId, markerId: leaderMarkerId, leaderId, leaderName: person(leaderId).name };
+  }, 1500 + i * 1200));
 }
 
 // Auto-follow, as the backend does it: if you follow this cult, the trade is
@@ -416,7 +427,7 @@ function cultActivity(s: State) {
 // to a dollar cap per trade) at the leader's leverage. It sits pending for the
 // opt-out window, during which Skip undoes it. A market you already hold is
 // left alone.
-function autoFollow(s: State, clan: Clan, leaderId: string, symbol: string, side: 'long' | 'short', leverage: number) {
+function autoFollow(s: State, clan: Clan, leaderId: string, symbol: string, side: 'long' | 'short', leverage: number, leaderMarkerId: string) {
   const limits = clan.myPolicy;
   if (!clan.autoFollow || !limits?.enabled || s.positions.some(p => p.symbol === symbol)) return;
   const bal = s.me.balances!;
@@ -430,7 +441,8 @@ function autoFollow(s: State, clan: Clan, leaderId: string, symbol: string, side
   const id = `mk-${++s.next}`;
   s.positions.unshift({ symbol, side, entryRatio: ratio, margin, leverage, openedAt: Date.now(), autoSeed: id, fromMargin });
   s.seeds.push({ id, cultId: clan.id, memberId: ME_ID, symbol, origin: 'auto_mirror', side, entryRatio: ratio, notional: margin * leverage, leverage, openedAgoMin: 0, tp: null, sl: null, suggestions: [], skipUntil: new Date(Date.now() + 30_000).toISOString() });
-  post(s, `cult:${clan.id}`, ME_ID, `auto-copied ${person(leaderId).name}'s ${symbol} ${side} ${leverage}x with $${margin.toFixed(2)}`, 'system', id);
+  const note = post(s, `cult:${clan.id}`, ME_ID, `auto-copied ${person(leaderId).name}'s ${symbol} ${side} ${leverage}x with $${margin.toFixed(2)}`, 'system', id);
+  note.copyOf = { tradeId: leaderMarkerId, markerId: leaderMarkerId, leaderId, leaderName: person(leaderId).name };
 }
 
 function holdingOf(s: State, pos: Position): Holding {

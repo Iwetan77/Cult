@@ -26,3 +26,23 @@ test('a trade card knows if its trade is open, closed, or gone after the mainnet
   db.switchChain(db.getDb(), 143);
   assert.equal(tradeStateOf('trade:tc1'), 'gone');
 });
+
+test('a copy notice says which trade and whose it copied, so copies group into one card', async () => {
+  const { copyOfMarker } = await import('../src/api/chat.js');
+  const { mirrors } = await import('../src/mirror/repo.js');
+  const { clans } = await import('../src/store/clans.js');
+  members.upsert('leader1', '0x00000000000000000000000000000000000000b1');
+  members.upsert('fan1', '0x00000000000000000000000000000000000000b2');
+  const clanId = clans.create('night shift', 'leader1').id;
+  clans.join(clanId, 'fan1');
+  trades.insert({ id: 'tc2', venue: 'perpl', userId: 'leader1', accountId: 2, market: '48', side: 'long', positionId: 2, size: '1', entryPrice: 150, leverage: 200, marginFraction: 0.5, openTx: '0xT2', openedAt: Date.now() });
+  const m = mirrors.insertPending({ tradeId: 'tc2', clanId, userId: 'fan1', skipUntil: Date.now() });
+  const copy = copyOfMarker(`mirror:${m.id}`);
+  assert.equal(copy?.tradeId, 'tc2');
+  assert.equal(copy?.markerId, 'trade:tc2');
+  assert.equal(copy?.leaderId, 'leader1');
+  assert.ok(copy?.leaderName);
+  assert.equal(copyOfMarker('trade:tc2'), null, "a leader's own notice isn't a copy");
+  assert.equal(copyOfMarker('mirror:missing'), null);
+  assert.equal(copyOfMarker(null), null);
+});
