@@ -257,37 +257,32 @@ test('no spendable balance and dust sizing produce failed deliveries without an 
   }
 });
 
-test('an untagged app-origin Perpl position event records the selected audience; copies are ignored', async () => {
+test('a Perpl position event never creates a trade or copies: only Cult orders do (one order, one trade)', async () => {
   const f = fixture();
   const accountId = members.get(f.leader)!.perplAccountId!;
   const session = new Session({ apiKey: 'offline-key', secret: new Uint8Array(32) });
   session.accounts.set(accountId, { id: accountId, b: '900000000', lb: '0' } as any);
   const engine = new Engine({ optOutSeconds: 60 }, { sessionFor: async () => session, nadWatcher: null });
   engines.push(engine);
-  const fetchMock = mock.method(globalThis, 'fetch', async (url: string | URL | Request) => {
-    assert.match(String(url), /\/v1\/pub\/context$/);
-    return new Response(JSON.stringify({
-      instances: [{ address: '0x1', collateral_token_id: 1, min_account_open_amount: '100000000', min_deposit_amount: '10000000' }],
-      tokens: [{ id: 1, address: '0x2', decimals: 6 }],
-      markets: [{ id: 16, symbol: 'TEST', config: { price_decimals: 0 } }],
-    }), { headers: { 'content-type': 'application/json' } });
-  });
+  const fetchMock = mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
+    instances: [{ address: '0x1', collateral_token_id: 1, min_account_open_amount: '100000000', min_deposit_amount: '10000000' }],
+    tokens: [{ id: 1, address: '0x2', decimals: 6 }],
+    markets: [{ id: 16, symbol: 'TEST', config: { price_decimals: 0 } }],
+  }), { headers: { 'content-type': 'application/json' } }));
   try {
     await engine.watch(f.leader);
-    audience.setAudience(f.leader, 'perpl', '16', [f.clanId]);
-    const detected = once(engine, 'trade', { signal: AbortSignal.timeout(1000) });
-    const position = { acc: accountId, pid: 100, mkt: 16, rq: 10000, sr: 21, sd: 1, s: 100,
-      ep: 1, lv: 500, c: '100000000' };
+    let announced = 0;
+    engine.on('trade', () => announced++);
+    const position = { acc: accountId, pid: 100, mkt: 16, rq: 10000, sr: 21, sd: 1, s: 100, ep: 1, lv: 500, c: '100000000' };
+    // An opening the feed reports with a request id we don't recognise (an
+    // outside order, or a copy whose id doesn't match): not a trade.
     session.emit('position', position as any);
-    const [trade] = await detected;
-    await new Promise<void>(resolve => setImmediate(resolve));
-    assert.deepEqual(trade.cultIds, [f.clanId]);
-    assert.equal(trade.marginFraction, 0.1);
-    assert.equal(repo.mirrors.forTrade(trade.id).length, 1);
-    origin.recordRef({ rq: 10001, accountId }, 'mirror_open', 'offline-copy');
-    session.emit('position', { ...position, pid: 101, rq: 10001 } as any);
-    await new Promise<void>(resolve => setImmediate(resolve));
-    assert.equal(repo.trades.byPosition(accountId, 101), null);
+    // The same position growing (a copy landing on it): still not a trade.
+    session.emit('position', { ...position, sr: 17, s: 250, rq: 10002 } as any);
+    await new Promise<void>(resolve => setTimeout(resolve, 50));
+    assert.equal(announced, 0);
+    assert.equal(repo.trades.byPosition(accountId, 100), null);
+    assert.equal(repo.trades.openOnMarket(f.leader, 'perpl', '16').length, 0);
   } finally {
     fetchMock.mock.restore();
   }

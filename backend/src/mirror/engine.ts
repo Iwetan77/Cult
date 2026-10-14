@@ -166,71 +166,28 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     if (p.sr === SR_INCREASED || p.sr === SR_DECREASED) return this.onPerplResized(userId, p, previous);
     if (p.sr !== SR_OPENED && p.sr !== SR_INVERTED) return;
     this.perplSeen.set(`${p.acc}:${p.pid}`, BigInt(p.s));
-    if (isEngineOrder(p.acc, p.rq)) return; // our own mirror/stack
-    if (trades.byPosition(p.acc, p.pid)) return; // replay after reconnect
-    // A market the member holds a copy on: Perpl nets it into one position, so
-    // a new position event there can be our own copy. Never treat it as theirs.
-    if (this.holdsCopy(userId, String(p.mkt))) return;
+    // A position update is a snapshot of the whole netted position; its request
+    // id doesn't say which order made it (Perpl reports each order's outcome on
+    // the order stream). So it never creates a trade: trades come only from the
+    // member's own orders placed through Cult (bookOwnFill), one per order, and
+    // copies are never those. An inversion still ends the old side's lots.
     if (p.sr === SR_INVERTED) {
       await this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'short' : 'long', 0n, 1n);
     }
-    const acct = session.accounts.get(p.acc);
-    const { collateralDecimals } = await getExchangeInfo();
-    const unit = 10 ** collateralDecimals;
-    const collateral = Number(p.c) / unit;
-    const free = acct ? (Number(acct.b) - Number(acct.lb)) / unit : 0;
-    const { getMarket, scale } = await import('../perpl/context.js');
-    const m = await getMarket(p.mkt);
-    await this.leaderOpened({
-      venue: 'perpl',
-      userId,
-      market: String(p.mkt),
-      side: p.sd === PositionSide.Long ? 'long' : 'short',
-      sizeRaw: String(p.s),
-      entryPriceAusd: scale.unprice(p.ep, m),
-      leverageHundredths: p.lv,
-      marginFraction: collateral > 0 ? collateral / (free + collateral) : 0,
-      accountId: p.acc,
-      positionId: p.pid,
-      openTx: p.ots?.txid ?? p.at?.txid ?? null,
-    });
   }
 
-  // The leader grew or shrank a position they lead. Only their own orders
-  // count: a mirror or stack of someone else's trade can land on the same
-  // Perpl position, so their share is tracked apart from the position's total.
-  private async onPerplResized(userId: string, p: Position, previous?: Position) {
+  // A position shrank without one of our orders (a take-profit or stop-loss
+  // trigger, a partial liquidation, a close outside Cult): its lots and
+  // copies shrink with it. Growth is never a trade (see onPerplPosition).
+  private async onPerplResized(userId: string, p: Position, _previous?: Position) {
     const key = `${p.acc}:${p.pid}`;
-    const all = trades.openOnMarket(userId, 'perpl', String(p.mkt));
     const trade = trades.byPosition(p.acc, p.pid);
     const total = BigInt(p.s);
     const seen = this.perplSeen.get(key) ?? (trade ? BigInt(trade.size) : total);
     this.perplSeen.set(key, total);
-    if (total === seen) return;
+    if (total >= seen) return;
     if (isEngineOrder(p.acc, p.rq)) return;
-    // Growth of a position is never a trade by itself: the member's own adds
-    // through Cult are booked from their order, and a position update's request
-    // id can belong to the order that first opened it, so a copy landing on
-    // a held position looked like the member adding. That made copies of
-    // copies between members who follow each other.
-    if (total > seen) return;
-    if (total < seen) return this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'long' : 'short', total, seen);
-    if (!trade || trade.closedAt || all.length !== 1) {
-      const { getMarket, scale } = await import('../perpl/context.js');
-      const m = await getMarket(p.mkt);
-      const newEntry = previous ? (scale.unprice(p.ep, m) * Number(total) - scale.unprice(previous.ep, m) * Number(seen)) / Number(total - seen) : null;
-      const deltaMargin = (newEntry ?? scale.unprice(p.ep, m)) * scale.unsize(Number(total - seen), m) / (p.lv / 100);
-      const free = await this.venue('perpl').freeBalanceAusd(userId);
-      return this.leaderOpened({ venue: 'perpl', userId, market: String(p.mkt),
-        side: p.sd === PositionSide.Long ? 'long' : 'short', sizeRaw: (total - seen).toString(),
-        entryPriceAusd: newEntry != null && newEntry > 0 && Number.isFinite(newEntry) ? newEntry : null,
-        leverageHundredths: p.lv, marginFraction: deltaMargin > 0 ? deltaMargin / (free + deltaMargin) : 0,
-        accountId: p.acc, netPositionId: p.pid, openTx: p.at?.txid ?? null });
-    }
-    const own = BigInt(trade.size) + (total - seen);
-    if (own <= 0n) return this.closeTrade(trade);
-    const { getMarket, scale } = await import('../perpl/context.js');
-    await this.leaderResized(trade, own, scale.unprice(p.ep, await getMarket(p.mkt)));
+    return this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'long' : 'short', total, seen);
   }
 
   private async onPerplClosed(userId: string, p: Position) {
@@ -558,12 +515,6 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       }
     }
     return trade;
-  }
-
-  // Does the member hold a copy (auto or manual) on this Perpl market?
-  private holdsCopy(userId: string, market: string): boolean {
-    if (mirrors.forUser(userId, ['pending', 'submitting', 'open']).some((m) => trades.get(m.tradeId)?.market === market.toLowerCase())) return true;
-    return !!getDb().prepare("SELECT 1 FROM stacks WHERE user_id = ? AND venue = 'perpl' AND market = ? AND status IN ('submitting', 'open') LIMIT 1").get(userId, market.toLowerCase());
   }
 
   // Why this member can't be mirrored on this venue right now (null = they can).
