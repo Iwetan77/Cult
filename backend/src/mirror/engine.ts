@@ -28,6 +28,9 @@ import type { CloseInput, Fill, OpenInput } from '../venues/types.js';
 
 // Perpl position status reasons that mean "a new position now exists".
 const SR_OPENED = 21;
+// Copying adds is paused in production until COPY_ADDS_PAUSED=0 (see the add
+// branch of runAdjustment).
+const copyAddsPaused = () => process.env.NODE_ENV === 'production' && process.env.COPY_ADDS_PAUSED !== '0';
 const SR_INVERTED = 18;
 // ...and the ones where the member changed the size of the one they have.
 const SR_INCREASED = 17;
@@ -739,6 +742,13 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
         return;
       }
 
+      // Copying adds is paused (2026-10-14): a copy loop between members who
+      // follow each other queued a stream of adds. Partial exits and full
+      // exits still follow the trader. Queued adds are cancelled, not sent.
+      if (copyAddsPaused()) {
+        this.attempts.delete(id);
+        return done('cancelled', { error: 'copying adds is paused' });
+      }
       // Add: the member's mirror x (ratio - 1), valued at mark, under the same caps as a new mirror.
       const membership = clans.membership(m.clanId, m.userId);
       if (!membership) throw new NotSized('member is no longer in the clan');
