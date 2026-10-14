@@ -245,7 +245,9 @@ export function AccountView({ id, holdings, onCloseHolding, onDeposit, onWithdra
   const openItems: ({ kind: 'trade'; at: number; trade: Profile['openTrades'][number] } | { kind: 'prediction'; at: number; p: PredictionPosition } | { kind: 'position'; at: number; h: Holding })[] = [
     ...(!profile.isMe ? profile.openTrades.map(trade => ({ kind: 'trade' as const, at: when(trade.openedAt), trade })) : []),
     ...(profile.isMe ? predictions.open.map(p => ({ kind: 'prediction' as const, at: p.openedAt, p })) : []),
-    ...(profile.isMe ? holdings.filter(h => !h.isNetted).map(h => ({ kind: 'position' as const, at: when(h.openedAt), h })) : []),
+    // Every lot from /v1/positions. (Perpl lots all carry isNetted, since Perpl
+    // nets them into one position; filtering on it hid every perp.)
+    ...(profile.isMe ? holdings.map(h => ({ kind: 'position' as const, at: when(h.openedAt), h })) : []),
   ].sort((a, b) => b.at - a.at);
   const share = (h: Holding) => onShareHolding && <button className="btn btn-ghost btn-sm ttable-share" title="Share PnL card" aria-label={`Share ${displaySymbol(h.symbol, h.venue)} PnL card`} onClick={event => { event.stopPropagation(); onShareHolding(h); }}><Share2 size={14} /><span>Share</span></button>;
   const closedItems: ({ kind: 'trade'; at: number; trade: ClosedTrade } | { kind: 'prediction'; at: number; c: PredictionClosed })[] = [
