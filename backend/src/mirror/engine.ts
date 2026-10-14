@@ -165,6 +165,9 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     this.perplSeen.set(`${p.acc}:${p.pid}`, BigInt(p.s));
     if (isEngineOrder(p.acc, p.rq)) return; // our own mirror/stack
     if (trades.byPosition(p.acc, p.pid)) return; // replay after reconnect
+    // A market the member holds a copy on: Perpl nets it into one position, so
+    // a new position event there can be our own copy. Never treat it as theirs.
+    if (this.holdsCopy(userId, String(p.mkt))) return;
     if (p.sr === SR_INVERTED) {
       await this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'short' : 'long', 0n, 1n);
     }
@@ -202,6 +205,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     this.perplSeen.set(key, total);
     if (total === seen) return;
     if (isEngineOrder(p.acc, p.rq)) return;
+    // Growth of a position is never a trade by itself: the member's own adds
+    // through Cult are booked from their order, and a position update's request
+    // id can belong to the order that first opened it, so a copy landing on
+    // a held position looked like the member adding. That made copies of
+    // copies between members who follow each other.
+    if (total > seen) return;
     if (total < seen) return this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'long' : 'short', total, seen);
     if (!trade || trade.closedAt || all.length !== 1) {
       const { getMarket, scale } = await import('../perpl/context.js');
@@ -546,6 +555,12 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
       }
     }
     return trade;
+  }
+
+  // Does the member hold a copy (auto or manual) on this Perpl market?
+  private holdsCopy(userId: string, market: string): boolean {
+    if (mirrors.forUser(userId, ['pending', 'submitting', 'open']).some((m) => trades.get(m.tradeId)?.market === market.toLowerCase())) return true;
+    return !!getDb().prepare("SELECT 1 FROM stacks WHERE user_id = ? AND venue = 'perpl' AND market = ? AND status IN ('submitting', 'open') LIMIT 1").get(userId, market.toLowerCase());
   }
 
   // Why this member can't be mirrored on this venue right now (null = they can).
