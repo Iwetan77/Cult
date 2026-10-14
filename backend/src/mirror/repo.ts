@@ -178,6 +178,11 @@ export const trades = {
   get(id: string) {
     return tradeFrom(getDb().prepare('SELECT * FROM leader_trades WHERE id = ?').get(id));
   },
+  // The open trade a member's on-chain opening already became, if any.
+  byOpenTx(userId: string, venue: Venue, market: string, openTx: string) {
+    return tradeFrom(getDb().prepare('SELECT * FROM leader_trades WHERE user_id = ? AND venue = ? AND market = ? AND lower(open_tx) = lower(?) AND closed_at IS NULL ORDER BY opened_at LIMIT 1')
+      .get(userId, venue, market.toLowerCase(), openTx));
+  },
   byPosition(accountId: number, positionId: number) {
     return tradeFrom(getDb().prepare('SELECT * FROM leader_trades WHERE account_id = ? AND position_id = ?').get(accountId, positionId));
   },

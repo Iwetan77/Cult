@@ -28,6 +28,8 @@ import type { CloseInput, Fill, OpenInput } from '../venues/types.js';
 
 // Perpl position status reasons that mean "a new position now exists".
 const SR_OPENED = 21;
+// How long a member's own open order claims a new position on its market.
+const OWN_ORDER_WINDOW_MS = 120_000;
 const SR_INVERTED = 18;
 // ...and the ones where the member changed the size of the one they have.
 const SR_INCREASED = 17;
@@ -165,6 +167,10 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     this.perplSeen.set(`${p.acc}:${p.pid}`, BigInt(p.s));
     if (isEngineOrder(p.acc, p.rq)) return; // our own mirror/stack
     if (trades.byPosition(p.acc, p.pid)) return; // replay after reconnect
+    // The member just opened this through Cult: that order's own booking makes
+    // the trade. Recording it here too made one opening two trades, each
+    // copied (a request id that didn't match, or two instances mid-deploy).
+    if (p.sr === SR_OPENED && memberOrders.recentOpen(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'long' : 'short', OWN_ORDER_WINDOW_MS)) return;
     if (p.sr === SR_INVERTED) {
       await this.reduceExternal(userId, 'perpl', String(p.mkt), p.sd === PositionSide.Long ? 'short' : 'long', 0n, 1n);
     }
@@ -486,6 +492,17 @@ export class MirrorEngine extends EventEmitter<MirrorEngineEvents> {
     // trade to. Only admins share trades with a cult; anyone else's trade is
     // theirs alone (no chart, no notice, no copies).
     if (e.id && trades.get(e.id)) return trades.get(e.id);
+    // One on-chain opening is one trade, whichever path saw it first. Perpl
+    // batches orders, so a second order of the member's own in the same tx is
+    // a separate lot; only a trade nobody's order owns (the position feed's)
+    // is the same opening seen twice.
+    const same = e.openTx ? trades.byOpenTx(e.userId, e.venue, e.market, e.openTx) : null;
+    if (same && !e.booking) return same;
+    if (same && e.booking && !memberOrders.ownsTrade(same.id)) {
+      memberOrders.assignAllocation(e.booking.orderId, same.id);
+      memberOrders.booked(e.booking.orderId, e.booking.size, e.booking.notional);
+      return same;
+    }
     const picked = e.cultIds ?? takeAudience(e.userId, e.venue, e.market);
     const clanIds = tradeCults({ cultIds: picked ?? null }, clans.adminCultIds(e.userId));
     if (clanIds.length === 0 && !e.keepPrivate) return null;

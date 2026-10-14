@@ -38,6 +38,16 @@ export const memberOrders = {
     if (!Number.isFinite(accountId) || !Number.isFinite(rq)) return null;
     return from(getDb().prepare('SELECT * FROM member_orders WHERE account_id = ? AND rq = ?').get(accountId, rq) as Row | undefined);
   },
+  // An open order the member placed through Cult on this market and side in
+  // the last withinMs that hasn't failed: its own booking makes the trade.
+  recentOpen(userId: string, venue: Venue, market: string, side: TradeSide, withinMs: number) {
+    return from(getDb().prepare(`SELECT * FROM member_orders WHERE user_id = ? AND venue = ? AND market = ? AND side = ? AND kind = 'open'
+      AND state != 'failed' AND created_at >= ? ORDER BY created_at DESC LIMIT 1`).get(userId, venue, market.toLowerCase(), side, Date.now() - withinMs) as Row | undefined);
+  },
+  // Did one of the member's own orders make this trade?
+  ownsTrade(tradeId: string) {
+    return !!getDb().prepare('SELECT 1 FROM member_orders WHERE allocation_id = ? OR (allocation_id IS NULL AND id = ?) LIMIT 1').get(tradeId, tradeId);
+  },
   tx(hash: string) {
     const key = hash.toLowerCase();
     return from(getDb().prepare(`SELECT * FROM member_orders WHERE tx_hash = ? OR id =
