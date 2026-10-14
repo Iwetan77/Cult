@@ -176,7 +176,20 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
       const hits: Hit[] = [];
       const guides: GuideHit[] = [];
       const visible = markers.filter(marker => marker.marketId === market.id && marker.venue === market.venue);
-      const placed: number[] = [];
+      const placed: { x: number; y: number; w: number }[] = [];
+      // x of the candle a trade entered on (its entry time), or null when the
+      // chart has no candles yet; negative when it's before the loaded history.
+      const timeScale = chartRef.current?.timeScale();
+      const times = candlesRef.current.map(c => c.time);
+      const entryCoordinate = (ms: number): number | null => {
+        if (!timeScale || !times.length || !Number.isFinite(ms)) return null;
+        // The API sends ms; demo data uses seconds.
+        const t = Math.floor(ms >= 1e12 ? ms / 1000 : ms);
+        let lo = 0, hi = times.length - 1, at = -1;
+        while (lo <= hi) { const mid = (lo + hi) >> 1; if (times[mid]! <= t) { at = mid; lo = mid + 1; } else hi = mid - 1; }
+        if (at < 0) return -1;
+        return timeScale.timeToCoordinate(times[at] as UTCTimestamp);
+      };
       visible.forEach(marker => {
         const anchor = marker.entryPrice ?? marker.markPrice;
         const y = series.priceToCoordinate(anchor);
@@ -221,25 +234,6 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
           }
         }
         if (y == null || y < 12 || y > height - 24) return;
-        const x = width < 480 ? 16 : Math.max(80, Math.min(width - 260, width * 0.58));
-        // Badges never sit on one another: start at the entry and step to the
-        // nearest free slot below or above the badges already placed.
-        const clash = (candidate: number) => placed.some(other => Math.abs(other - candidate) < 28);
-        let markerY = Math.max(20, Math.min(height - 28, y));
-        for (let step = 1; clash(markerY) && step < 14; step++) {
-          const down = markerY + step * 28;
-          const up = markerY - step * 28;
-          if (down <= height - 28 && !clash(down)) { markerY = down; break; }
-          if (up >= 20 && !clash(up)) { markerY = up; break; }
-        }
-        placed.push(markerY);
-        const color = markerColor(marker.origin);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = selected ? 1.5 : 1;
-        ctx.globalAlpha = selected ? 0.8 : 0.3;
-        ctx.setLineDash([4, 5]);
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width - 56, y); ctx.stroke();
-        ctx.setLineDash([]); ctx.globalAlpha = 1;
         // The badge: how they're in (symbol), who (photo), and their PnL.
         const perp = marker.venue === 'perpl';
         const value = perp ? marker.pnlUsd : marker.valueUsd;
@@ -247,6 +241,36 @@ export function SharedChart({ candles, markers, market, selectedId, onSelect, on
         ctx.font = `500 11.5px ${font}`;
         const textWidth = ctx.measureText(amount).width;
         const badgeWidth = Math.ceil(56 + textWidth + (marker.pendingAdd ? 30 : 0));
+        // Pinned where they entered: the candle their entry falls in, at
+        // their entry price. Scrolled out to the left, it rests at the edge.
+        const plotRight = width - 60;
+        const entryX = entryCoordinate(marker.entryTime);
+        const dotX = Math.max(8, Math.min(plotRight, entryX ?? 8));
+        const x = dotX + 12 + badgeWidth <= plotRight ? dotX + 12 : Math.max(4, dotX - 12 - badgeWidth);
+        // Badges never sit on one another: only ones that overlap sideways
+        // step to the nearest free slot below or above.
+        const clash = (candidate: number) => placed.some(other => Math.abs(other.y - candidate) < 28 && x < other.x + other.w && other.x < x + badgeWidth);
+        let markerY = Math.max(20, Math.min(height - 28, y));
+        for (let step = 1; clash(markerY) && step < 14; step++) {
+          const down = markerY + step * 28;
+          const up = markerY - step * 28;
+          if (down <= height - 28 && !clash(down)) { markerY = down; break; }
+          if (up >= 20 && !clash(up)) { markerY = up; break; }
+        }
+        placed.push({ x, y: markerY, w: badgeWidth });
+        const color = markerColor(marker.origin);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = selected ? 1.5 : 1;
+        ctx.globalAlpha = selected ? 0.8 : 0.3;
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width - 56, y); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+        // The entry itself: a dot on the candle, joined to its badge.
+        ctx.fillStyle = color; ctx.strokeStyle = color; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(dotX, y, 3.5, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath(); ctx.moveTo(dotX, y); ctx.lineTo(x < dotX ? x + badgeWidth : x, markerY); ctx.stroke();
+        ctx.globalAlpha = 1;
         ctx.fillStyle = selected ? '#2a1d47' : 'rgba(19, 17, 28, 0.94)';
         ctx.strokeStyle = color; ctx.lineWidth = selected ? 1.5 : 1; ctx.globalAlpha = selected ? 1 : 0.75;
         ctx.beginPath(); ctx.roundRect(x, markerY - 13, badgeWidth, 26, 13); ctx.fill(); ctx.stroke();
