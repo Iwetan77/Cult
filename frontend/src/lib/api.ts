@@ -2,8 +2,8 @@ import type { FlowStep, IntentChain, IntentStatus, IntentSwap, IntentWithdraw, P
 import type { BackendConfig, ChatMessage, Reaction, ChatPage, ChatRoom, ChartSnapshot, Clan, CultStanding, DepositInfo, DiscoverCult, BoardPeriod, Leaderboard, EnrollmentChallenge, Fill, FundingPlan, Home, Profile, FundingResult, Holding, WithdrawRequest, WithdrawResult, PredictionBet, PredictionClosed, PredictionOrder, PredictionPosition, PredictionSale, MarketDetail, MarketListing, Me, MirrorPolicy, NadMarket, PrivySignerGrant, PublicShare, SetupStatus, ShareResult, SignedChallenge, StackResult, TradeView, TpslSuggestion, TpslValues, Venue } from './contracts';
 import { rememberList, rememberMarket } from './marketCache';
 import { DemoError, demoApi, isDemo } from './demo';
+import { apiBase } from './network';
 
-const BASE = process.env.NEXT_PUBLIC_CULT_API_BASE_URL;
 
 export class ApiError extends Error {
   // code: a machine-readable reason some routes add (e.g. 'needs_setup', 'needs_funds').
@@ -19,8 +19,9 @@ export async function api<T>(path: string, token: string | null, options: Reques
 }
 
 async function request<T>(path: string, token: string | null, options: RequestInit): Promise<T> {
-  if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
-  const response = await fetch(`${BASE.replace(/\/$/, '')}${path}`, {
+  const base = apiBase();
+  if (!base) throw new ApiError('Backend API is not configured yet.', 503);
+  const response = await fetch(`${base}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -129,8 +130,8 @@ export const getClanMessages = (token: string, clanId: string, before?: string) 
 export const sendClanMessage = (token: string, clanId: string, body: string, replyTo?: string, markerId?: string) => api<ChatMessage>(`/v1/cults/${encodeURIComponent(clanId)}/messages`, token, { method: 'POST', body: json({ body, ...(replyTo ? { replyTo } : {}), ...(markerId ? { markerId } : {}) }) });
 export const getChart = (token: string, clanId: string, marketId?: string, resolutionSec?: number) => api<ChartSnapshot>(`/v1/cults/${encodeURIComponent(clanId)}/chart?${new URLSearchParams({ ...(marketId ? { marketId } : {}), ...(resolutionSec ? { resolution: String(resolutionSec) } : {}) })}`, token);
 export const getClanEventUrl = (clanId: string) => {
-  if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
-  return `${BASE.replace(/\/$/, '')}/v1/cults/${encodeURIComponent(clanId)}/events`;
+  if (!apiBase()) throw new ApiError('Backend API is not configured yet.', 503);
+  return `${apiBase()}/v1/cults/${encodeURIComponent(clanId)}/events`;
 };
 export const setPositionTpsl = (token: string, marketId: string, values: TpslValues) => api<{ takeProfit: number | null; stopLoss: number | null }>('/v1/positions/tpsl', token, { method: 'POST', body: json({ marketId, ...values }) });
 export const suggestMarkerTpsl = (token: string, clanId: string, markerId: string, values: TpslValues) => api<TpslSuggestion>(`/v1/cults/${encodeURIComponent(clanId)}/markers/${encodeURIComponent(markerId)}/suggest-tpsl`, token, { method: 'POST', body: json(values) });
@@ -161,13 +162,13 @@ export const hasTyping = () => isDemo();
 export const mediaUrl = (url: string | null | undefined) => {
   if (!url) return null;
   if (!url.startsWith('/')) return url;
-  return BASE ? `${BASE.replace(/\/$/, '')}${url}` : null;
+  return apiBase() ? `${apiBase()}${url}` : null;
 };
 export const reactToMessage = (token: string, room: string, messageId: string, emoji: string) => api<{ reactions: Reaction[] }>(`/v1/chat/${encodeURIComponent(room)}/messages/${encodeURIComponent(messageId)}/reactions`, token, { method: 'POST', body: json({ emoji }) });
 export const getTyping = (token: string, room: string) => api<{ names: string[] }>(`/v1/chat/${encodeURIComponent(room)}/typing`, token);
 export const getRoomEventUrl = (room: string) => {
-  if (!BASE) throw new ApiError('Backend API is not configured yet.', 503);
-  return `${BASE.replace(/\/$/, '')}/v1/chat/${encodeURIComponent(room)}/events`;
+  if (!apiBase()) throw new ApiError('Backend API is not configured yet.', 503);
+  return `${apiBase()}/v1/chat/${encodeURIComponent(room)}/events`;
 };
 export const getLeaderboard = (token: string, scope: 'global' | 'country' | 'cult', cultId?: string, period: BoardPeriod = 'all') => api<Leaderboard>(`${scope === 'global' ? '/v1/leaderboards/global' : scope === 'country' ? '/v1/leaderboards/country' : `/v1/cults/${encodeURIComponent(cultId ?? '')}/leaderboard`}${period === 'all' ? '' : `?period=${period}`}`, token);
 export const getCultStandings = (token: string) => api<{ entries: CultStanding[]; asOf: string }>('/v1/leaderboards/cults', token);

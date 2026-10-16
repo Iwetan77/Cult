@@ -2,10 +2,12 @@
 import { PrivyProvider } from '@privy-io/react-auth';
 import { monad, monadTestnet } from 'viem/chains';
 import { privySupported } from '@/lib/privySupport';
+import { currentNetwork } from '@/lib/network';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
-  const defaultChain = process.env.NEXT_PUBLIC_MONAD_CHAIN_ID === '143' ? monad : monadTestnet;
+  // The selected network's chain (Settings > Network); both stay supported.
+  const defaultChain = currentNetwork() === 'mainnet' ? monad : monadTestnet;
   if (!appId || !privySupported()) return <>{children}</>;
   return <PrivyProvider appId={appId} config={{
     loginMethods: ['google', 'wallet'],

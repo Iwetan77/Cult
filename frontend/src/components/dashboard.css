@@ -236,6 +236,7 @@
 .search-empty { padding: 17px 12px; color: var(--muted); font-size: 14px; }
 .topbar-right { justify-self: end; display: flex; align-items: center; gap: 12px; }
 .demo-pill { height: 26px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 6px; background: rgba(253, 230, 138, 0.1); color: var(--amber); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.net-pill { border: 0; cursor: pointer; background: rgba(147, 51, 234, 0.16); color: var(--accent-text); }
 .topbar-deposit { height: 40px; }
 /* The wallet: the amount and a violet "+" that opens Deposit. */
 .wallet-pill { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 14px; border-radius: var(--r-inner); background: var(--panel); color: var(--text); font-size: 15px; font-weight: 500; white-space: nowrap; }
@@ -1413,7 +1414,7 @@ button.ttable-row, .ttable-row.is-link { cursor: pointer; }
   .search-box input { font-size: 14px; }
   .topbar-deposit { width: 40px; padding: 0; font-size: 0; gap: 0; }
   .topbar-deposit svg { width: 20px; height: 20px; }
-  .topbar-me, .demo-pill { display: none; }
+  .topbar-me, .demo-pill:not(.net-pill) { display: none; }
   .view { padding: 8px 16px 28px; column-gap: var(--gap); row-gap: var(--section-gap); }
   .page-head { padding-top: 7px; }
   .page-head h1 { font-size: 30px; }

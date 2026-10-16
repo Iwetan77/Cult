@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { apiBase } from '@/lib/network';
 
 type Props = { name: string; url?: string | null; className?: string };
 
@@ -9,7 +10,7 @@ type Props = { name: string; url?: string | null; className?: string };
 export const avatarSrc = (url: string | null | undefined) => {
   if (!url) return null;
   if (url.startsWith('data:') || url.startsWith('/landing/')) return url;
-  const base = process.env.NEXT_PUBLIC_CULT_API_BASE_URL?.replace(/\/$/, '');
+  const base = apiBase();
   return base && url.startsWith('/') ? `${base}${url}` : null;
 };
 

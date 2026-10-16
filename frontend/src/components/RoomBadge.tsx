@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiBase } from '@/lib/network';
 
 // A room's round badge: a letter (G for Global, a cult's first letter), a
 // country flag, or an image once a room has one (a URL or data URL in `icon`,
@@ -9,7 +10,6 @@ import { useState } from 'react';
 
 type Props = { icon: string; kind: 'global' | 'country' | 'cult'; imageUrl?: string | null; size?: 'sm' | 'md' | 'lg' };
 
-const base = process.env.NEXT_PUBLIC_CULT_API_BASE_URL?.replace(/\/$/, '');
 
 // 🇳🇬 -> "ng"
 const flagCode = (icon: string) => {
@@ -22,6 +22,7 @@ export function RoomBadge({ icon, kind, imageUrl, size = 'md' }: Props) {
   const code = flagCode(icon);
   const image = /^(https?:\/\/|\/|data:image\/)/.test(icon);
   const raw = imageUrl ?? (image ? icon : code ? `https://flagcdn.com/w80/${code}.png` : null);
+  const base = apiBase();
   const src = raw && raw.startsWith('/') && base ? `${base}${raw}` : raw;
   const fallback = code ? code.toUpperCase() : image ? '' : icon;
   return <span className={`room-badge ${kind} ${size}${code ? ' flag' : ''}`} aria-hidden="true">

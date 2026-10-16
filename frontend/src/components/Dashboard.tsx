@@ -60,6 +60,7 @@ import { Ticker } from './Ticker';
 import { parseRoute, routePath, type AccountTab, type Route, type View } from '@/lib/routes';
 import './dashboard.css';
 import { friendlyError } from '@/lib/friendlyError';
+import { currentNetwork, mainnetAvailable } from '@/lib/network';
 
 const errorText = friendlyError;
 const PREDICTIONS_UNAVAILABLE = 'Predictions are being switched on. Check back soon.';
@@ -1257,6 +1258,7 @@ function DashboardView({ privy, demoHint, sessionHint }: { privy: PrivyAuth } & 
       <div className="topbar-right">
         {me && <AlertsMenu owner={me.id} onMarket={openMarket} onRoom={openRoom} />}
         {demo && <span className="demo-pill" title="Sample data. Nothing here touches real funds.">Demo</span>}
+        {!demo && mainnetAvailable() && currentNetwork() === 'testnet' && <button type="button" className="demo-pill net-pill" title="You're on testnet. Switch in Settings." onClick={() => openAccount('me', 'settings')}>Testnet</button>}
         <div className="wallet-pill" title="Wallet and trading account">
           <span className="num">{balance == null ? '—' : dollars(balance)}</span>
           <button className="wallet-add" onClick={() => setDepositOpen(true)} aria-label="Deposit" title="Deposit"><Plus size={16} strokeWidth={2.2} /></button>
